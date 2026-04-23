@@ -12,7 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-use crate::error::CraneError;
+use crane_core::error::CraneError;
 
 pub mod cmake;
 pub mod detect;

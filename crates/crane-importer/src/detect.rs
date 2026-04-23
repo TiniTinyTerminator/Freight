@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use super::Format;
+use crate::Format;
 
 /// Return the detected source build system for `project_dir`.
 ///

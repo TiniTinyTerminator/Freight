@@ -12,10 +12,10 @@ use std::path::Path;
 
 use regex::Regex;
 
-use super::{
+use crate::{
     ImportedBin, ImportedDep, ImportedLib, ImportedProject,
 };
-use crate::error::CraneError;
+use crane_core::error::CraneError;
 
 pub fn parse(project_dir: &Path) -> Result<ImportedProject, CraneError> {
     let path = project_dir.join("CMakeLists.txt");

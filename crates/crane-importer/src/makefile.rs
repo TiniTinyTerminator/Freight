@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use super::{ImportedBin, ImportedDep, ImportedProject};
-use crate::error::CraneError;
+use crate::{ImportedBin, ImportedDep, ImportedProject};
+use crane_core::error::CraneError;
 
 pub fn parse(project_dir: &Path) -> Result<ImportedProject, CraneError> {
     let path = if project_dir.join("Makefile").is_file() {

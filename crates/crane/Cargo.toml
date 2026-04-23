@@ -8,8 +8,9 @@ name = "crane"
 path = "src/main.rs"
 
 [dependencies]
-crane-core  = { path = "../crane-core" }
-crane-lsp   = { path = "../crane-lsp" }
+crane-core     = { path = "../crane-core" }
+crane-importer = { path = "../crane-importer" }
+crane-lsp      = { path = "../crane-lsp" }
 clap        = { workspace = true }
 owo-colors  = { workspace = true }
 anyhow      = { workspace = true }

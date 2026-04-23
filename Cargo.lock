@@ -184,6 +184,7 @@ dependencies = [
  "anyhow",
  "clap",
  "crane-core",
+ "crane-importer",
  "crane-lsp",
  "owo-colors",
  "tokio",
@@ -204,6 +205,16 @@ dependencies = [
  "thiserror",
  "toml_edit",
  "walkdir",
+]
+
+[[package]]
+name = "crane-importer"
+version = "0.1.0"
+dependencies = [
+ "crane-core",
+ "regex",
+ "tempfile",
+ "thiserror",
 ]
 
 [[package]]

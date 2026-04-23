@@ -15,7 +15,7 @@
 
 use std::fmt::Write as _;
 
-use super::{ImportedDep, ImportedProject};
+use crate::{ImportedDep, ImportedProject};
 
 pub fn to_toml(p: &ImportedProject) -> String {
     let mut out = String::new();

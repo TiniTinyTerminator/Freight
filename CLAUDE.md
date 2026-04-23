@@ -74,13 +74,14 @@ crane/
 │   │       │   ├── discover.rs # walkdir source discovery
 │   │       │   ├── deps.rs     # dep graph resolution + topo sort
 │   │       │   └── modules.rs  # C++20 module scanner, DAG, phased compilation
-│   │       └── importer/       # crane migrate — CMake/Makefile/Meson → crane.toml
-│   │           ├── mod.rs      # run_migrate → MigrateOutcome, ImportedProject IR
-│   │           ├── detect.rs   # pick format from files present
-│   │           ├── emit.rs     # ImportedProject → crane.toml string
-│   │           ├── cmake.rs    # CMakeLists.txt parser
-│   │           ├── makefile.rs # Makefile parser
-│   │           └── meson.rs    # meson.build parser
+│   ├── crane-importer/         # library crate — crane migrate (CMake/Makefile/Meson → crane.toml)
+│   │   └── src/
+│   │       ├── lib.rs          # run_migrate → MigrateOutcome, ImportedProject IR
+│   │       ├── detect.rs       # pick format from files present
+│   │       ├── emit.rs         # ImportedProject → crane.toml string
+│   │       ├── cmake.rs        # CMakeLists.txt parser
+│   │       ├── makefile.rs     # Makefile parser
+│   │       └── meson.rs        # meson.build parser
 │   └── crane-lsp/              # Language Server for crane.toml
 │       └── src/
 │           ├── lib.rs
@@ -476,7 +477,7 @@ parked until Phase 11 is done.
 
 ### Phase 11 — Importer (in progress — `feature/importer`)
 Priority phase: frictionless migration off existing build systems is the single
-biggest unblocker for new users. Lives under `crates/crane-core/src/importer/`.
+biggest unblocker for new users. Lives in `crates/crane-importer/` (a standalone library crate that depends on `crane-core` for its error types).
 All three importers parse into a shared [`ImportedProject`] IR, which
 [`emit::to_toml`] serializes into `crane.toml` with stable output ordering.
 
@@ -493,7 +494,7 @@ All three importers parse into a shared [`ImportedProject`] IR, which
 - [x] Unrecognised constructs → `# CRANE: could not import — review manually` preserved in the emitted TOML
 - [x] `--dry-run` prints generated `crane.toml` to stdout without writing
 - [x] Leaves original build files in place; errors if `crane.toml` already exists unless `--force`
-- [x] Fixture tests under `crates/crane-core/tests/importer_fixtures/{cmake,make,meson}/` with expected outputs
+- [x] Fixture tests under `crates/crane-importer/tests/importer_fixtures/{cmake,make,meson}/` with expected outputs
 - [x] One worked example: `examples/migrated-from-cmake/` showing before/after
 - [x] `[platform.<os>]` manifest section: per-platform overlays for `dependencies`, `compiler.defines`, `compiler.flags`, `compiler.includes.paths`. Build engine merges matching overlays at build time using `std::env::consts::OS`; family aliases (`unix`, `bsd`) apply before the specific OS. Validated by `validate_platforms`; round-tripped by the CMake importer's `if(...)` recogniser. Per-platform `[language]`, `[[bin]]`, profiles and sanitizers are deliberately not overlay-able in v1.
 
@@ -544,7 +545,8 @@ or via `crane lsp` (the CLI spins up a tokio runtime and hands off to the same
 ## Architecture rules
 
 1. **`crane` crate owns the CLI** — clap parsing, `commands/` shells, and `output.rs` colour helpers. Each `cmd_*` reads cwd, calls a pure function in `crane-core`, prints the outcome.
-2. **`crane-core` is a library, no CLI knowledge** — pure functions return `Result<T, CraneError>` (e.g. `build_project`, `run_migrate → MigrateOutcome`, `scaffold_project → ScaffoldOutcome`). It must not depend on `output.rs` or call `print_*`. Inline `println!` for build-engine progress (`Compiling foo.cpp`, `Linking …`) is the one exception, pending a future progress-callback abstraction.
+2. **`crane-core` is a library, no CLI knowledge** — pure functions return `Result<T, CraneError>` (e.g. `build_project`, `scaffold_project → ScaffoldOutcome`). It must not depend on `output.rs` or call `print_*`. Inline `println!` for build-engine progress (`Compiling foo.cpp`, `Linking …`) is the one exception, pending a future progress-callback abstraction.
+2a. **`crane-importer` is a separate library** — depends on `crane-core` for `CraneError`, exposes `run_migrate → MigrateOutcome`. Keeping it separate lets external tools use the importer without pulling in the build engine.
 3. **Compiler templates are runtime data** — loaded from `compiler-templates/` directory, not hardcoded
 4. **One template per toolchain, not per language** — `gcc.toml` handles both C and C++; `compile_binary` in `[linking.c]` overrides which binary compiles that language
 5. **DAG cycles = hard error** — report the full cycle path (both dep cycles and module cycles)

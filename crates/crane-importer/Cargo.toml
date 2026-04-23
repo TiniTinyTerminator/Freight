@@ -1,0 +1,12 @@
+[package]
+name    = "crane-importer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+crane-core = { path = "../crane-core" }
+regex      = { workspace = true }
+thiserror  = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"
