@@ -9,7 +9,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crane_core::importer::{self, Format};
+use crane_importer::{self, Format};
 use tempfile::tempdir;
 
 fn fixture(rel: &str) -> PathBuf {
@@ -30,7 +30,7 @@ fn cmake_fixture_round_trips_through_emit() {
     let dir = tempdir().unwrap();
     copy_fixture_into(dir.path(), "cmake", "CMakeLists.txt");
 
-    importer::run_migrate(dir.path(), Some(Format::Cmake), false, false).unwrap();
+    crane_importer::run_migrate(dir.path(), Some(Format::Cmake), false, false).unwrap();
 
     let toml = fs::read_to_string(dir.path().join("crane.toml")).unwrap();
 
@@ -53,7 +53,7 @@ fn makefile_fixture_round_trips_through_emit() {
     let dir = tempdir().unwrap();
     copy_fixture_into(dir.path(), "make", "Makefile");
 
-    importer::run_migrate(dir.path(), Some(Format::Makefile), false, false).unwrap();
+    crane_importer::run_migrate(dir.path(), Some(Format::Makefile), false, false).unwrap();
 
     let toml = fs::read_to_string(dir.path().join("crane.toml")).unwrap();
 
@@ -74,7 +74,7 @@ fn meson_fixture_round_trips_through_emit() {
     let dir = tempdir().unwrap();
     copy_fixture_into(dir.path(), "meson", "meson.build");
 
-    importer::run_migrate(dir.path(), Some(Format::Meson), false, false).unwrap();
+    crane_importer::run_migrate(dir.path(), Some(Format::Meson), false, false).unwrap();
 
     let toml = fs::read_to_string(dir.path().join("crane.toml")).unwrap();
 
@@ -93,7 +93,7 @@ fn migrate_errors_when_manifest_exists() {
     copy_fixture_into(dir.path(), "cmake", "CMakeLists.txt");
     fs::write(dir.path().join("crane.toml"), "existing\n").unwrap();
 
-    let result = importer::run_migrate(dir.path(), Some(Format::Cmake), false, false);
+    let result = crane_importer::run_migrate(dir.path(), Some(Format::Cmake), false, false);
     assert!(result.is_err(), "should refuse without --force");
 }
 
@@ -103,7 +103,7 @@ fn migrate_with_force_overwrites() {
     copy_fixture_into(dir.path(), "cmake", "CMakeLists.txt");
     fs::write(dir.path().join("crane.toml"), "existing\n").unwrap();
 
-    importer::run_migrate(dir.path(), Some(Format::Cmake), false, true).unwrap();
+    crane_importer::run_migrate(dir.path(), Some(Format::Cmake), false, true).unwrap();
     let toml = fs::read_to_string(dir.path().join("crane.toml")).unwrap();
     assert!(toml.contains("[package]"));
     assert!(!toml.starts_with("existing"));
@@ -115,7 +115,7 @@ fn auto_detection_picks_cmake_when_both_present() {
     copy_fixture_into(dir.path(), "cmake", "CMakeLists.txt");
     copy_fixture_into(dir.path(), "make", "Makefile");
 
-    importer::run_migrate(dir.path(), None, false, false).unwrap();
+    crane_importer::run_migrate(dir.path(), None, false, false).unwrap();
     let toml = fs::read_to_string(dir.path().join("crane.toml")).unwrap();
     // Cmake fixture project is C++; Make fixture is C. If cmake won, we
     // should see the C++ language block.
