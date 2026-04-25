@@ -340,8 +340,12 @@ pub struct DetailedDep {
     pub system: Option<String>,
     #[serde(default)]
     pub git: Option<String>,
+    /// Features of this dep to activate (in addition to its defaults).
     #[serde(default)]
     pub features: Vec<String>,
+    /// Whether to activate the dep's `default` features. Defaults to `true`.
+    #[serde(default = "default_true", rename = "default-features")]
+    pub default_features: bool,
     #[serde(default)]
     pub optional: bool,
     /// Target triples this prebuilt dep is compatible with (e.g. `["x86_64-linux-gnu"]`).
@@ -383,6 +387,8 @@ pub struct DetailedDep {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cmake_args: Vec<String>,
 }
+
+fn default_true() -> bool { true }
 
 /// Deserialize a field that can be either a bare string or an array of strings.
 fn string_or_vec<'de, D>(d: D) -> Result<Option<Vec<String>>, D::Error>

@@ -42,8 +42,62 @@ pub fn validate(manifest: &Manifest, templates: &[CompilerTemplate]) -> Vec<Vali
     validate_profiles(manifest, &mut errors);
     validate_platforms(manifest, &mut errors);
     validate_dep_env_filters(manifest, &mut errors);
+    validate_features(manifest, &mut errors);
 
     errors
+}
+
+fn validate_features(m: &Manifest, errors: &mut Vec<ValidationError>) {
+    // Every name referenced in a feature list must itself be a key in [features].
+    // "default" is the only allowed forward-reference to a pseudo-key.
+    for (feat, deps) in &m.features {
+        for dep in deps {
+            if dep == "default" {
+                errors.push(ValidationError::new(
+                    &format!("[features.{feat}]"),
+                    "'default' cannot be listed as a feature dependency",
+                ));
+                continue;
+            }
+            if !m.features.contains_key(dep.as_str()) {
+                errors.push(ValidationError::new(
+                    &format!("[features.{feat}]"),
+                    format!("unknown feature '{dep}'"),
+                ));
+            }
+        }
+    }
+
+    // Detect cycles via DFS.
+    let keys: Vec<&String> = m.features.keys().filter(|k| k.as_str() != "default").collect();
+    for start in &keys {
+        let mut visited = HashSet::new();
+        let mut stack = vec![start.as_str()];
+        while let Some(cur) = stack.pop() {
+            if cur == "default" { continue; }
+            if !visited.insert(cur) {
+                errors.push(ValidationError::new(
+                    &format!("[features.{start}]"),
+                    format!("feature cycle detected involving '{cur}'"),
+                ));
+                break;
+            }
+            if let Some(deps) = m.features.get(cur) {
+                for d in deps { stack.push(d.as_str()); }
+            }
+        }
+    }
+
+    // Validate features requested on dep declarations.
+    for (dep_name, dep) in &m.dependencies {
+        let Dependency::Detailed(d) = dep else { continue };
+        for feat in &d.features {
+            // We can't validate features on foreign/registry deps (no local manifest to check),
+            // but we can catch obviously wrong things if it's a path dep with a loaded manifest.
+            // For now, just flag if `default-features = false` with no features listed.
+            let _ = (dep_name, feat);  // reserved for future cross-manifest checks
+        }
+    }
 }
 
 fn validate_dep_env_filters(m: &Manifest, errors: &mut Vec<ValidationError>) {

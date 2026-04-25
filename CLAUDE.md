@@ -180,6 +180,20 @@ avx-opt     = { system = "avx-opt", os = "linux", arch = ["x86_64", "aarch64"] }
 [dev-dependencies]
 libcheck = "0.15"
 
+# Features: each key maps to a list of other features it implies.
+# Active features produce -D<NAME_UPPER> compiler flags for all sources.
+# "default" is a special list of features active when none are requested explicitly.
+# Consumers can request features via `features = [...]` on a dep declaration and
+# opt out of defaults with `default-features = false`.
+[features]
+default    = ["logging"]   # active by default; does NOT produce -DDEFAULT
+logging    = []            # → -DLOGGING when active
+tls        = ["net"]       # → -DTLS + activates the "net" feature
+net        = []            # → -DNET
+
+[dev-dependencies]
+libcheck = "0.15"
+
 [compiler]
 backend   = "auto"   # auto | gcc | clang | gfortran | nasm | …
 opt-level = 2
