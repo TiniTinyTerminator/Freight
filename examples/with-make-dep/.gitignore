@@ -1,0 +1,3 @@
+target/
+vendor/**/*.a
+vendor/**/*.o
