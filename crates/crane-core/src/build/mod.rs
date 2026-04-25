@@ -1,6 +1,7 @@
 pub mod compile;
 pub mod deps;
 pub mod discover;
+pub mod features;
 pub mod foreign;
 pub mod link;
 pub mod modules;
@@ -18,7 +19,7 @@ use walkdir::WalkDir;
 
 use crate::error::CraneError;
 use crate::lock::LockFile;
-use crate::manifest::types::Manifest;
+use crate::manifest::types::{Dependency, Manifest};
 use crate::manifest::validate::{validate, validate_dep_compat};
 use crate::manifest::{find_manifest_dir, load_manifest, load_workspace_manifest};
 use crate::toolchain::{CompilerTemplate, DetectedCompiler, detect_all_cached, load_templates, templates_dir};
@@ -128,8 +129,13 @@ pub fn build_project_at(project_dir: &Path, profile: &str) -> Result<BuildOutput
     use owo_colors::OwoColorize;
     println!("  {} {} ({profile})", "Building".bold(), manifest.package.name);
 
+    let feature_defines = {
+        let active = features::resolve_features(&manifest.features, &[], true)?;
+        features::to_defines(&active)
+    };
+
     let resolved_deps = resolve_dep_graph(project_dir, manifest, false)?;
-    let built = build_resolved_deps(project_dir, profile, templates, detected, &resolved_deps)?;
+    let built = build_resolved_deps(manifest, project_dir, profile, templates, detected, &resolved_deps)?;
     let foreign_built = foreign::build_foreign_deps(project_dir, manifest, profile)?;
 
     let mut all_libs = built.libs.clone();
@@ -143,7 +149,7 @@ pub fn build_project_at(project_dir: &Path, profile: &str) -> Result<BuildOutput
     let mut include_dirs = found.include_dirs.clone();
     include_dirs.extend(all_dep_includes.iter().cloned());
 
-    let compile_result = build_sources(project_dir, manifest, profile, &found.sources, &include_dirs, detected)?;
+    let compile_result = build_sources(project_dir, manifest, profile, &found.sources, &include_dirs, detected, &feature_defines)?;
 
     let link_result = link_targets(
         project_dir, manifest, profile,
@@ -204,9 +210,14 @@ pub fn test_project_at(project_dir: &Path, profile: &str, filter: Option<&str>) 
     use owo_colors::OwoColorize;
     println!("  {} {} ({profile})", "Testing".bold(), manifest.package.name);
 
+    let feature_defines = {
+        let active = features::resolve_features(&manifest.features, &[], true)?;
+        features::to_defines(&active)
+    };
+
     // Build deps (include dev-dependencies for test runs).
     let resolved_deps = resolve_dep_graph(project_dir, manifest, true)?;
-    let built = build_resolved_deps(project_dir, profile, templates, detected, &resolved_deps)?;
+    let built = build_resolved_deps(manifest, project_dir, profile, templates, detected, &resolved_deps)?;
     let foreign_built = foreign::build_foreign_deps(project_dir, manifest, profile)?;
 
     let mut all_libs = built.libs.clone();
@@ -219,7 +230,7 @@ pub fn test_project_at(project_dir: &Path, profile: &str, filter: Option<&str>) 
     let mut include_dirs = found.include_dirs.clone();
     include_dirs.extend(all_dep_includes.iter().cloned());
 
-    let compile_result = build_sources(project_dir, manifest, profile, &found.sources, &include_dirs, detected)?;
+    let compile_result = build_sources(project_dir, manifest, profile, &found.sources, &include_dirs, detected, &feature_defines)?;
 
     // Objects from [[bin]] sources contain a main() — exclude from test linking.
     let bin_obj_paths: std::collections::HashSet<PathBuf> = manifest.bins.iter()
@@ -264,7 +275,7 @@ pub fn test_project_at(project_dir: &Path, profile: &str, filter: Option<&str>) 
     }
 
     let test_compile = compile_sources(
-        project_dir, manifest, profile, &test_srcs, &include_dirs, detected,
+        project_dir, manifest, profile, &test_srcs, &include_dirs, detected, &feature_defines,
     )?;
 
     let out_dir = project_dir.join("target").join(profile).join("tests");
@@ -317,13 +328,14 @@ fn build_sources(
     sources: &[SourceFile],
     include_dirs: &[PathBuf],
     detected: &[DetectedCompiler],
+    feature_defines: &[String],
 ) -> Result<CompileResult, CraneError> {
     let scanned = scan_sources(project_dir, sources);
     if has_modules(&scanned) {
         let mut plan = plan_module_build(project_dir, profile, scanned)?;
-        compile_module_sources(project_dir, manifest, profile, &mut plan, include_dirs, detected)
+        compile_module_sources(project_dir, manifest, profile, &mut plan, include_dirs, detected, feature_defines)
     } else {
-        compile_sources(project_dir, manifest, profile, sources, include_dirs, detected)
+        compile_sources(project_dir, manifest, profile, sources, include_dirs, detected, feature_defines)
     }
 }
 
@@ -332,8 +344,10 @@ fn build_sources(
 /// Compile and archive all local deps in topological order.
 ///
 /// Takes an already-resolved dep list so callers can reuse the resolution for
-/// lockfile generation without a second walk.
+/// lockfile generation without a second walk. `root_manifest` is used to look
+/// up per-dep feature requests declared by the root project.
 fn build_resolved_deps(
+    root_manifest: &Manifest,
     _project_dir: &Path,
     profile: &str,
     templates: &[CompilerTemplate],
@@ -351,6 +365,18 @@ fn build_resolved_deps(
 
     for dep in resolved {
         use owo_colors::OwoColorize;
+
+        // Resolve which features are active for this dep based on the root's dep declaration.
+        let dep_feature_defines = {
+            let effective = root_manifest.effective_dependencies();
+            let (req, use_defaults) = effective
+                .get(&dep.name)
+                .and_then(|d| if let Dependency::Detailed(d) = d { Some(d) } else { None })
+                .map(|d| (d.features.clone(), d.default_features))
+                .unwrap_or_default();
+            let active = features::resolve_features(&dep.manifest.features, &req, use_defaults)?;
+            features::to_defines(&active)
+        };
 
         let dep_found = discover(&dep.dir, &dep.manifest, templates);
 
@@ -372,7 +398,7 @@ fn build_resolved_deps(
 
         let compile_result = compile_sources(
             &dep.dir, &dep.manifest, profile,
-            &dep_found.sources, &dep_include_dirs, detected,
+            &dep_found.sources, &dep_include_dirs, detected, &dep_feature_defines,
         )?;
 
         let lib_out = dep.dir.join("target").join(profile)

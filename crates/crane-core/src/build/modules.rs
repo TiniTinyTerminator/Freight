@@ -245,6 +245,7 @@ pub fn compile_module_sources(
     plan: &mut ModuleBuildPlan,
     include_dirs: &[PathBuf],
     detected: &[DetectedCompiler],
+    feature_defines: &[String],
 ) -> Result<CompileResult, CraneError> {
     let mut all_objects: Vec<PathBuf> = Vec::new();
     let mut total_compiled = 0usize;
@@ -257,7 +258,7 @@ pub fn compile_module_sources(
         let results: Result<Vec<(PathBuf, bool)>, CraneError> = batch
             .par_iter()
             .map(|scanned| {
-                compile_miu(project_dir, manifest, profile, scanned, include_dirs, detected, &bmi_snapshot)
+                compile_miu(project_dir, manifest, profile, scanned, include_dirs, detected, &bmi_snapshot, feature_defines)
             })
             .collect();
 
@@ -273,7 +274,7 @@ pub fn compile_module_sources(
         .par_iter()
         .map(|scanned| {
             let mflags = import_flags(&scanned.imports, bmi_map);
-            compile_non_miu(project_dir, manifest, profile, scanned, include_dirs, detected, &mflags)
+            compile_non_miu(project_dir, manifest, profile, scanned, include_dirs, detected, &mflags, feature_defines)
         })
         .collect();
 
@@ -295,6 +296,7 @@ fn compile_miu(
     include_dirs: &[PathBuf],
     detected: &[DetectedCompiler],
     bmi_map: &HashMap<String, PathBuf>,
+    feature_defines: &[String],
 ) -> Result<(PathBuf, bool), CraneError> {
     let src_abs = project_dir.join(&scanned.source.path);
     let obj = object_path(project_dir, profile, &scanned.source.path);
@@ -312,7 +314,7 @@ fn compile_miu(
 
     let compiler = select_compiler(&scanned.source.lang_key, &manifest.compiler.backend, detected)
         .ok_or_else(|| CraneError::NoCompilerForLang(scanned.source.lang_key.clone()))?;
-    let settings = settings_for_lang(manifest, profile, &scanned.source.lang_key, include_dirs, project_dir);
+    let settings = settings_for_lang(manifest, profile, &scanned.source.lang_key, include_dirs, project_dir, feature_defines);
     let compile_bin = resolve_compile_binary(compiler, &scanned.source.lang_key);
 
     fs::create_dir_all(obj.parent().unwrap())?;
@@ -393,6 +395,7 @@ fn compile_non_miu(
     include_dirs: &[PathBuf],
     detected: &[DetectedCompiler],
     module_flags_slice: &[String],
+    feature_defines: &[String],
 ) -> Result<(PathBuf, bool), CraneError> {
     let src_abs = project_dir.join(&scanned.source.path);
     let obj = object_path(project_dir, profile, &scanned.source.path);
@@ -405,7 +408,7 @@ fn compile_non_miu(
 
     let compiler = select_compiler(&scanned.source.lang_key, &manifest.compiler.backend, detected)
         .ok_or_else(|| CraneError::NoCompilerForLang(scanned.source.lang_key.clone()))?;
-    let settings = settings_for_lang(manifest, profile, &scanned.source.lang_key, include_dirs, project_dir);
+    let settings = settings_for_lang(manifest, profile, &scanned.source.lang_key, include_dirs, project_dir, feature_defines);
     let compile_bin = resolve_compile_binary(compiler, &scanned.source.lang_key);
 
     fs::create_dir_all(obj.parent().unwrap())?;

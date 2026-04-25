@@ -31,6 +31,7 @@ pub fn compile_sources(
     sources: &[SourceFile],
     include_dirs: &[PathBuf],
     detected: &[DetectedCompiler],
+    feature_defines: &[String],
 ) -> Result<CompileResult, CraneError> {
     let results: Result<Vec<(PathBuf, bool)>, CraneError> = sources
         .par_iter()
@@ -47,7 +48,7 @@ pub fn compile_sources(
             let compiler = select_compiler(&src.lang_key, &manifest.compiler.backend, detected)
                 .ok_or_else(|| CraneError::NoCompilerForLang(src.lang_key.clone()))?;
 
-            let settings = settings_for_lang(manifest, profile, &src.lang_key, include_dirs, project_dir);
+            let settings = settings_for_lang(manifest, profile, &src.lang_key, include_dirs, project_dir, feature_defines);
             let compile_bin = resolve_compile_binary(compiler, &src.lang_key);
 
             fs::create_dir_all(obj.parent().expect("obj path always has a parent"))?;
@@ -88,13 +89,15 @@ pub fn select_compiler<'a>(
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/// Produce build settings for a specific lang_key, merging in discovered include dirs.
+/// Produce build settings for a specific lang_key, merging in discovered include dirs
+/// and any active feature defines.
 pub fn settings_for_lang(
     manifest: &Manifest,
     profile: &str,
     lang_key: &str,
     extra_include_dirs: &[PathBuf],
     project_dir: &Path,
+    feature_defines: &[String],
 ) -> BuildSettings {
     let mut s = manifest.build_settings_for(profile);
     if s.standard.is_none() {
@@ -103,6 +106,7 @@ pub fn settings_for_lang(
     for dir in extra_include_dirs {
         s.include_paths.push(project_dir.join(dir));
     }
+    s.defines.extend_from_slice(feature_defines);
     s
 }
 
@@ -346,10 +350,10 @@ name = "p"
 src  = "src/main.cpp"
 "#;
         let manifest = crate::manifest::load_manifest_str(manifest_src).unwrap();
-        let s = settings_for_lang(&manifest, "dev", "cpp", &[], Path::new("/tmp"));
+        let s = settings_for_lang(&manifest, "dev", "cpp", &[], Path::new("/tmp"), &[]);
         assert_eq!(s.standard.as_deref(), Some("c++20"));
 
-        let s2 = settings_for_lang(&manifest, "dev", "c", &[], Path::new("/tmp"));
+        let s2 = settings_for_lang(&manifest, "dev", "c", &[], Path::new("/tmp"), &[]);
         assert_eq!(s2.standard.as_deref(), Some("c17"));
     }
 
@@ -366,7 +370,7 @@ src  = "src/main.cpp"
 "#;
         let manifest = crate::manifest::load_manifest_str(manifest_src).unwrap();
         let extra = vec![PathBuf::from("inc")];
-        let s = settings_for_lang(&manifest, "dev", "cpp", &extra, Path::new("/project"));
+        let s = settings_for_lang(&manifest, "dev", "cpp", &extra, Path::new("/project"), &[]);
         assert!(s.include_paths.iter().any(|p| p.ends_with("inc")));
     }
 
