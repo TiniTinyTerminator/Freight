@@ -195,6 +195,9 @@ pub enum ModuleStyle {
         enable_flag: String,
         compile_miu: String,
         import_module: String,
+        /// Non-empty → header unit precompilation is supported (`-fmodule-header`).
+        /// Requires GCC 12+.
+        header_unit_flag: String,
     },
     /// Clang: two steps — `--precompile` then compile.
     Clang {
@@ -461,7 +464,11 @@ impl CompilerTemplate {
 
     /// Whether this template supports C++20 header unit precompilation.
     pub fn supports_header_units(&self) -> bool {
-        matches!(&self.modules, ModuleStyle::Clang { header_unit_flag, .. } if !header_unit_flag.is_empty())
+        match &self.modules {
+            ModuleStyle::Clang { header_unit_flag, .. } => !header_unit_flag.is_empty(),
+            ModuleStyle::Gcc   { header_unit_flag, .. } => !header_unit_flag.is_empty(),
+            ModuleStyle::Unsupported => false,
+        }
     }
 
     /// Build the compiler invocation for precompiling a header as a C++20 header unit.
@@ -469,6 +476,9 @@ impl CompilerTemplate {
     /// Returns `(binary, args)` or `None` when unsupported.
     /// `std_flag` is the already-resolved standard flag (e.g. `"-std=c++20"`).
     /// `include_flags` are already-formatted `-I` flags.
+    ///
+    /// Clang: `clang++ {std} {includes} --precompile -x c++-header {header} -o {pcm}`
+    /// GCC:   `g++    {std} -fmodules-ts -fmodule-header {includes} {header} -o {pcm}`
     pub fn precompile_header_unit_cmd(
         &self,
         header_abs: &std::path::Path,
@@ -476,16 +486,24 @@ impl CompilerTemplate {
         std_flag: &str,
         include_flags: &[String],
     ) -> Option<(std::path::PathBuf, Vec<String>)> {
-        let ModuleStyle::Clang { precompile, header_unit_flag, .. } = &self.modules else {
-            return None;
-        };
-        if header_unit_flag.is_empty() { return None; }
-
         let mut args: Vec<String> = Vec::new();
-        push_flag_str(&mut args, std_flag);
-        args.extend_from_slice(include_flags);
-        push_flag_str(&mut args, precompile);
-        push_flag_str(&mut args, header_unit_flag);
+        match &self.modules {
+            ModuleStyle::Clang { precompile, header_unit_flag, .. } => {
+                if header_unit_flag.is_empty() { return None; }
+                push_flag_str(&mut args, std_flag);
+                args.extend_from_slice(include_flags);
+                push_flag_str(&mut args, precompile);        // --precompile
+                push_flag_str(&mut args, header_unit_flag);  // -x c++-header
+            }
+            ModuleStyle::Gcc { enable_flag, header_unit_flag, .. } => {
+                if header_unit_flag.is_empty() { return None; }
+                push_flag_str(&mut args, std_flag);
+                push_flag_str(&mut args, enable_flag);       // -fmodules-ts
+                push_flag_str(&mut args, header_unit_flag);  // -fmodule-header
+                args.extend_from_slice(include_flags);
+            }
+            ModuleStyle::Unsupported => return None,
+        }
         args.push(header_abs.to_string_lossy().into_owned());
         args.extend(self.output_flag(pcm_path));
         Some((std::path::PathBuf::from(&self.binary), args))
@@ -496,10 +514,12 @@ impl CompilerTemplate {
     /// `rel_path` is the path relative to its include directory, matching
     /// what a consumer writes in `import "rel_path";`.
     pub fn header_unit_import_flag(&self, rel_path: &str, pcm_path: &std::path::Path) -> Option<String> {
-        let ModuleStyle::Clang { import_module, header_unit_flag, .. } = &self.modules else {
-            return None;
+        let (import_module, supported) = match &self.modules {
+            ModuleStyle::Clang { import_module, header_unit_flag, .. } => (import_module, !header_unit_flag.is_empty()),
+            ModuleStyle::Gcc   { import_module, header_unit_flag, .. } => (import_module, !header_unit_flag.is_empty()),
+            ModuleStyle::Unsupported => return None,
         };
-        if header_unit_flag.is_empty() { return None; }
+        if !supported { return None; }
         Some(import_module
             .replace("{name}", rel_path)
             .replace("{pcm_path}", &pcm_path.to_string_lossy()))
@@ -521,6 +541,7 @@ fn build_module_style(raw: RawModules) -> ModuleStyle {
             enable_flag: raw.enable_flag,
             compile_miu: raw.compile_miu.unwrap_or_default(),
             import_module: raw.import_module.unwrap_or_default(),
+            header_unit_flag: raw.header_unit_flag,
         }
     }
 }
@@ -617,7 +638,7 @@ mod tests {
     #[test]
     fn gcc_module_style_is_gcc_variant() {
         assert!(matches!(gcc().modules, ModuleStyle::Gcc { .. }));
-        if let ModuleStyle::Gcc { enable_flag, compile_miu, import_module } = gcc().modules {
+        if let ModuleStyle::Gcc { enable_flag, compile_miu, import_module, .. } = gcc().modules {
             assert_eq!(enable_flag, "-fmodules-ts");
             assert!(compile_miu.contains("{pcm_path}"));
             assert!(import_module.contains("{pcm_path}"));
@@ -631,6 +652,50 @@ mod tests {
             assert_eq!(precompile, "--precompile");
             assert!(import_module.contains("{pcm_path}"));
         }
+    }
+
+    #[test]
+    fn gcc_supports_header_units() {
+        let t = gcc();
+        assert!(t.supports_header_units(), "gcc template should support header units");
+        let (bin, args) = t.precompile_header_unit_cmd(
+            std::path::Path::new("/inc/foo.h"),
+            std::path::Path::new("/build/foo.h.pcm"),
+            "-std=c++20",
+            &["-I/inc".to_string()],
+        ).expect("should produce a command");
+        assert!(bin.to_string_lossy().contains("g++"));
+        assert!(args.contains(&"-fmodules-ts".to_string()));
+        assert!(args.contains(&"-fmodule-header".to_string()));
+        assert!(args.contains(&"-std=c++20".to_string()));
+        assert!(args.contains(&"-I/inc".to_string()));
+    }
+
+    #[test]
+    fn clang_supports_header_units() {
+        let t = clang();
+        assert!(t.supports_header_units(), "clang template should support header units");
+        let (bin, args) = t.precompile_header_unit_cmd(
+            std::path::Path::new("/inc/foo.h"),
+            std::path::Path::new("/build/foo.h.pcm"),
+            "-std=c++20",
+            &["-I/inc".to_string()],
+        ).expect("should produce a command");
+        assert!(bin.to_string_lossy().contains("clang"));
+        assert!(args.contains(&"--precompile".to_string()));
+        assert!(args.contains(&"-x".to_string()));
+        assert!(args.contains(&"c++-header".to_string()));
+        assert!(!args.contains(&"-fmodules-ts".to_string()), "clang doesn't need -fmodules-ts");
+    }
+
+    #[test]
+    fn gcc_and_clang_header_unit_import_flags_match_format() {
+        let header = std::path::Path::new("/build/foo.h.pcm");
+        let gcc_flag = gcc().header_unit_import_flag("mylib/foo.h", header).unwrap();
+        let clang_flag = clang().header_unit_import_flag("mylib/foo.h", header).unwrap();
+        assert!(gcc_flag.contains("mylib/foo.h"));
+        assert!(gcc_flag.contains("/build/foo.h.pcm"));
+        assert_eq!(gcc_flag, clang_flag, "import flag format must match between gcc and clang");
     }
 
     #[test]

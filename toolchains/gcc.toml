@@ -48,10 +48,11 @@ target       = ""
 sysroot      = "--sysroot={path}"
 
 [modules]
-supported     = true
-enable_flag   = "-fmodules-ts"
-compile_miu   = "-fmodule-output={pcm_path}"
-import_module = "-fmodule-file={name}={pcm_path}"
+supported        = true
+enable_flag      = "-fmodules-ts"
+compile_miu      = "-fmodule-output={pcm_path}"
+import_module    = "-fmodule-file={name}={pcm_path}"
+header_unit_flag = "-fmodule-header"
 
 [passthrough]
 enabled = false
