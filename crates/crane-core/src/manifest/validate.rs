@@ -106,14 +106,10 @@ fn validate_http_deps(m: &Manifest, errors: &mut Vec<ValidationError>) {
         let Dependency::Detailed(d) = dep else { continue };
         let ctx = format!("[dependencies.{name}]");
 
-        // pkg_config must accompany system — it is a modifier that upgrades
-        // a bare -l{name} dep to a full pkg-config query for includes + flags.
-        if d.pkg_config.is_some() && d.system.is_none() {
-            errors.push(ValidationError::new(
-                &ctx,
-                "pkg_config requires system = \"...\" (the fallback link name)",
-            ));
-        }
+        // pkg_config is for system-installed libraries. It can be used alone
+        // (`{ pkg_config = "zlib" }`) or with system as a -l{name} fallback
+        // (`{ system = "z", pkg_config = "zlib" }`). It must not be combined
+        // with source dep kinds (path / git / http / github).
         if d.pkg_config.is_some() {
             let has_source = d.path.is_some() || d.git.is_some()
                 || d.http.is_some() || d.github.is_some();

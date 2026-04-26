@@ -35,35 +35,51 @@ pub fn build_foreign_deps(
     for (name, dep) in &manifest.dependencies {
         let Dependency::Detailed(d) = dep else { continue };
 
-        // ── system + pkg_config dep ───────────────────────────────────────────
-        // pkg_config is a modifier on a system dep: run `pkg-config --cflags
-        // --libs <query>` to obtain include dirs and link flags. The `system`
-        // name acts as a bare -l{name} fallback when pkg-config fails.
-        if d.system.is_some() {
-            if let Some(query) = &d.pkg_config {
-                use owo_colors::OwoColorize;
-                println!("  {} {} (pkg-config)", "Resolving".dimmed(), name);
-                match super::http::pkg_config_query(query) {
-                    Ok(pc) => {
+        // ── pkg-config dep ────────────────────────────────────────────────────
+        // Can be standalone (`{ pkg_config = "zlib" }`) or combined with
+        // `system` (`{ system = "z", pkg_config = "zlib" }`). When combined,
+        // `system` is the bare -l{name} fallback if pkg-config is unavailable.
+        if let Some(query) = &d.pkg_config {
+            use owo_colors::OwoColorize;
+            println!("  {} {} (pkg-config)", "Resolving".dimmed(), name);
+            match super::http::pkg_config_query(query) {
+                Ok(pc) => {
+                    results.push(ForeignBuilt {
+                        name: name.clone(),
+                        libs: vec![],
+                        include_dirs: pc.include_dirs,
+                        raw_link_flags: pc.link_flags,
+                    });
+                }
+                Err(e) => {
+                    if let Some(fallback) = &d.system {
+                        println!(
+                            "  {} pkg-config for '{name}' failed ({e}); \
+                             falling back to -l{fallback}",
+                            "warning:".yellow()
+                        );
+                        // Push -l{fallback} via raw_link_flags so the flag
+                        // reaches the linker. collect_system_lib_flags skips
+                        // all deps with pkg_config set to avoid double-linking.
                         results.push(ForeignBuilt {
                             name: name.clone(),
                             libs: vec![],
-                            include_dirs: pc.include_dirs,
-                            raw_link_flags: pc.link_flags,
+                            include_dirs: vec![],
+                            raw_link_flags: vec![format!("-l{fallback}")],
                         });
-                    }
-                    Err(e) => {
-                        let fallback = d.system.as_deref().unwrap_or(name);
-                        use owo_colors::OwoColorize;
-                        println!(
-                            "  {} pkg-config for '{name}' failed ({e}); falling back to -l{fallback}",
-                            "warning:".yellow()
-                        );
-                        // Nothing to push — collect_system_lib_flags handles the -l flag.
+                    } else {
+                        return Err(CraneError::ManifestParse(format!(
+                            "pkg-config failed for '{name}' and no system fallback: {e}"
+                        )));
                     }
                 }
             }
-            // Pure system dep (no pkg_config): -l flag handled by collect_system_lib_flags.
+            continue;
+        }
+
+        // ── Pure system dep (no pkg_config) ──────────────────────────────────
+        // -l{name} is collected by collect_system_lib_flags; nothing to do here.
+        if d.system.is_some() {
             continue;
         }
 
@@ -88,12 +104,9 @@ pub fn build_foreign_deps(
         }
 
         // ── Resolve build system ──────────────────────────────────────────────
-        // Explicit > auto-detect > skip (native crane project).
+        // Explicit > auto-detect > header-only fallback > skip (crane native).
         let bs = match &d.build_system {
             Some(bs) if bs == "none" => {
-                // Header-only dep: skip the build step entirely; just collect
-                // include dirs from the explicit `include = [...]` list or by
-                // probing common directory conventions.
                 let include_dirs = collect_include_dirs(&dep_dir, &d.include, None);
                 results.push(ForeignBuilt {
                     name: name.clone(),
@@ -110,7 +123,24 @@ pub fn build_foreign_deps(
                 }
                 match detect_build_system(&dep_dir) {
                     Some(detected) => detected,
-                    None => continue,
+                    None => {
+                        // No known build system. If the dep has no compilable
+                        // source files it is header-only — collect include dirs
+                        // without building. Otherwise skip silently.
+                        if !has_source_files(&dep_dir) {
+                            let include_dirs =
+                                collect_include_dirs(&dep_dir, &d.include, None);
+                            if !include_dirs.is_empty() {
+                                results.push(ForeignBuilt {
+                                    name: name.clone(),
+                                    libs: vec![],
+                                    include_dirs,
+                                    raw_link_flags: vec![],
+                                });
+                            }
+                        }
+                        continue;
+                    }
                 }
             }
         };
@@ -223,6 +253,33 @@ pub(crate) fn detect_build_system(dep_dir: &Path) -> Option<String> {
         return Some("make".into());
     }
     None
+}
+
+/// Return `true` if `dir` contains at least one compilable source file
+/// (checked recursively, depth-limited to avoid scanning huge trees).
+fn has_source_files(dir: &Path) -> bool {
+    const SOURCE_EXTS: &[&str] = &[
+        "c", "cpp", "cc", "cxx", "c++", "cppm",
+        "f", "f90", "f95", "f03", "f08",
+        "s", "asm", "nasm",
+        "cu", "hip", "cl",
+        "d", "ada", "adb",
+    ];
+    fn walk(dir: &Path, depth: u8) -> bool {
+        let Ok(rd) = std::fs::read_dir(dir) else { return false };
+        for entry in rd.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                if depth > 0 && walk(&p, depth - 1) { return true; }
+            } else if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+                if SOURCE_EXTS.contains(&ext.to_ascii_lowercase().as_str()) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+    walk(dir, 4)
 }
 
 // ── Individual build system runners ──────────────────────────────────────────
