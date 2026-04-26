@@ -43,6 +43,7 @@ pub fn validate(manifest: &Manifest, templates: &[CompilerTemplate]) -> Vec<Vali
     validate_platforms(manifest, &mut errors);
     validate_dep_env_filters(manifest, &mut errors);
     validate_features(manifest, &mut errors);
+    validate_http_deps(manifest, &mut errors);
 
     errors
 }
@@ -97,6 +98,43 @@ fn validate_features(m: &Manifest, errors: &mut Vec<ValidationError>) {
             // For now, just flag if `default-features = false` with no features listed.
             let _ = (dep_name, feat);  // reserved for future cross-manifest checks
         }
+    }
+}
+
+fn validate_http_deps(m: &Manifest, errors: &mut Vec<ValidationError>) {
+    for (name, dep) in &m.dependencies {
+        let Dependency::Detailed(d) = dep else { continue };
+        let ctx = format!("[dependencies.{name}]");
+
+        // pkg_config is standalone — must not be combined with source kinds.
+        if d.pkg_config.is_some() {
+            let has_other = d.path.is_some() || d.git.is_some()
+                || d.http.is_some() || d.github.is_some() || d.system.is_some();
+            if has_other {
+                errors.push(ValidationError::new(
+                    &ctx,
+                    "pkg_config cannot be combined with path, git, http, github, or system",
+                ));
+            }
+            continue;
+        }
+
+        // http and github are mutually exclusive.
+        if d.http.is_some() && d.github.is_some() {
+            errors.push(ValidationError::new(
+                &ctx,
+                "http and github are mutually exclusive — use one or the other",
+            ));
+        }
+
+        // github deps need a ref to construct the URL.
+        if d.github.is_some() && d.tag.is_none() && d.branch.is_none() {
+            errors.push(ValidationError::new(
+                &ctx,
+                "github dep requires a tag or branch (e.g. `tag = \"v1.0\"`)",
+            ));
+        }
+
     }
 }
 

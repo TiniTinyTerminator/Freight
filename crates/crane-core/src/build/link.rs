@@ -33,6 +33,7 @@ pub fn link_targets(
     detected: &[DetectedCompiler],
     templates: &[CompilerTemplate],
     dep_libs: &[PathBuf],
+    extra_link_flags: &[String],
 ) -> Result<LinkResult, CraneError> {
     let mut outputs: Vec<PathBuf> = Vec::new();
 
@@ -52,7 +53,7 @@ pub fn link_targets(
             .collect();
 
         print_linking(&bin.name);
-        link_executable(&bin_objects, &out, linker, manifest, profile, project_dir, dep_libs)?;
+        link_executable(&bin_objects, &out, linker, manifest, profile, project_dir, dep_libs, extra_link_flags)?;
         outputs.push(out);
     }
 
@@ -71,7 +72,7 @@ pub fn link_targets(
                 let linker = select_linker(manifest, detected, templates)
                     .ok_or_else(|| CraneError::CompilerNotFound("no suitable linker found".into()))?;
                 print_linking(out.file_name().unwrap_or_default().to_str().unwrap_or("lib"));
-                link_shared(objects, &out, linker, manifest, profile, project_dir, dep_libs)?;
+                link_shared(objects, &out, linker, manifest, profile, project_dir, dep_libs, extra_link_flags)?;
                 outputs.push(out);
             }
             LibType::HeaderOnly => {}
@@ -91,10 +92,11 @@ pub fn link_test_binary(
     detected: &[DetectedCompiler],
     templates: &[CompilerTemplate],
     dep_libs: &[PathBuf],
+    extra_link_flags: &[String],
 ) -> Result<(), CraneError> {
     let linker = select_linker(manifest, detected, templates)
         .ok_or_else(|| CraneError::CompilerNotFound("no suitable linker found".into()))?;
-    link_executable(objects, out, linker, manifest, profile, project_dir, dep_libs)
+    link_executable(objects, out, linker, manifest, profile, project_dir, dep_libs, extra_link_flags)
 }
 
 /// Archive a set of object files into a static library using `ar`.
@@ -150,6 +152,7 @@ fn link_executable(
     profile: &str,
     _project_dir: &Path,
     dep_libs: &[PathBuf],
+    extra_link_flags: &[String],
 ) -> Result<(), CraneError> {
     let mut cmd = Command::new(&linker.path);
     cmd.args(linker.template.assemble_flags(&link_settings(manifest, profile)));
@@ -158,6 +161,7 @@ fn link_executable(
     for flag in collect_system_lib_flags(manifest) {
         cmd.arg(flag);
     }
+    cmd.args(extra_link_flags);
     cmd.args(linker.template.output_flag(out));
     run_cmd(cmd, out)
 }
@@ -176,6 +180,7 @@ fn link_shared(
     profile: &str,
     _project_dir: &Path,
     dep_libs: &[PathBuf],
+    extra_link_flags: &[String],
 ) -> Result<(), CraneError> {
     let mut cmd = Command::new(&linker.path);
     cmd.args(linker.template.assemble_flags(&link_settings(manifest, profile)));
@@ -185,6 +190,7 @@ fn link_shared(
     for flag in collect_system_lib_flags(manifest) {
         cmd.arg(flag);
     }
+    cmd.args(extra_link_flags);
     cmd.args(linker.template.output_flag(out));
     run_cmd(cmd, out)
 }

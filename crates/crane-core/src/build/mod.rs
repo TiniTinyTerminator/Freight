@@ -5,6 +5,7 @@ pub mod discover;
 pub mod features;
 pub mod foreign;
 pub mod header_units;
+pub mod http;
 pub mod link;
 pub mod modules;
 
@@ -142,9 +143,11 @@ pub fn build_project_at(project_dir: &Path, profile: &str) -> Result<BuildOutput
 
     let mut all_libs = built.libs.clone();
     let mut all_dep_includes = built.include_dirs.clone();
+    let mut all_raw_link_flags: Vec<String> = Vec::new();
     for f in foreign_built {
         all_libs.extend(f.libs);
         all_dep_includes.extend(f.include_dirs);
+        all_raw_link_flags.extend(f.raw_link_flags);
     }
 
     // Merge dep include dirs into the set passed to the root compile step.
@@ -172,7 +175,7 @@ pub fn build_project_at(project_dir: &Path, profile: &str) -> Result<BuildOutput
     let link_result = link_targets(
         project_dir, manifest, profile,
         &compile_result.objects, detected, templates,
-        &all_libs,
+        &all_libs, &all_raw_link_flags,
     )?;
 
     // Keep crane.lock in sync with the resolved dep graph. Lock-write failures
@@ -273,9 +276,11 @@ pub fn test_project_at(project_dir: &Path, profile: &str, filter: Option<&str>) 
 
     let mut all_libs = built.libs.clone();
     let mut all_dep_includes = built.include_dirs.clone();
+    let mut all_raw_link_flags: Vec<String> = Vec::new();
     for f in foreign_built {
         all_libs.extend(f.libs);
         all_dep_includes.extend(f.include_dirs);
+        all_raw_link_flags.extend(f.raw_link_flags);
     }
 
     let mut include_dirs = found.include_dirs.clone();
@@ -348,7 +353,7 @@ pub fn test_project_at(project_dir: &Path, profile: &str, filter: Option<&str>) 
             .collect();
         link_test_binary(
             &all_objs, &test_bin, manifest, profile, project_dir,
-            detected, templates, &all_libs,
+            detected, templates, &all_libs, &all_raw_link_flags,
         )?;
 
         print!("test {stem} ... ");

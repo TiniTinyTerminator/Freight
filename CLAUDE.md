@@ -167,6 +167,12 @@ libm        = { system = "m",       os = ["linux", "macos"] }
 sse-util    = { path = "../sse-util", arch = "x86_64" }
 # Combined: OS + arch filter (both must match)
 avx-opt     = { system = "avx-opt", os = "linux", arch = ["x86_64", "aarch64"] }
+# HTTP tarball dep — downloaded, SHA-256 verified, extracted to .deps/zlib/, then built
+zlib        = { http = "https://zlib.net/zlib-1.3.1.tar.gz", sha256 = "9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23" }
+# GitHub release shorthand — constructs GitHub archive URL from owner/repo + tag
+fmt         = { github = "fmtlib/fmt", tag = "10.2.1", sha256 = "1250e4cc58bf06ee631567523f48848dc4596133e163f02615c97f78bab6c811" }
+# pkg-config dep — no source build; crane runs pkg-config --cflags --libs
+glib        = { pkg_config = "glib-2.0 >= 2.56" }
 
 [dev-dependencies]
 libcheck = "0.15"
@@ -370,10 +376,15 @@ crane build
 | Version | `"0.3"` | Fetched from crane.dev (not yet implemented) |
 | Git | `{ git = "https://..." }` | Cloned into `.deps/<name>/`, then built like a path dep |
 | Foreign | `{ path = "../zlib" }` (no `crane.toml`) | Auto-detects CMake/Meson/Make/Autotools/SCons; builds + installs into `.crane-build/`; headers and archive linked automatically |
+| HTTP | `{ http = "https://...", sha256 = "..." }` | Downloads source archive, verifies SHA-256, extracts to `.deps/<name>/`, auto-builds with foreign build system |
+| GitHub | `{ github = "owner/repo", tag = "v1.0" }` | Shorthand for GitHub release archive; constructs `https://github.com/owner/repo/archive/refs/tags/v1.0.tar.gz` |
+| pkg-config | `{ pkg_config = "libfoo >= 2.0" }` | Runs `pkg-config --cflags --libs`; injects include paths and link flags directly — no source build |
 
 Path dependencies are non-recursive: crane checks that a dep's own deps are already present in `.deps/` but does not download them. The topo sort ensures deps are compiled in the right order.
 
 Foreign build system detection priority: CMake (`CMakeLists.txt`) > Meson (`meson.build`) > Autotools (`configure.ac` / `configure.in` / `autogen.sh`) > SCons (`SConstruct`) > Make (`Makefile` / `GNUmakefile`). Any path dep that contains a `crane.toml` is always treated as a crane project regardless of other build files present.
+
+HTTP/GitHub archives are extracted to `.deps/<name>/` with `--strip-components=1` (removes the top-level directory common in release tarballs). The sentinel file `.deps/<name>/.crane-fetched` prevents re-downloading on subsequent builds; `crane update <name>` invalidates the sentinel and re-fetches.
 
 ---
 
@@ -467,6 +478,13 @@ crane compile-commands [--release] generate compile_commands.json     ✓ implem
 - [x] Git dependencies — `{ git = "https://..." }` clones into `.deps/<name>/`, then treated as path dep; `rev`/`tag`/`branch` supported
 - [x] Foreign dep include auto-discovery — probes `install/include`, `include`, `src` (and cmake/meson equivalent install trees) after build
 - [x] Foreign dep archive auto-discovery — searches build output dirs for `lib*.a` / `lib*.so`
+- [x] HTTP tarball deps — `{ http = "https://...", sha256 = "..." }` downloads archive with `curl`, verifies SHA-256 using `sha2`, extracts to `.deps/<name>/` with `tar --strip-components=1`, builds the foreign source
+- [x] GitHub release deps — `{ github = "owner/repo", tag = "v1.0" }` shorthand constructs the GitHub archive URL; same download + build flow as HTTP deps
+- [x] SHA-256 verification — optional but validated at fetch time; rejects mismatched archives and cleans up the partial download
+- [x] Download sentinel — `.deps/<name>/.crane-fetched` prevents re-downloading; `crane update <name>` invalidates and re-fetches
+- [x] `crane fetch` handles http/github deps — pre-fetches all archives before build
+- [x] pkg-config deps — `{ pkg_config = "libfoo >= 2.0" }` runs `pkg-config --cflags --libs`; include dirs injected into compilation, link flags passed verbatim to linker (`-L`, `-l`, `-pthread`, etc.)
+- [x] `raw_link_flags` threading — `ForeignBuilt.raw_link_flags` carries pkg-config link flags through `build_foreign_deps` → `build_project_at` → `link_targets` → linker command
 
 ### Phase 5b — Features system ✓ COMPLETE
 - [x] `[features]` table in crane.toml — keys map to lists of implied feature names

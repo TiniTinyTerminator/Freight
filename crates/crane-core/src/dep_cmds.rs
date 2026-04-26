@@ -196,6 +196,49 @@ pub fn update_git_deps(project_dir: &Path, only: Option<&str>) -> Result<Vec<Git
     Ok(outcomes)
 }
 
+/// Pre-fetch all `http` and `github` deps into `.deps/`.
+///
+/// Already-fetched directories (sentinel `.crane-fetched` present) are skipped.
+/// Returns the names of deps that were fetched or were already present.
+pub fn fetch_http_deps(project_dir: &Path) -> Result<Vec<(String, bool)>, CraneError> {
+    use crate::build::http;
+    let manifest = load_manifest(project_dir)?;
+    let mut outcomes = Vec::new();
+
+    for (name, dep) in &manifest.dependencies {
+        let Dependency::Detailed(d) = dep else { continue };
+
+        let url = if let Some(u) = &d.http {
+            u.clone()
+        } else if let Some(repo) = &d.github {
+            let git_ref = d.tag.as_deref().or(d.branch.as_deref()).unwrap_or("main");
+            http::github_url(repo, git_ref)
+        } else {
+            continue;
+        };
+
+        let already = project_dir.join(".deps").join(name).join(".crane-fetched").exists();
+        if !already {
+            http::fetch_http_dep(name, &url, d.sha256.as_deref(), project_dir)?;
+        }
+        outcomes.push((name.clone(), already));
+    }
+
+    Ok(outcomes)
+}
+
+/// Remove the `.crane-fetched` sentinel for the named http/github dep so
+/// `crane fetch` (or the next build) will re-download it.
+pub fn invalidate_http_dep(project_dir: &Path, name: &str) -> bool {
+    let sentinel = project_dir.join(".deps").join(name).join(".crane-fetched");
+    if sentinel.exists() {
+        let _ = std::fs::remove_file(&sentinel);
+        true
+    } else {
+        false
+    }
+}
+
 // ── Lock regeneration ────────────────────────────────────────────────────────
 
 /// Outcome of [`regen_lock`] — distinguishes "wrote" from "skipped because

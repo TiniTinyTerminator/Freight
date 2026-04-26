@@ -392,6 +392,26 @@ pub struct DetailedDep {
     /// `cmake_args = ["-DCMAKE_POLICY_VERSION_MINIMUM=3.5"]`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub cmake_args: Vec<String>,
+    /// Direct URL to a source archive (`.tar.gz`, `.tar.bz2`, `.tar.xz`, `.zip`).
+    /// The archive is downloaded, optionally verified with `sha256`, and extracted
+    /// to `.deps/{name}/`. The foreign build system inside is then compiled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http: Option<String>,
+    /// GitHub repository shorthand: `"owner/repo"`. Combined with `tag` (or
+    /// `branch`) to construct an archive URL automatically.
+    /// Equivalent to: `http = "https://github.com/owner/repo/archive/refs/tags/{tag}.tar.gz"`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub github: Option<String>,
+    /// Expected SHA-256 checksum (lowercase hex) of the downloaded archive.
+    /// Recommended for `http` and `github` deps; `crane fetch` rejects archives
+    /// with a mismatched checksum.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
+    /// pkg-config query string, e.g. `"libfoo >= 2.0"`. Crane runs
+    /// `pkg-config --cflags --libs <query>` and injects the result into
+    /// compilation and linking. No source build is performed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pkg_config: Option<String>,
 }
 
 fn default_true() -> bool { true }

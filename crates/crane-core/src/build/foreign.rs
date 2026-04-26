@@ -17,6 +17,9 @@ pub struct ForeignBuilt {
     pub name: String,
     pub libs: Vec<PathBuf>,
     pub include_dirs: Vec<PathBuf>,
+    /// Raw linker flags (e.g. `-pthread`, `-L/usr/lib`, `-lfoo`) produced by
+    /// pkg-config queries. Appended verbatim to the linker command.
+    pub raw_link_flags: Vec<String>,
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -32,16 +35,35 @@ pub fn build_foreign_deps(
     for (name, dep) in &manifest.dependencies {
         let Dependency::Detailed(d) = dep else { continue };
 
+        // ── pkg-config dep ────────────────────────────────────────────────────
+        if let Some(query) = &d.pkg_config {
+            use owo_colors::OwoColorize;
+            println!("  {} {} (pkg-config)", "Resolving".dimmed(), name);
+            let pc = super::http::pkg_config_query(query)?;
+            results.push(ForeignBuilt {
+                name: name.clone(),
+                libs: vec![],
+                include_dirs: pc.include_dirs,
+                raw_link_flags: pc.link_flags,
+            });
+            continue;
+        }
+
+        // ── Determine source directory ─────────────────────────────────────────
+        // For http / github deps, fetch the archive first if not already present.
         let dep_dir = if let Some(rel) = &d.path {
             project_dir.join(rel)
         } else if d.git.is_some() {
             project_dir.join(".deps").join(name)
+        } else if let Some(url) = http_url(d) {
+            super::http::fetch_http_dep(name, &url, d.sha256.as_deref(), project_dir)?
         } else {
+            // Pure system / version dep — not a foreign build.
             continue;
         };
 
-        // Resolve effective build system: explicit > auto-detect > skip (crane project).
-        // For path deps that have a crane.toml, crane owns the build regardless.
+        // ── Resolve build system ──────────────────────────────────────────────
+        // Explicit > auto-detect > skip (native crane project).
         let bs = match &d.build_system {
             Some(bs) => bs.clone(),
             None => {
@@ -66,7 +88,7 @@ pub fn build_foreign_deps(
         let libs = invoke_build_system(&dep_dir, &build_dir, name, &bs, profile, &d.cmake_args)?;
 
         // Explicit `include = [...]` wins; if absent, probe common conventions.
-        // Autotools installs headers to .crane-build/install/include/, so probe that too.
+        // Autotools installs headers to .crane-build/install/include/.
         let include_dirs: Vec<PathBuf> = if !d.include.is_empty() {
             d.include.iter().map(|p| dep_dir.join(p)).collect()
         } else {
@@ -78,10 +100,29 @@ pub fn build_foreign_deps(
             candidates.into_iter().filter(|p| p.is_dir()).collect()
         };
 
-        results.push(ForeignBuilt { name: name.clone(), libs, include_dirs });
+        results.push(ForeignBuilt {
+            name: name.clone(),
+            libs,
+            include_dirs,
+            raw_link_flags: vec![],
+        });
     }
 
     Ok(results)
+}
+
+/// Return the effective HTTP URL for a dep, or `None` if it is not an http/github dep.
+fn http_url(d: &crate::manifest::types::DetailedDep) -> Option<String> {
+    if let Some(url) = &d.http {
+        return Some(url.clone());
+    }
+    if let Some(repo) = &d.github {
+        let git_ref = d.tag.as_deref()
+            .or(d.branch.as_deref())
+            .unwrap_or("main");
+        return Some(super::http::github_url(repo, git_ref));
+    }
+    None
 }
 
 // ── Build system dispatch ─────────────────────────────────────────────────────
