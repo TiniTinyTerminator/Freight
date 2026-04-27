@@ -148,11 +148,11 @@ mod tests {
         concat!(env!("CARGO_MANIFEST_DIR"), "/../../toolchains");
 
     #[test]
-    fn load_templates_finds_all_eleven() {
+    fn load_templates_finds_all() {
         let templates = load_templates(Path::new(TEMPLATES_DIR));
-        assert_eq!(templates.len(), 11,
-            "expected gcc, clang, gfortran, gnat, nvcc, dmd, opencl, hipcc, icpx, ispc, nasm \
-             (C and .s/.S handled inside gcc/clang templates via compile_binary, not separate files)");
+        assert_eq!(templates.len(), 18,
+            "expected gcc, clang, gfortran, gnat, nvcc, dmd, opencl, hipcc, icpx, ispc, nasm, \
+             tcc, nvhpc, ifx, flang, ldc2, yasm, circle");
     }
 
     #[test]

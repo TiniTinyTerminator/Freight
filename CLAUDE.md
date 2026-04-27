@@ -439,7 +439,8 @@ crane compile-commands [--release] generate compile_commands.json     ✓ implem
 - [x] `CompilerTemplate` struct + `assemble_flags()` method (pure, unit-tested)
 - [x] `crane toolchain list`
 - [x] Toolchain version cache (`~/.crane/toolchain-cache.json`, mtime-validated)
-- [x] Template system supports: gcc, clang, nasm, gfortran, gnat, dmd, nvcc, hipcc, icpx, opencl, ispc
+- [x] Template system supports: gcc, clang, nasm, gfortran, gnat, dmd, nvcc, hipcc, icpx, opencl, ispc, tcc, nvhpc, ifx, flang, ldc2, yasm, circle
+- [x] gcc and clang scripts probe versioned binaries (`g++-14`, `clang++-17`, …) as fallbacks when the generic symlink is absent
 
 ### Phase 4 — Build engine ✓ COMPLETE
 - [x] Source discovery with `walkdir` — extension → language key routing
@@ -646,8 +647,11 @@ logic, multi-role binary declarations) without any Rust changes.
 - [x] `fn check()` — optional script function; return `false` to hide toolchain when unavailable
 - [x] `fn load()` — optional script function; `arch` and `os` in scope; can call `add_flags()` for arch-conditional flags
 - [x] `CompilerTemplate::from_rhai(src)` — converts `ToolchainDef` into the existing `CompilerTemplate` struct; no downstream callers change
-- [x] All 11 compiler scripts ported: `gcc.rhai`, `clang.rhai`, `gfortran.rhai`, `gnat.rhai`, `nvcc.rhai`, `dmd.rhai`, `hipcc.rhai`, `icpx.rhai`, `ispc.rhai`, `opencl.rhai`, `nasm.rhai`
-- [x] `gcc.rhai` uses `fn load()` with `-m64`/`-m32` arch detection — first use of the scripting capability
+- [x] All 11 original compiler scripts ported: `gcc.rhai`, `clang.rhai`, `gfortran.rhai`, `gnat.rhai`, `nvcc.rhai`, `dmd.rhai`, `hipcc.rhai`, `icpx.rhai`, `ispc.rhai`, `opencl.rhai`, `nasm.rhai`
+- [x] 7 additional compiler scripts added: `tcc.rhai`, `nvhpc.rhai`, `ifx.rhai`, `flang.rhai`, `ldc2.rhai`, `yasm.rhai`, `circle.rhai`
+- [x] `gcc.rhai` and `clang.rhai` probe versioned binaries (`g++-14`, `clang++-17`, …) in the script body so Debian/Ubuntu installs without a generic symlink are detected automatically
+- [x] `flang.rhai` dynamically selects `flang` vs `flang-new` binary at eval time — demonstrates runtime adaptability over static TOML
+- [x] `gcc.rhai` uses `fn load()` with `-m64`/`-m32` arch detection
 - [x] `toolchain_add` updated to require `.rhai` extension
 - [x] `docs/plan-toolchain-roles.md` — full plan for follow-on work (toolset role dispatch, `output_obj`/`output_bin`, `lto_link`, `system_lib`, `dep_file_mode = "stdout"`, `msvc.rhai`)
 - [ ] Wire `toolset` roles into `compile.rs` / `link.rs` (ar, strip, per-role binaries)
@@ -661,9 +665,9 @@ logic, multi-role binary declarations) without any Rust changes.
 
 See `docs/future-toolchains.md` for the full list. High-priority candidates:
 
-**Compilers (template-only)**: `zig cc` / `zig c++` (excellent cross-compilation story), TCC (fast iteration), Intel `ifx` Fortran, LDC2 (LLVM-based D), Flang (LLVM Fortran), PGI/NVHPC (`nvc++`)
+**Compilers (template-only)**: `zig cc` / `zig c++` (excellent cross-compilation story — needs multi-word `compile_binary` support in Rust first), NAG Fortran (`nagfor`), Intel `ifort` (classic, deprecated)
 
-**Assemblers (template-only)**: YASM (NASM-compatible drop-in), FASM (flat assembler), ARM GAS via `arm-none-eabi-gcc`
+**Assemblers (template-only)**: FASM (flat assembler — output format specified in source, not flags), MASM (`ml`/`ml64`, Windows-only, depends on MSVC platform support), ARM GAS via `arm-none-eabi-gcc`
 
 **Debuggers (template-only)**: `rr` (Mozilla record & replay, Linux x86-64), OpenOCD+GDB (embedded), WinDbg/CDB (Windows)
 

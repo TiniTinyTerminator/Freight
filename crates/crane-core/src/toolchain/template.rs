@@ -671,16 +671,24 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    const GCC_RHAI: &str    = include_str!("../../../../toolchains/gcc.rhai");
-    const CLANG_RHAI: &str  = include_str!("../../../../toolchains/clang.rhai");
+    const GCC_RHAI: &str      = include_str!("../../../../toolchains/gcc.rhai");
+    const CLANG_RHAI: &str    = include_str!("../../../../toolchains/clang.rhai");
     const GFORTRAN_RHAI: &str = include_str!("../../../../toolchains/gfortran.rhai");
-    const GNAT_RHAI: &str   = include_str!("../../../../toolchains/gnat.rhai");
-    const NVCC_RHAI: &str   = include_str!("../../../../toolchains/nvcc.rhai");
-    const DMD_RHAI: &str    = include_str!("../../../../toolchains/dmd.rhai");
-    const OPENCL_RHAI: &str = include_str!("../../../../toolchains/opencl.rhai");
-    const HIPCC_RHAI: &str  = include_str!("../../../../toolchains/hipcc.rhai");
-    const ICPX_RHAI: &str   = include_str!("../../../../toolchains/icpx.rhai");
-    const ISPC_RHAI: &str   = include_str!("../../../../toolchains/ispc.rhai");
+    const GNAT_RHAI: &str     = include_str!("../../../../toolchains/gnat.rhai");
+    const NVCC_RHAI: &str     = include_str!("../../../../toolchains/nvcc.rhai");
+    const DMD_RHAI: &str      = include_str!("../../../../toolchains/dmd.rhai");
+    const OPENCL_RHAI: &str   = include_str!("../../../../toolchains/opencl.rhai");
+    const HIPCC_RHAI: &str    = include_str!("../../../../toolchains/hipcc.rhai");
+    const ICPX_RHAI: &str     = include_str!("../../../../toolchains/icpx.rhai");
+    const ISPC_RHAI: &str     = include_str!("../../../../toolchains/ispc.rhai");
+    const NASM_RHAI: &str     = include_str!("../../../../toolchains/nasm.rhai");
+    const TCC_RHAI: &str      = include_str!("../../../../toolchains/tcc.rhai");
+    const NVHPC_RHAI: &str    = include_str!("../../../../toolchains/nvhpc.rhai");
+    const IFX_RHAI: &str      = include_str!("../../../../toolchains/ifx.rhai");
+    const FLANG_RHAI: &str    = include_str!("../../../../toolchains/flang.rhai");
+    const LDC2_RHAI: &str     = include_str!("../../../../toolchains/ldc2.rhai");
+    const YASM_RHAI: &str     = include_str!("../../../../toolchains/yasm.rhai");
+    const CIRCLE_RHAI: &str   = include_str!("../../../../toolchains/circle.rhai");
 
     fn gcc() -> CompilerTemplate { CompilerTemplate::from_rhai(GCC_RHAI).unwrap() }
     fn clang() -> CompilerTemplate { CompilerTemplate::from_rhai(CLANG_RHAI).unwrap() }
@@ -700,6 +708,14 @@ mod tests {
         CompilerTemplate::from_rhai(HIPCC_RHAI).unwrap();
         CompilerTemplate::from_rhai(ICPX_RHAI).unwrap();
         CompilerTemplate::from_rhai(ISPC_RHAI).unwrap();
+        CompilerTemplate::from_rhai(NASM_RHAI).unwrap();
+        CompilerTemplate::from_rhai(TCC_RHAI).unwrap();
+        CompilerTemplate::from_rhai(NVHPC_RHAI).unwrap();
+        CompilerTemplate::from_rhai(IFX_RHAI).unwrap();
+        CompilerTemplate::from_rhai(FLANG_RHAI).unwrap();
+        CompilerTemplate::from_rhai(LDC2_RHAI).unwrap();
+        CompilerTemplate::from_rhai(YASM_RHAI).unwrap();
+        CompilerTemplate::from_rhai(CIRCLE_RHAI).unwrap();
     }
 
     #[test]

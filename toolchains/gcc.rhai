@@ -1,12 +1,27 @@
+// GCC — GNU Compiler Collection. Handles C, C++, and AT&T assembly (.s/.S).
+// Probes versioned binaries (g++-14, g++-13, …) when the plain g++ symlink is absent,
+// which is common on Debian/Ubuntu where versioned packages don't create the generic name.
+
+let _gxx_bins = ["g++", "g++-14", "g++-13", "g++-12", "g++-11", "g++-10"];
+let _gxx = "g++";
+for _b in _gxx_bins {
+    if find_tool(_b) != () {
+        _gxx = _b;
+        break;
+    }
+}
+// Derive the C-compiler binary: g++-13 → gcc-13, g++ → gcc.
+let _gcc = if _gxx == "g++" { "gcc" } else { "gcc" + _gxx.sub_string(3) };
+
 set_name("gcc");
 set_homepage("https://gcc.gnu.org/");
-set_binary("g++");
+set_binary(_gxx);
 set_version_arg("--version");
 set_version_regex("\\b(\\d+\\.\\d+\\.\\d+)\\b");
 
-set_toolset("cc",    "gcc");
-set_toolset("cxx",   "g++");
-set_toolset("ld",    "g++");
+set_toolset("cc",    _gcc);
+set_toolset("cxx",   _gxx);
+set_toolset("ld",    _gxx);
 set_toolset("ar",    "ar");
 set_toolset("strip", "strip");
 
@@ -64,7 +79,7 @@ set_passthrough(false, "");
 set_linking("c", #{
     abi:            "c",
     compatible:     ["fortran", "asm"],
-    compile_binary: "gcc",
+    compile_binary: _gcc,
     linker:         "",
     extensions:     [".c", ".s", ".S"],
 });
@@ -77,7 +92,11 @@ set_linking("cpp", #{
 });
 
 fn check() {
-    find_tool("g++") != ()
+    let bins = ["g++", "g++-14", "g++-13", "g++-12", "g++-11", "g++-10"];
+    for b in bins {
+        if find_tool(b) != () { return true; }
+    }
+    false
 }
 
 fn load() {

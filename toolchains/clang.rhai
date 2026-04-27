@@ -1,12 +1,28 @@
+// Clang/LLVM — C, C++, and AT&T assembly. Natively multi-target via --target=.
+// Probes versioned binaries (clang++-18, clang++-17, …) when the plain clang++ symlink
+// is absent, which is common on Debian/Ubuntu versioned packages.
+
+let _cxx_bins = ["clang++", "clang++-18", "clang++-17", "clang++-16", "clang++-15", "clang++-14"];
+let _cxx = "clang++";
+for _b in _cxx_bins {
+    if find_tool(_b) != () {
+        _cxx = _b;
+        break;
+    }
+}
+// Derive the C-compiler binary: clang++-17 → clang-17, clang++ → clang.
+// "clang++".len() == 7, so sub_string(7) strips the "clang++" prefix.
+let _cc = if _cxx == "clang++" { "clang" } else { "clang" + _cxx.sub_string(7) };
+
 set_name("clang");
 set_homepage("https://clang.llvm.org/");
-set_binary("clang++");
+set_binary(_cxx);
 set_version_arg("--version");
 set_version_regex("\\b(\\d+\\.\\d+\\.\\d+)\\b");
 
-set_toolset("cc",    "clang");
-set_toolset("cxx",   "clang++");
-set_toolset("ld",    "clang++");
+set_toolset("cc",    _cc);
+set_toolset("cxx",   _cxx);
+set_toolset("ld",    _cxx);
 set_toolset("ar",    "ar");
 set_toolset("strip", "strip");
 
@@ -63,7 +79,7 @@ set_passthrough(false, "");
 set_linking("c", #{
     abi:            "c",
     compatible:     ["fortran", "asm"],
-    compile_binary: "clang",
+    compile_binary: _cc,
     linker:         "",
     extensions:     [".c", ".s", ".S"],
 });
@@ -76,5 +92,9 @@ set_linking("cpp", #{
 });
 
 fn check() {
-    find_tool("clang++") != ()
+    let bins = ["clang++", "clang++-18", "clang++-17", "clang++-16", "clang++-15", "clang++-14"];
+    for b in bins {
+        if find_tool(b) != () { return true; }
+    }
+    false
 }
