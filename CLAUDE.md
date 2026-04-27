@@ -11,7 +11,7 @@ The project is written in Rust.
 ## Core philosophy
 
 - **No external build system** — crane owns the entire build graph internally. No Ninja, no Make underneath.
-- **Declarative compiler templates** — each compiler (gcc, clang, nvcc, gfortran, nasm…) is described in a `.toml` file that maps abstract settings to real flags. Adding a new compiler = writing a TOML, not writing Rust.
+- **Scripted compiler templates** — each compiler (gcc, clang, nvcc, gfortran, nasm…) is described in a `.rhai` script that maps abstract settings to real flags. Adding a new compiler = writing a Rhai script, not writing Rust.
 - **One tool, many languages** — file extension routes to the right compiler automatically. A single project can mix `.cpp`, `.c`, `.f90`, `.asm`, `.cu` files.
 - **Incremental by default** — mtime dirty checking via Makefile `.d` dep files (source + all included headers), parallel compilation via rayon.
 - **C++20 modules supported** — scanner detects `export module` / `import` declarations, builds a dependency DAG, compiles MIUs in topological order (parallel within each level), then compiles the rest in parallel with `-fmodule-file=` flags injected per import.
@@ -90,18 +90,21 @@ crane/
 │           ├── position.rs     # text-based position mapping for diagnostics
 │           ├── completion.rs   # section-aware completions
 │           └── docs.rs         # hover docs keyed by dotted path
-├── toolchains/                 # bundled .toml files per compiler
-│   ├── gcc.toml                # g++ (C++ linker), gcc (C compiler override), GAS (.s/.S)
-│   ├── clang.toml              # clang++ (C++ linker), clang (C compiler override), GAS (.s/.S)
-│   ├── nasm.toml               # NASM x86/x86_64 assembler (.asm/.nasm)
-│   ├── gfortran.toml
-│   ├── gnat.toml               # GNU Ada compiler
-│   ├── dmd.toml                # D language compiler
-│   ├── nvcc.toml
-│   ├── hipcc.toml
-│   ├── icpx.toml               # Intel oneAPI C++
-│   ├── opencl.toml
-│   └── ispc.toml               # Intel SPMD
+├── toolchains/                 # compiler scripts (.rhai) + debugger templates (.toml)
+│   ├── gcc.rhai                # g++ (C++ linker), gcc (C compiler override)
+│   ├── clang.rhai              # clang++ (C++ linker), clang (C compiler override)
+│   ├── nasm.rhai               # NASM x86/x86_64 assembler (.asm/.nasm)
+│   ├── gfortran.rhai
+│   ├── gnat.rhai               # GNU Ada compiler
+│   ├── dmd.rhai                # D language compiler
+│   ├── nvcc.rhai
+│   ├── hipcc.rhai
+│   ├── icpx.rhai               # Intel oneAPI C++
+│   ├── opencl.rhai
+│   ├── ispc.rhai               # Intel SPMD
+│   └── debuggers/              # debugger templates (TOML, separate from compiler scripts)
+│       ├── lldb.toml
+│       └── gdb.toml
 └── examples/                   # every example is buildable — `cd <dir> && crane build`
     ├── hello-cpp/              # multi-file C++ with tests
     ├── multi-lang/             # C + C++ mixed, tests
@@ -245,101 +248,88 @@ defines = ["POSIX_BUILD"]
 
 ## Compiler template format
 
-Each compiler is described by a flat `.toml` file — no `[compiler]` nesting. Crane loads all `.toml` files from `toolchains/` at startup. Adding a new compiler = writing a new TOML, not touching Rust.
+Each compiler is described by a `.rhai` script in `toolchains/`. Crane evaluates all `.rhai`
+files at startup via the embedded Rhai engine (`toolchain/engine.rs`). Adding a new compiler =
+writing a new `.rhai` file, not touching Rust.
 
-```toml
-# toolchains/gcc.toml
+Scripts call a set of registered API functions to declare the toolchain. The engine collects
+them into a `ToolchainDef` which is converted to a `CompilerTemplate` struct:
 
-name          = "gcc"
-binary        = "g++"          # binary used for linking
-version_arg   = "--version"
-version_regex = "\\b(\\d+\\.\\d+\\.\\d+)\\b"
+```rhai
+// toolchains/gcc.rhai (abbreviated)
 
-[extensions]
-handles = [".cpp", ".cppm", ".cc", ".cxx", ".c++", ".c"]
+set_name("gcc");
+set_binary("g++");           // detection binary + linker
+set_version_arg("--version");
+set_version_regex("\\b(\\d+\\.\\d+\\.\\d+)\\b");
 
-[flags]
-opt.0            = "-O0"
-opt.1            = "-O1"
-opt.2            = "-O2"
-opt.3            = "-O3"
-debug.true       = "-g"
-debug.false      = ""
-warnings.none    = ""
-warnings.default = "-Wall"
-warnings.all     = "-Wall -Wextra -Wpedantic"
-warnings.error   = "-Wall -Wextra -Wpedantic -Werror"
-lto.true         = "-flto"
-lto.false        = ""
-strip.true       = "-s"
-strip.false      = ""
-sanitize         = "-fsanitize={values}"
-cpu_extension    = "-m{name}"   # e.g. avx2 → -mavx2; empty string = unsupported
+set_toolset("cc",    "gcc"); // future role dispatch: C compilation
+set_toolset("ar",    "ar");  // future role dispatch: static archive creation
 
-[standards]
-"c11"   = "-std=c11"
-"c17"   = "-std=c17"
-"c23"   = "-std=c23"
-"c++17" = "-std=c++17"
-"c++20" = "-std=c++20"
-"c++23" = "-std=c++23"
+set_extensions([".cpp", ".cppm", ".cc", ".cxx", ".c++", ".c"]);
 
-[structure]
-include_dir  = "-I{path}"
-define       = "-D{name}"
-define_value = "-D{name}={value}"
-output       = "-o {path}"
-compile_only = "-c"
-dep_file     = "-MMD -MF {path}"   # generates Makefile dep file for header tracking
-target       = "--target={triple}" # empty string = unsupported (e.g. GCC uses dedicated cross binary)
-sysroot      = "--sysroot={path}"  # empty string = unsupported
+set_flag("opt",      "2", "-O2");
+set_flag("debug",    "true", "-g");
+set_flag("warnings", "all", "-Wall -Wextra -Wpedantic");
+set_flag("lto",      "true", "-flto");
+set_flag("sanitize", "template", "-fsanitize={values}");
+set_flag("cpu_ext",  "template", "-m{name}");  // e.g. avx2 → -mavx2
 
-[modules]
-supported     = true
-enable_flag   = "-fmodules-ts"
-compile_miu   = "-fmodule-output={pcm_path}"   # GCC one-step: produces both .o and .pcm
-import_module = "-fmodule-file={name}={pcm_path}"
+set_standard("c++20", "-std=c++20");
 
-[passthrough]
-enabled = false
-prefix  = ""
+set_structure("include_dir",  "-I{path}");
+set_structure("output",       "-o {path}");
+set_structure("dep_file",     "-MMD -MF {path}");
+set_structure("target",       "");             // GCC cross-compiles via dedicated binary
+set_structure("sysroot",      "--sysroot={path}");
 
-# Arch-dependent flags — keyed by "arch.os" first, then "arch" as fallback.
-# Used e.g. by NASM to select output format: -f elf64 vs -f macho64 vs -f win64.
-[arch_flags]
-"x86_64.linux"   = "-f elf64"
-"x86_64.macos"   = "-f macho64"
-"x86_64.windows" = "-f win64"
+// Arch-dependent flags — "arch.os" wins over "arch" alone.
+// Used by NASM to select output format; not needed for GCC.
+// set_arch_flag("x86_64.linux", "-f elf64");
 
-# A template can claim multiple language keys.
-# [linking.<key>] declares ABI + linker compatibility for that language.
-# compile_binary overrides the top-level binary for *compilation* only.
-[linking.c]
-abi            = "c"
-compile_binary = "gcc"   # C files compiled with gcc, not g++
-compatible     = ["fortran", "asm"]
-linker         = ""
-extensions     = [".c", ".s", ".S"]   # GCC/Clang handle AT&T assembly natively
+set_module_style("gcc", #{
+    enable_flag:   "-fmodules-ts",
+    compile_miu:   "-fmodule-output={pcm_path}",
+    import_module: "-fmodule-file={name}={pcm_path}",
+    header_unit:   "-fmodule-header",
+});
 
-[linking.cpp]
-abi        = "c++"
-compatible = ["c", "fortran", "asm"]
-linker     = ""
-extensions = [".cpp", ".cppm", ".cc", ".cxx", ".c++"]
+// Clang uses two-step modules — set_module_style("clang", #{ precompile: "--precompile", ... })
+
+set_linking("c",   #{ abi: "c",   compile_binary: "gcc", compatible: ["fortran", "asm"],
+                       extensions: [".c", ".s", ".S"] });
+set_linking("cpp", #{ abi: "c++", compatible: ["c", "fortran"],
+                       extensions: [".cpp", ".cppm", ".cc", ".cxx", ".c++"] });
+
+fn check() {
+    find_tool("g++") != ()   // return false to hide this toolchain
+}
+
+fn load() {
+    // arch and os are pre-bound; add_flags() / set_toolset() available here
+    if arch == "x86_64" { add_flags("cxx", "-m64"); }
+}
 ```
 
-### Clang module strategy (two-step)
+### Rhai API (registered by `engine.rs`)
 
-Clang differs from GCC in that `--precompile` produces only the BMI (.pcm), then a separate
-`-c` pass produces the object file. The template encodes this difference:
-
-```toml
-[modules]
-supported     = true
-enable_flag   = ""
-precompile    = "--precompile"           # step 1: src → .pcm (no object)
-import_module = "-fmodule-file={name}={pcm_path}"  # flag passed to consumers
-```
+| Function | Purpose |
+|---|---|
+| `set_name(s)` | Toolchain identifier |
+| `set_binary(s)` | Primary binary (detection + linker fallback) |
+| `set_toolset(role, binary)` | Role overrides: `"cc"`, `"cxx"`, `"ld"`, `"ar"`, `"strip"`, `"as"` |
+| `set_flag(cat, key, val)` | Flag map: categories `opt`, `debug`, `warnings`, `lto`, `strip`, `sanitize`, `cpu_ext` |
+| `set_standard(key, flag)` | Language standard mapping |
+| `set_structure(key, tmpl)` | Structure templates: `include_dir`, `define`, `output`, `dep_file`, `target`, `sysroot`, … |
+| `set_arch_flag(key, flag)` | Arch/OS-specific flags: `"x86_64.linux"`, `"x86_64"`, etc. |
+| `set_module_style(style, params)` | `"gcc"` or `"clang"` with param map; `"none"` with no params |
+| `set_linking(lang, params)` | ABI, compatible ABIs, extensions, optional `compile_binary` |
+| `set_passthrough(bool, prefix)` | nvcc-style `-Xcompiler` wrapping |
+| `add_always_flag(flag)` | Unconditional flag appended to every invocation |
+| `fn check()` | Return `false` to hide toolchain when binary not found |
+| `fn load()` | Called at detection time; `arch`/`os` in scope; can call `add_flags()` |
+| `find_tool(name)` | Search `$PATH`; returns path string or `()` |
+| `env(key)` | Read environment variable; returns string or `()` |
 
 ---
 
@@ -445,7 +435,7 @@ crane compile-commands [--release] generate compile_commands.json     ✓ implem
 
 ### Phase 3 — Compiler detection ✓ COMPLETE
 - [x] Probe `$PATH` for known compiler binaries
-- [x] Load + deserialize compiler template `.toml` files at runtime
+- [x] Load + evaluate compiler template `.rhai` scripts at runtime
 - [x] `CompilerTemplate` struct + `assemble_flags()` method (pure, unit-tested)
 - [x] `crane toolchain list`
 - [x] Toolchain version cache (`~/.crane/toolchain-cache.json`, mtime-validated)
@@ -561,7 +551,7 @@ crane compile-commands [--release] generate compile_commands.json     ✓ implem
 - [x] `targets = ["aarch64-linux-gnu"]` on any dep — filtered in/out by `effective_dependencies()` based on `compiler.target`; absent = always include, present + native build = exclude
 - [x] `os = "linux"` / `os = ["linux", "macos"]` on any dep — filtered by host OS at native build time; accepts crane platform keys and family aliases (`unix`, `bsd`); validated by `crane check`
 - [x] `arch = "x86_64"` / `arch = ["x86_64", "aarch64"]` on any dep — filtered by `std::env::consts::ARCH`; validated against known arch set
-- [x] `crane toolchain add <path>` — validates a local `.toml` as a `CompilerTemplate`, installs to `~/.crane/templates/<name>.toml`; `load_all_templates()` merges system + user templates (user overrides same-named system)
+- [x] `crane toolchain add <path>` — validates a local `.rhai` script, installs to `~/.crane/templates/<name>.rhai`; `load_all_templates()` merges system + user templates (user overrides same-named system)
 
 ### Phase 11 — Migrator (in progress — `feature/importer`)
 Priority phase: frictionless migration off existing build systems is the single
@@ -642,6 +632,31 @@ template count) and follow the same TOML-file design as compiler templates.
 - [x] `crane debug [<binary>] [--debugger <name>] [-- <args>]` — builds with debug profile, selects binary (disambiguates multiple `[[bin]]` targets), execs the debugger replacing the crane process on Unix (`CommandExt::exec`), runs as child + forwards exit code on Windows
 - [x] `crane debug --launch-json` — writes (or merges into) `.vscode/launch.json`; CodeLLDB format (`"type": "lldb"`) for lldb, cppdbg format (`"type": "cppdbg"`, `"MIMode"`) for gdb; configs tagged with `"generatedBy": "crane"` so re-runs replace only crane-generated entries
 
+### Phase 15 — Rhai toolchain scripts ✓ COMPLETE
+
+Compiler definitions moved from static TOML files to Rhai scripts, enabling
+programmatic toolchain definitions (arch-conditional flags, custom detection
+logic, multi-role binary declarations) without any Rust changes.
+
+- [x] `crates/crane-core/src/toolchain/engine.rs` — embedded Rhai engine with registered API:
+  `set_name`, `set_binary`, `set_toolset`, `set_flag`, `set_standard`, `set_structure`,
+  `set_arch_flag`, `set_module_style`, `set_linking`, `set_passthrough`, `add_always_flag`,
+  `add_flags`, `find_tool`, `env`
+- [x] Thread-local `ToolchainDef` builder pattern — scripts run synchronously; RAII guard cleans up on panic
+- [x] `fn check()` — optional script function; return `false` to hide toolchain when unavailable
+- [x] `fn load()` — optional script function; `arch` and `os` in scope; can call `add_flags()` for arch-conditional flags
+- [x] `CompilerTemplate::from_rhai(src)` — converts `ToolchainDef` into the existing `CompilerTemplate` struct; no downstream callers change
+- [x] All 11 compiler scripts ported: `gcc.rhai`, `clang.rhai`, `gfortran.rhai`, `gnat.rhai`, `nvcc.rhai`, `dmd.rhai`, `hipcc.rhai`, `icpx.rhai`, `ispc.rhai`, `opencl.rhai`, `nasm.rhai`
+- [x] `gcc.rhai` uses `fn load()` with `-m64`/`-m32` arch detection — first use of the scripting capability
+- [x] `toolchain_add` updated to require `.rhai` extension
+- [x] `docs/plan-toolchain-roles.md` — full plan for follow-on work (toolset role dispatch, `output_obj`/`output_bin`, `lto_link`, `system_lib`, `dep_file_mode = "stdout"`, `msvc.rhai`)
+- [ ] Wire `toolset` roles into `compile.rs` / `link.rs` (ar, strip, per-role binaries)
+- [ ] `output_obj` / `output_bin` separate structure fields
+- [ ] `lto_link` flag category for link-step LTO flags
+- [ ] `system_lib` format string (e.g. `"{name}.lib"` for MSVC)
+- [ ] `dep_file_mode = "stdout"` — parse `/showIncludes` output for MSVC header tracking
+- [ ] `msvc.rhai` — fully expressible once the above land
+
 ### Future toolchain additions
 
 See `docs/future-toolchains.md` for the full list. High-priority candidates:
@@ -652,7 +667,9 @@ See `docs/future-toolchains.md` for the full list. High-priority candidates:
 
 **Debuggers (template-only)**: `rr` (Mozilla record & replay, Linux x86-64), OpenOCD+GDB (embedded), WinDbg/CDB (Windows)
 
-**Needs Rust changes**: MSVC (`cl.exe`, `.obj`/`.lib` conventions), Emscripten/WASI (`.wasm` output), Swift (`swiftc`), Metal shaders, Clang Objective-C/Objective-C++ language keys, Bazel/XMake migrators, vcpkg dep kind
+**Needs new struct fields only** (no full Rust backend): MSVC (`cl.exe`) — requires `output_obj`/`output_bin` split, `dep_file_mode = "stdout"` for `/showIncludes`, `lto_link` category, `system_lib` format string; see `docs/plan-toolchain-roles.md` Phase 15 todos
+
+**Needs Rust changes**: Emscripten/WASI (`.wasm` output), Swift (`swiftc`), Metal shaders, Clang Objective-C/Objective-C++ language keys, Bazel/XMake migrators, vcpkg dep kind
 
 #### Debugger template format
 
@@ -686,6 +703,7 @@ User-facing reference docs live in `docs/`:
 | `docs/compiler-templates.md` | How the toolchain template system works; all template fields explained; how to write a new template; debugger template schema |
 | `docs/future-toolchains.md` | Planned and possible future compiler, assembler, debugger, and language additions with notes on what each would require |
 | `docs/registry-plan.md` | Architecture plan for the crane.dev registry server (Phase 12) |
+| `docs/plan-toolchain-roles.md` | Plan for Phase 15 follow-on work: toolset role dispatch, `output_obj`/`output_bin`, `lto_link`, `system_lib`, `dep_file_mode = "stdout"`, `msvc.rhai` |
 
 ---
 
@@ -694,8 +712,8 @@ User-facing reference docs live in `docs/`:
 1. **`crane` crate owns the CLI** — clap parsing, `commands/` shells, and `output.rs` colour helpers. Each `cmd_*` reads cwd, calls a pure function in `crane-core`, prints the outcome.
 2. **`crane-core` is a library, no CLI knowledge** — pure functions return `Result<T, CraneError>` (e.g. `build_project`, `scaffold_project → ScaffoldOutcome`). It must not depend on `output.rs` or call `print_*`. Inline `println!` for build-engine progress (`Compiling foo.cpp`, `Linking …`) is the one exception, pending a future progress-callback abstraction.
 2a. **`crane-migrator` is a separate library** — depends on `crane-core` for `CraneError`, exposes `run_migrate → MigrateOutcome`. Keeping it separate lets external tools use the migrator without pulling in the build engine.
-3. **Compiler templates are runtime data** — loaded from `toolchains/` directory, not hardcoded
-4. **One template per toolchain, not per language** — `gcc.toml` handles both C and C++; `compile_binary` in `[linking.c]` overrides which binary compiles that language
+3. **Compiler templates are runtime data** — evaluated from `.rhai` scripts in `toolchains/`, not hardcoded
+4. **One script per toolchain, not per language** — `gcc.rhai` handles both C and C++; `compile_binary` in the `set_linking("c", ...)` call overrides which binary compiles that language
 5. **DAG cycles = hard error** — report the full cycle path (both dep cycles and module cycles)
 6. **`CompilerTemplate::assemble_flags()` is pure** — no side effects, unit-tested
 7. **Never shell out to Make / Ninja / CMake for crane's own sources** — crane owns the build graph entirely. Foreign build systems are only invoked when compiling external dependencies that don't have a `crane.toml`.
