@@ -291,10 +291,23 @@ fn detect_c_symbol(line: &str) -> (String, DocKind) {
     if let Some(r) = t.strip_prefix("namespace ")     { return (first_ident(r), DocKind::Module); }
     if let Some(r) = t.strip_prefix("#define ")       { return (first_ident(r), DocKind::Macro); }
     if t.starts_with("typedef ") {
-        // typedef <type> <alias>;  — last word before semicolon
-        let name = t.trim_end_matches(';')
-            .split_whitespace().last().unwrap_or("").to_string();
-        return (name, DocKind::Typedef);
+        // typedef <type> <alias>;  — last ident-like word before semicolon.
+        // For multi-line "typedef struct { ... } Name;" the closing line has
+        // the alias; single-line "typedef unsigned int u32;" works directly.
+        let candidate = t.trim_end_matches(';')
+            .trim_end()
+            .split(|c: char| !c.is_alphanumeric() && c != '_')
+            .filter(|s| !s.is_empty())
+            .last()
+            .unwrap_or("")
+            .to_string();
+        // Suppress obviously-wrong tokens (keywords, opening brace artefacts)
+        if !candidate.is_empty()
+            && !matches!(candidate.as_str(), "struct" | "union" | "enum" | "class")
+        {
+            return (candidate, DocKind::Typedef);
+        }
+        return (String::new(), DocKind::Typedef);
     }
     if t.starts_with("template") {
         // Template declarations need a full parser; leave as Unknown
@@ -459,11 +472,30 @@ fn collect_fortran_block(lines: &[&str], start: usize) -> (Vec<String>, usize) {
 fn detect_fortran_symbol(line: &str) -> (String, DocKind) {
     let t = line.trim();
     let up = t.to_ascii_uppercase();
-    // Ordered so "MODULE SUBROUTINE" matches before "MODULE"
+
+    // Strip leading qualifiers: PURE, RECURSIVE, ELEMENTAL, IMPURE, LOGICAL, INTEGER, …
+    // by finding the first occurrence of FUNCTION or SUBROUTINE and working from there.
+    let up_sp = up.replace('(', " ").replace(')', " ");
+    let tokens: Vec<&str> = up_sp.split_whitespace().collect();
+
+    // Ordered so "MODULE SUBROUTINE/FUNCTION" match before bare "MODULE"
     if up.starts_with("MODULE SUBROUTINE ") { return (ci_ident_after(t, "module subroutine "), DocKind::Subroutine); }
     if up.starts_with("MODULE FUNCTION ")   { return (ci_ident_after(t, "module function "),   DocKind::Function); }
-    if up.starts_with("SUBROUTINE ")        { return (ci_ident_after(t, "subroutine "),         DocKind::Subroutine); }
-    if up.starts_with("FUNCTION ")          { return (ci_ident_after(t, "function "),           DocKind::Function); }
+
+    // Walk tokens to find SUBROUTINE or FUNCTION keyword, then take the next token as name
+    if let Some(pos) = tokens.iter().position(|w| *w == "SUBROUTINE") {
+        if let Some(name_tok) = tokens.get(pos + 1) {
+            let orig = original_token_at(t, pos + 1);
+            return (first_ident(orig.unwrap_or(name_tok)), DocKind::Subroutine);
+        }
+    }
+    if let Some(pos) = tokens.iter().position(|w| *w == "FUNCTION") {
+        if let Some(name_tok) = tokens.get(pos + 1) {
+            let orig = original_token_at(t, pos + 1);
+            return (first_ident(orig.unwrap_or(name_tok)), DocKind::Function);
+        }
+    }
+
     if up.starts_with("MODULE ") && !up.starts_with("MODULE PROCEDURE") {
         return (ci_ident_after(t, "module "), DocKind::Module);
     }
@@ -474,6 +506,15 @@ fn detect_fortran_symbol(line: &str) -> (String, DocKind) {
         }
     }
     (String::new(), DocKind::Unknown)
+}
+
+/// Return the n-th whitespace token from the original (mixed-case) line.
+fn original_token_at(line: &str, n: usize) -> Option<&str> {
+    line.replace('(', " ").replace(')', " ");
+    // Re-tokenise the original line preserving case
+    line.split(|c: char| c.is_whitespace() || c == '(' || c == ')')
+        .filter(|s| !s.is_empty())
+        .nth(n)
 }
 
 /// Case-insensitive prefix skip — safe for ASCII-only languages (Fortran, Ada).

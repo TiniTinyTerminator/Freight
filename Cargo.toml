@@ -2,6 +2,7 @@
 members = [
     "crates/crane",
     "crates/crane-core",
+    "crates/crane-doc",
     "crates/crane-migrator",
     "crates/crane-lsp",
 ]

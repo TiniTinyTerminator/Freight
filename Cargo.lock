@@ -310,6 +310,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "crane-doc"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "crane-core",
+]
+
+[[package]]
 name = "crane-lsp"
 version = "0.1.0"
 dependencies = [

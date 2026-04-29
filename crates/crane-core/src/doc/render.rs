@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use super::extract::{DocItem, DocKind, DocSet, DocTag, TagKind};
+use super::extract::{DocItem, DocSet, DocTag, TagKind};
 
 /// Write the full documentation site to `out_dir`.
 ///
