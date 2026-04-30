@@ -212,6 +212,9 @@ pub(crate) fn compile_one(
     cmd.arg(source_abs);
     cmd.args(compiler.template.output_flag(obj_path));
 
+    if std::env::var_os("CRANE_VERBOSE").is_some() {
+        print_cmd(&cmd);
+    }
     let out = cmd.output().map_err(CraneError::Io)?;
 
     // For stdout dep mode: parse include lines from stdout before checking success
@@ -287,6 +290,13 @@ pub(crate) fn print_compiling(path: &Path) {
 pub(crate) fn print_fresh(path: &Path) {
     use owo_colors::OwoColorize;
     println!("    {} {}", "Fresh".dimmed(), path.display());
+}
+
+pub(crate) fn print_cmd(cmd: &Command) {
+    use owo_colors::OwoColorize;
+    let prog = cmd.get_program().to_string_lossy();
+    let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+    eprintln!("     {} {} {}", "cmd".dimmed(), prog, args.join(" "));
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

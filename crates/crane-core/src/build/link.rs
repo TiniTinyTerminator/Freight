@@ -204,6 +204,9 @@ fn link_shared(
 }
 
 fn run_cmd(mut cmd: Command, out: &Path) -> Result<(), CraneError> {
+    if std::env::var_os("CRANE_VERBOSE").is_some() {
+        super::compile::print_cmd(&cmd);
+    }
     let result = cmd.output().map_err(CraneError::Io)?;
     if result.status.success() { return Ok(()); }
     let stderr = String::from_utf8_lossy(&result.stderr).into_owned();

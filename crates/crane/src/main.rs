@@ -4,6 +4,8 @@ mod output;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
+use crane_core::build::{set_parallelism, set_verbose};
+
 use crate::commands::build::{cmd_build, cmd_clean, cmd_run, cmd_test};
 use crate::commands::compile_commands::cmd_compile_commands;
 use crate::commands::check::cmd_check;
@@ -28,6 +30,12 @@ pub(crate) fn cli_command() -> clap::Command {
 #[derive(Parser)]
 #[command(name = "crane", about = "Build tool and package manager for C, C++, Fortran, and more")]
 struct Cli {
+    /// Print every compiler and linker invocation
+    #[arg(long, short = 'v', global = true)]
+    verbose: bool,
+    /// Number of parallel compile jobs (default: logical CPUs)
+    #[arg(long, short = 'j', global = true, value_name = "N")]
+    jobs: Option<usize>,
     #[command(subcommand)]
     command: Commands,
 }
@@ -76,6 +84,8 @@ enum Commands {
     /// Build and run tests
     Test {
         name: Option<String>,
+        #[arg(long)]
+        release: bool,
         /// Activate specific features (comma-separated or repeated)
         #[arg(long, value_name = "FEATURES", value_delimiter = ',')]
         features: Vec<String>,
@@ -197,6 +207,11 @@ enum ToolchainCommands {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    set_verbose(cli.verbose);
+    if let Some(n) = cli.jobs {
+        set_parallelism(n);
+    }
+
     match cli.command {
         Commands::New { name, lang } => cmd_new(&name, &lang),
         Commands::Init { lang } => cmd_init(lang.as_deref()),
@@ -206,8 +221,8 @@ fn main() -> Result<()> {
         Commands::Run { release, bin, features, no_default_features, args } => {
             cmd_run(release, bin.as_deref(), &features, !no_default_features, &args);
         }
-        Commands::Test { name, features, no_default_features } => {
-            cmd_test(name.as_deref(), &features, !no_default_features);
+        Commands::Test { name, release, features, no_default_features } => {
+            cmd_test(name.as_deref(), release, &features, !no_default_features);
         }
         Commands::Debug { binary, debugger, launch_json, args } => {
             cmd_debug(binary.as_deref(), debugger.as_deref(), &args, launch_json);

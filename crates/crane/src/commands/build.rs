@@ -140,9 +140,10 @@ pub fn cmd_clean() {
     }
 }
 
-pub fn cmd_test(filter: Option<&str>, features: &[String], use_defaults: bool) {
+pub fn cmd_test(filter: Option<&str>, release: bool, features: &[String], use_defaults: bool) {
+    let profile = if release { "release" } else { "dev" };
     if at_workspace_root() {
-        match test_workspace("dev", filter) {
+        match test_workspace(profile, filter) {
             Ok(summary) => {
                 println!();
                 if summary.total == 0 {
@@ -165,7 +166,7 @@ pub fn cmd_test(filter: Option<&str>, features: &[String], use_defaults: bool) {
         return;
     }
 
-    match test_project("dev", filter, features, use_defaults) {
+    match test_project(profile, filter, features, use_defaults) {
         Ok(summary) => {
             println!();
             if summary.total == 0 {
