@@ -8,7 +8,7 @@ Freight handles C, C++, Fortran, assembly, CUDA, HIP, OpenCL, and more — with 
 
 - **One file, one command** — describe your project in `freight.toml`, run `freight build`
 - **No external build system** — freight owns the entire build graph; no Ninja or Make underneath
-- **Multi-language** — C, C++, Fortran, CUDA, HIP, OpenCL, Ada, D, ISPC, and assembly in one project
+- **Multi-language** — C, C++, Fortran, Swift, Zig, Objective-C, Pascal, CUDA, HIP, OpenCL, Ada, D, ISPC, Odin, V, Mojo, and assembly in one project
 - **C++20 modules** — scans sources for `export module` / `import`, builds a parallel-aware DAG automatically
 - **Incremental builds** — mtime dirty checking via `.d` dep files tracks source + headers
 - **Parallel compilation** — sources compiled in parallel with rayon
@@ -16,6 +16,9 @@ Freight handles C, C++, Fortran, assembly, CUDA, HIP, OpenCL, and more — with 
 - **Platform overlays** — `[platform.linux]`, `[platform.windows]` for OS-specific deps and flags
 - **Dependency filters** — `os`, `arch`, and `targets` fields gate deps by host OS, CPU architecture, or cross-compilation triple
 - **Cross-compilation** — `[compiler] target` and `sysroot` for toolchain-native cross builds
+- **`freight watch`** — rebuild automatically on file changes (200 ms debounce)
+- **ccache / sccache** — compile cache wrappers detected automatically; opt out with `FREIGHT_NO_CACHE=1`
+- **Git dependencies** — `{ git = "url", branch = "main" }` with lock SHA enforcement and auto-fetch
 - **`freight migrate`** — import an existing CMake, Makefile, or Meson project in one command
 - **Language server** — `freight lsp` for `freight.toml` completions, hover docs, and go-to-definition
 - **API docs** — `freight doc` extracts doc comments and renders HTML, Markdown, LaTeX, or PDF with full math support
@@ -116,20 +119,32 @@ defines = ["WIN32_LEAN_AND_MEAN"]
 
 ## Supported languages
 
-| Language | Key | Default compiler |
-|---|---|---|
-| C | `c` | gcc / clang |
-| C++ | `cpp` | g++ / clang++ |
-| Fortran | `fortran` | gfortran |
-| CUDA | `cuda` | nvcc |
-| HIP | `hip` | hipcc |
-| Ada | `ada` | gnat |
-| D | `d` | dmd |
-| Intel SPMD | `ispc` | ispc |
-| Assembly (NASM) | `nasm` | nasm |
-| Assembly (GAS) | `gas` | as |
+| Language | Key | Compiler | Extensions |
+|---|---|---|---|
+| C | `c` | gcc / clang / zig-cc | `.c` |
+| C++ | `cpp` | g++ / clang++ / zig-cc | `.cpp` `.cc` `.cxx` `.c++` `.cppm` |
+| Fortran | `fortran` | gfortran / flang / ifx / nvhpc | `.f90` `.f95` `.f03` `.f08` `.f` |
+| Swift | `swift` | swiftc | `.swift` |
+| Zig | `zig` | zig | `.zig` |
+| Objective-C | `objc` | clang | `.m` |
+| Objective-C++ | `objcpp` | clang++ | `.mm` |
+| Pascal | `pascal` | fpc | `.pas` `.pp` `.lpr` |
+| CUDA | `cuda` | nvcc / nvhpc | `.cu` |
+| HIP | `hip` | hipcc | `.hip` |
+| OpenCL | `opencl` | clang | `.cl` |
+| Ada | `ada` | gnat | `.adb` `.ads` |
+| D | `d` | dmd / ldc2 | `.d` |
+| Odin | `odin` | odin | `.odin` |
+| V | `v` | v | `.v` |
+| Mojo | `mojo` | mojo | `.mojo` |
+| Intel SPMD | `ispc` | ispc | `.ispc` |
+| Assembly (NASM) | `nasm` | nasm | `.asm` `.nasm` |
+| Assembly (GAS) | `gas` | as | `.s` `.S` |
+| Assembly (YASM) | `yasm` | yasm | `.asm` `.yasm` |
 
 Mix any combination in a single project — freight routes each file extension to the right compiler automatically.
+
+> **zig-cc** (`backend = "zig-cc"`) is a drop-in GCC-compatible C/C++ compiler that enables zero-setup cross-compilation — `zig cc -target aarch64-linux-musl` just works without installing a sysroot.
 
 ## Migrating an existing project
 
@@ -161,10 +176,11 @@ freight init                          init freight in current directory
 freight build [--release]             build
 freight run   [--release] [-- <args>] build and run
 freight test  [<filter>]              build and run tests
+freight watch [--release]             watch for changes and rebuild
 freight clean                         wipe target/
 freight check                         validate freight.toml
 freight toolchain list                show detected compilers
-freight add <name> [--path P] [--system] [--dev]
+freight add <name> [--path P] [--git URL [--branch B] [--rev R]] [--system] [--dev]
 freight remove <package>
 freight update [<package>]
 freight tree                          print dependency tree

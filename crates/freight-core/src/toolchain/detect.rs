@@ -307,9 +307,10 @@ mod tests {
     #[test]
     fn load_templates_finds_all() {
         let templates = load_templates(Path::new(TEMPLATES_DIR));
-        assert_eq!(templates.len(), 19,
+        assert_eq!(templates.len(), 27,
             "expected gcc, clang, gfortran, gnat, nvcc, dmd, opencl, hipcc, icpx, ispc, nasm, \
-             tcc, nvhpc, ifx, flang, ldc2, yasm, circle, msvc");
+             tcc, nvhpc, ifx, flang, ldc2, yasm, circle, msvc, \
+             swift, zig, zig-cc, objc, fpc, odin, v, mojo");
     }
 
     #[test]
