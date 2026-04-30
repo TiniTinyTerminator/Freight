@@ -1,8 +1,8 @@
 use std::path::PathBuf;
 
 use clap::Parser;
-use crane_core::doc::extract::{extract_dir, DocSet};
-use crane_core::doc::{render, OutputFormat};
+use crane_doc::extract::{extract_dir, DocSet};
+use crane_doc::{render, OutputFormat};
 
 /// Extract doc comments from source files and render a documentation site.
 #[derive(Parser)]

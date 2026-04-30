@@ -4,8 +4,6 @@ mod output;
 use anyhow::Result;
 use clap::{Parser, Subcommand};
 
-use crane_core::build::{set_parallelism, set_verbose};
-
 use crate::commands::build::{cmd_build, cmd_clean, cmd_run, cmd_test};
 use crate::commands::compile_commands::cmd_compile_commands;
 use crate::commands::check::cmd_check;
@@ -207,9 +205,12 @@ enum ToolchainCommands {
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
-    set_verbose(cli.verbose);
+    if cli.verbose {
+        // Safety: single-threaded at this point; no rayon workers started yet.
+        unsafe { std::env::set_var("CRANE_VERBOSE", "1"); }
+    }
     if let Some(n) = cli.jobs {
-        set_parallelism(n);
+        rayon::ThreadPoolBuilder::new().num_threads(n).build_global().ok();
     }
 
     match cli.command {

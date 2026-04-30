@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use crane_core::doc::extract::{extract_dir, DocSet};
-use crane_core::doc::{render, OutputFormat};
+use crane_doc::extract::{extract_dir, DocSet};
+use crane_doc::{render, OutputFormat};
 use crane_core::manifest::types::Dependency;
 use crane_core::manifest::{find_manifest_dir, load_manifest};
 

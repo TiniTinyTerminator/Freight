@@ -283,9 +283,11 @@ dependencies = [
  "clap",
  "clap_mangen",
  "crane-core",
+ "crane-doc",
  "crane-lsp",
  "crane-migrator",
  "owo-colors",
+ "rayon",
  "serde_json",
  "tokio",
 ]
@@ -296,7 +298,6 @@ version = "0.1.0"
 dependencies = [
  "git2",
  "owo-colors",
- "pulldown-cmark",
  "rayon",
  "regex",
  "rhai",
@@ -315,7 +316,8 @@ name = "crane-doc"
 version = "0.1.0"
 dependencies = [
  "clap",
- "crane-core",
+ "pulldown-cmark",
+ "walkdir",
 ]
 
 [[package]]

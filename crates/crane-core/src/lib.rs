@@ -1,6 +1,5 @@
 pub mod build;
 pub mod dep_cmds;
-pub mod doc;
 pub mod error;
 pub mod git;
 pub mod lock;

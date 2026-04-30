@@ -15,32 +15,6 @@ pub use discover::{DiscoveredSources, SourceFile, discover};
 pub use link::{LinkResult, link_static_lib, link_targets, link_test_binary, select_linker};
 pub use modules::{ModuleBuildPlan, ModuleRole, ScannedSource, bmi_path, compile_module_sources, has_modules, plan_module_build, scan_sources};
 
-// ── Build-time configuration ──────────────────────────────────────────────────
-
-/// Print every compiler and linker invocation to stderr.
-///
-/// Must be called before any build function. Internally sets `CRANE_VERBOSE=1`
-/// so the setting is visible to all compile/link helpers without threading a
-/// flag through every call.
-pub fn set_verbose(v: bool) {
-    if v {
-        // Safety: single-threaded CLI startup; no other threads are running yet.
-        unsafe { std::env::set_var("CRANE_VERBOSE", "1"); }
-    }
-}
-
-/// Cap the rayon thread pool to `n` threads.
-///
-/// Must be called before the first rayon parallel operation. Errors (e.g. the
-/// pool was already initialised) are silently ignored — the build still works,
-/// just with the default parallelism.
-pub fn set_parallelism(n: usize) {
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(n)
-        .build_global()
-        .ok();
-}
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
