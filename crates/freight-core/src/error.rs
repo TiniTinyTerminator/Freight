@@ -47,6 +47,9 @@ pub enum FreightError {
     #[error("git error: {0}")]
     GitError(String),
 
+    #[error("install failed: {0}")]
+    InstallFailed(String),
+
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 }

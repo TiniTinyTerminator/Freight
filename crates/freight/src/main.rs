@@ -13,6 +13,7 @@ use crate::commands::deps::{
     cmd_update, cmd_yank,
 };
 use crate::commands::doc::{cmd_doc, cmd_man};
+use crate::commands::install::{cmd_install, cmd_package};
 use crate::commands::migrate::cmd_migrate;
 use crate::commands::new::{cmd_init, cmd_new};
 use crate::commands::toolchain::{cmd_toolchain_add, cmd_toolchain_list};
@@ -176,6 +177,27 @@ enum Commands {
         #[arg(long, short, value_name = "FORMAT", default_value = "html")]
         format: String,
     },
+    /// Install build outputs to a system prefix (binaries, libs, headers)
+    Install {
+        /// Installation prefix (default: /usr/local)
+        #[arg(long, value_name = "PATH", default_value = "/usr/local")]
+        prefix: String,
+        /// Staging root prepended before prefix (for package managers / fakeroot)
+        #[arg(long, value_name = "PATH")]
+        destdir: Option<String>,
+        /// Install release build (default: true)
+        #[arg(long, default_value_t = true)]
+        release: bool,
+        /// Skip the build step; install from existing target/ outputs
+        #[arg(long)]
+        no_build: bool,
+    },
+    /// Build and pack outputs into a redistributable tar.gz archive
+    Package {
+        /// Package the release build (default: true)
+        #[arg(long, default_value_t = true)]
+        release: bool,
+    },
     /// Generate man pages for all freight subcommands
     Man {
         /// Output directory (default: target/man/)
@@ -249,6 +271,10 @@ fn main() -> Result<()> {
         Commands::Migrate { from, dry_run, force } => {
             cmd_migrate(from.as_deref(), dry_run, force);
         }
+        Commands::Install { prefix, destdir, release, no_build } => {
+            cmd_install(Some(&prefix), destdir.as_deref(), release, no_build);
+        }
+        Commands::Package { release } => cmd_package(release),
         Commands::Doc { format } => cmd_doc(&format),
         Commands::Man { out_dir } => cmd_man(out_dir.as_deref()),
         Commands::Login => cmd_login(),
