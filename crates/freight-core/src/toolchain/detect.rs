@@ -17,17 +17,17 @@ pub struct DetectedCompiler {
 
 /// Load every `.rhai` file from `templates_dir` and return parsed templates.
 pub fn load_templates(templates_dir: &Path) -> Vec<CompilerTemplate> {
-    let Ok(entries) = std::fs::read_dir(templates_dir) else {
-        return vec![];
-    };
-
     let mut templates = Vec::new();
-    for entry in entries.flatten() {
+    for entry in walkdir::WalkDir::new(templates_dir)
+        .follow_links(false)
+        .into_iter()
+        .flatten()
+    {
         let path = entry.path();
         if path.extension().and_then(|e| e.to_str()) != Some("rhai") {
             continue;
         }
-        let Ok(src) = std::fs::read_to_string(&path) else {
+        let Ok(src) = std::fs::read_to_string(path) else {
             continue;
         };
         match CompilerTemplate::from_rhai(&src) {

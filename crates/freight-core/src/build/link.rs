@@ -278,7 +278,7 @@ mod tests {
     const TEMPLATES_DIR: &str =
         concat!(env!("CARGO_MANIFEST_DIR"), "/../../toolchains");
     const GCC_RHAI: &str =
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../toolchains/gcc.rhai"));
+        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../toolchains/gnu/gcc.rhai"));
     const MSVC_RHAI: &str =
         include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../toolchains/msvc.rhai"));
 

@@ -54,10 +54,11 @@ sysroot      = "";
 modules["style"] = "none";
 
 linking["c"] = #{
-    abi:        "c",
-    compatible: [],
-    linker:     "",
-    extensions: [".c"],
+    abi:            "c",
+    compatible:     [],
+    compile_binary: "tcc",
+    linker:         "",
+    extensions:     [".c"],
 };
 
 fn check() {

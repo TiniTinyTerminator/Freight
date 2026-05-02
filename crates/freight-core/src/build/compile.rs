@@ -532,16 +532,17 @@ src  = "src/main.cpp"
     }
 
     #[test]
-    fn c_files_use_different_binary_than_cpp_files() {
+    fn gcc_c_uses_different_binary_than_linker() {
         let ts = templates();
         let detected = fake_detected(&ts);
-        let compiler = select_compiler("c", &Backend::default(), &detected, None).unwrap();
+        // gcc specifically uses gcc (not g++) as the C compile binary.
+        let backend = Backend("gcc".into());
+        let compiler = select_compiler("c", &backend, &detected, None).unwrap();
         let c_info = compiler.template.linking.get("c").unwrap();
-        // The compile_binary for C must differ from the template's main linker binary.
         assert_ne!(
             c_info.compile_binary.as_deref().unwrap_or(&compiler.template.binary),
             compiler.template.binary.as_str(),
-            "C compile binary should differ from the linker binary (e.g. gcc vs g++)"
+            "gcc C compile binary (gcc) should differ from linker binary (g++)"
         );
     }
 
