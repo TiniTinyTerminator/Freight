@@ -82,10 +82,10 @@ build events rather than parsing raw text.
 
 ### Slot-based substitution
 Currently `provides = [...]` only detects conflicts. Full slot substitution
-would auto-route a dep request to a compatible provider — e.g. root has `mkl`,
-sub-dep requests `openblas`, both declare `provides = ["blas"]`, freight uses
-`mkl` without any `[patch]` entry. Complex to implement correctly; deferred
-until the registry resolver exists.
+uses the dependency hierarchy as the resolution rule: when two active deps fill
+the same slot, the one declared closer to the root wins and the deeper one is
+silently dropped with a note. Same-depth conflicts (two root-level deps both
+providing the same slot) remain a hard error since neither has priority.
 
 ### Workspace support improvements
 Per-member feature flags (`freight build -p mylib --features tls`), workspace-

@@ -178,7 +178,10 @@ pub fn build_project_at(project_dir: &Path, profile: &str, features: &[String], 
     }
 
     let resolved_deps = resolve_dep_graph(project_dir, manifest, false, &activated_deps)?;
-    check_slot_conflicts(&resolved_deps, manifest)?;
+    let to_drop = check_slot_conflicts(&resolved_deps, manifest)?;
+    let resolved_deps: Vec<ResolvedDep> = resolved_deps.into_iter()
+        .filter(|d| !to_drop.contains(&d.name))
+        .collect();
     let built = build_resolved_deps(manifest, project_dir, profile, templates, detected, &resolved_deps)?;
     let (foreign_built, pkg_configs) = foreign::build_foreign_deps(project_dir, manifest, profile)?;
 
@@ -372,7 +375,10 @@ pub fn test_project_at(project_dir: &Path, profile: &str, filter: Option<&str>, 
 
     // Build deps (include dev-dependencies for test runs).
     let resolved_deps = resolve_dep_graph(project_dir, manifest, true, &activated_deps)?;
-    check_slot_conflicts(&resolved_deps, manifest)?;
+    let to_drop = check_slot_conflicts(&resolved_deps, manifest)?;
+    let resolved_deps: Vec<ResolvedDep> = resolved_deps.into_iter()
+        .filter(|d| !to_drop.contains(&d.name))
+        .collect();
     let built = build_resolved_deps(manifest, project_dir, profile, templates, detected, &resolved_deps)?;
     let (foreign_built, pkg_configs) = foreign::build_foreign_deps(project_dir, manifest, profile)?;
 

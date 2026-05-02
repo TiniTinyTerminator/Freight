@@ -12,6 +12,8 @@ pub struct ResolvedDep {
     /// Absolute path to the dep's source root (contains freight.toml and src/).
     pub dir: PathBuf,
     pub manifest: Manifest,
+    /// Distance from the root project: 1 = direct dep, 2 = dep's dep, etc.
+    pub depth: usize,
 }
 
 /// Walk the dependency tree of `root_manifest` and return all compilable deps
@@ -33,11 +35,16 @@ pub fn resolve_dep_graph(
 ) -> Result<Vec<ResolvedDep>, FreightError> {
     let mut nodes: HashMap<String, (PathBuf, Manifest)> = HashMap::new();
     let mut deps_of: HashMap<String, Vec<String>> = HashMap::new();
+    let mut depths: HashMap<String, usize> = HashMap::new();
 
     let initial = direct_compilable_deps(root_dir, root_dir, root_manifest, include_dev, activated_deps);
-    let mut queue: VecDeque<(String, PathBuf)> = initial.into_iter().collect();
+    // Queue carries (name, dir, depth): direct deps of root start at depth 1.
+    let mut queue: VecDeque<(String, PathBuf, usize)> = initial
+        .into_iter()
+        .map(|(n, d)| (n, d, 1))
+        .collect();
 
-    while let Some((name, dir)) = queue.pop_front() {
+    while let Some((name, dir, depth)) = queue.pop_front() {
         if nodes.contains_key(&name) { continue; }
 
         if !dir.exists() {
@@ -68,51 +75,80 @@ pub fn resolve_dep_graph(
 
         let sub_names: Vec<String> = sub_deps.iter().map(|(n, _)| n.clone()).collect();
         deps_of.insert(name.clone(), sub_names);
+        depths.insert(name.clone(), depth);
         nodes.insert(name, (dir, manifest));
 
         for sub in sub_deps {
-            queue.push_back(sub);
+            queue.push_back((sub.0, sub.1, depth + 1));
         }
     }
 
     let build_order = topo_sort(&nodes.keys().cloned().collect::<Vec<_>>(), &deps_of)?;
 
-    // Move out of the HashMap in sorted order.
     let mut remaining = nodes;
     Ok(build_order.into_iter().map(|name| {
+        let depth = depths[&name];
         let (dir, manifest) = remaining.remove(&name).unwrap();
-        ResolvedDep { name, dir, manifest }
+        ResolvedDep { name, dir, manifest, depth }
     }).collect())
 }
 
-/// Check that no two active deps fill the same `provides` slot.
+/// Check slot conflicts among active deps and apply hierarchy-based substitution.
 ///
 /// Called after `resolve_dep_graph` with the full resolved list plus the root
-/// manifest itself (so the root package's own `provides` is included).
-/// Returns `Err(SlotConflict)` on the first collision found.
-pub fn check_slot_conflicts(resolved: &[ResolvedDep], root_manifest: &Manifest) -> Result<(), FreightError> {
-    // slot → first dep name that claimed it
-    let mut claimed: HashMap<String, String> = HashMap::new();
+/// manifest itself (depth 0, always wins).
+///
+/// - Different depths → shallower dep wins; deeper dep is added to the returned
+///   drop list and a note is printed to stderr.
+/// - Same depth → hard error: neither has priority, the user must resolve it.
+///
+/// Returns the list of dep names that should be dropped from the build.
+pub fn check_slot_conflicts(resolved: &[ResolvedDep], root_manifest: &Manifest) -> Result<Vec<String>, FreightError> {
+    // slot → (dep_name, depth); depth 0 = root project (always wins)
+    let mut claimed: HashMap<String, (String, usize)> = HashMap::new();
+    let mut to_drop: Vec<String> = Vec::new();
 
-    // Include the root package itself so it can declare provides too.
     for slot in &root_manifest.package.provides {
-        claimed.insert(slot.clone(), root_manifest.package.name.clone());
+        claimed.insert(slot.clone(), (root_manifest.package.name.clone(), 0));
     }
 
     for dep in resolved {
         for slot in &dep.manifest.package.provides {
-            if let Some(existing) = claimed.get(slot) {
-                return Err(FreightError::SlotConflict(
-                    existing.clone(),
-                    dep.name.clone(),
-                    slot.clone(),
-                ));
+            if let Some((existing_name, existing_depth)) = claimed.get(slot).cloned() {
+                if dep.depth < existing_depth {
+                    // This dep is closer to root — it wins; drop the previous claimant.
+                    eprintln!(
+                        "note: using '{}' instead of '{}' (both provide '{}')",
+                        dep.name, existing_name, slot,
+                    );
+                    if !to_drop.contains(&existing_name) {
+                        to_drop.push(existing_name.clone());
+                    }
+                    claimed.insert(slot.clone(), (dep.name.clone(), dep.depth));
+                } else if dep.depth > existing_depth {
+                    // Existing dep is closer to root — keep it; drop this dep.
+                    eprintln!(
+                        "note: using '{}' instead of '{}' (both provide '{}')",
+                        existing_name, dep.name, slot,
+                    );
+                    if !to_drop.contains(&dep.name) {
+                        to_drop.push(dep.name.clone());
+                    }
+                } else {
+                    // Same depth — true conflict, user must resolve.
+                    return Err(FreightError::SlotConflict(
+                        existing_name.clone(),
+                        dep.name.clone(),
+                        slot.clone(),
+                    ));
+                }
+            } else {
+                claimed.insert(slot.clone(), (dep.name.clone(), dep.depth));
             }
-            claimed.insert(slot.clone(), dep.name.clone());
         }
     }
 
-    Ok(())
+    Ok(to_drop)
 }
 
 /// Absolute include directories that `dep` exports to its dependants.
