@@ -7,3 +7,4 @@ pub mod lock;
 pub mod manifest;
 pub mod new;
 pub mod toolchain;
+pub mod vendor;

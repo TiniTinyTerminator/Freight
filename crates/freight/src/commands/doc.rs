@@ -22,7 +22,7 @@ pub fn cmd_doc(format: &str) {
             if let Some(lib) = &manifest.lib {
                 let d = project_dir.join(&lib.src);
                 if d.is_dir() { source_dirs.push(d); }
-                if let Some(inc) = &lib.include {
+                if let Some(inc) = &lib.inc {
                     let inc_dir = project_dir.join(inc);
                     if inc_dir.is_dir() && !source_dirs.contains(&inc_dir) {
                         source_dirs.push(inc_dir);

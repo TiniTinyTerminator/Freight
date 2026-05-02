@@ -678,7 +678,7 @@ fn handle_add_library(p: &mut ImportedProject, platform: Option<&str>, args: &[S
         name: name.clone(),
         lib_type: lib_type.to_string(),
         src: src_dir,
-        include: None,
+        inc: None,
     });
 
     if let Some(plat) = platform {

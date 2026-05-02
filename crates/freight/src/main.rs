@@ -191,12 +191,19 @@ enum Commands {
         /// Skip the build step; install from existing target/ outputs
         #[arg(long)]
         no_build: bool,
+        /// Cross-compilation target triple (e.g. aarch64-linux-gnu)
+        #[arg(long, value_name = "TRIPLE")]
+        target: Option<String>,
     },
     /// Build and pack outputs into a redistributable tar.gz archive
     Package {
         /// Package the release build (default: true)
         #[arg(long, default_value_t = true)]
         release: bool,
+        /// Target triples to package, comma-separated (e.g. aarch64-linux-gnu,x86_64-linux-gnu).
+        /// Omit for a native build. Unsupported combinations are skipped with a warning.
+        #[arg(long, value_name = "TRIPLES", value_delimiter = ',')]
+        target: Vec<String>,
     },
     /// Generate man pages for all freight subcommands
     Man {
@@ -271,10 +278,10 @@ fn main() -> Result<()> {
         Commands::Migrate { from, dry_run, force } => {
             cmd_migrate(from.as_deref(), dry_run, force);
         }
-        Commands::Install { prefix, destdir, release, no_build } => {
-            cmd_install(Some(&prefix), destdir.as_deref(), release, no_build);
+        Commands::Install { prefix, destdir, release, no_build, target } => {
+            cmd_install(Some(&prefix), destdir.as_deref(), release, no_build, target.as_deref());
         }
-        Commands::Package { release } => cmd_package(release),
+        Commands::Package { release, target } => cmd_package(release, &target),
         Commands::Doc { format } => cmd_doc(&format),
         Commands::Man { out_dir } => cmd_man(out_dir.as_deref()),
         Commands::Login => cmd_login(),

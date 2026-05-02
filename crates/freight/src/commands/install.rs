@@ -3,9 +3,9 @@ use std::path::PathBuf;
 use freight_core::install::{install_project, package_project, InstalledKind, InstallOptions};
 use freight_core::manifest::find_manifest_dir;
 
-use crate::output::{print_error, print_status, print_success};
+use crate::output::{print_error, print_status, print_success, print_warning};
 
-pub fn cmd_install(prefix: Option<&str>, destdir: Option<&str>, release: bool, no_build: bool) {
+pub fn cmd_install(prefix: Option<&str>, destdir: Option<&str>, release: bool, no_build: bool, target: Option<&str>) {
     let cwd         = std::env::current_dir().expect("cannot read cwd");
     let project_dir = find_manifest_dir(&cwd).unwrap_or(cwd);
 
@@ -17,6 +17,7 @@ pub fn cmd_install(prefix: Option<&str>, destdir: Option<&str>, release: bool, n
         destdir:  destdir.map(PathBuf::from),
         release,
         no_build,
+        target:   target.map(str::to_string),
     };
 
     let display_prefix = opts.destdir.as_ref()
@@ -42,14 +43,35 @@ pub fn cmd_install(prefix: Option<&str>, destdir: Option<&str>, release: bool, n
     }
 }
 
-pub fn cmd_package(release: bool) {
+pub fn cmd_package(release: bool, targets: &[String]) {
     let cwd         = std::env::current_dir().expect("cannot read cwd");
     let project_dir = find_manifest_dir(&cwd).unwrap_or(cwd);
 
-    print_status("Packaging", &project_dir.display().to_string());
+    // No explicit targets → native build.
+    if targets.is_empty() {
+        print_status("Packaging", &project_dir.display().to_string());
+        match package_project(&project_dir, release, None) {
+            Ok(archive) => print_success(&format!("→ {}", archive.display())),
+            Err(e)      => print_error(&e.to_string()),
+        }
+        return;
+    }
 
-    match package_project(&project_dir, release) {
-        Ok(archive) => print_success(&format!("→ {}", archive.display())),
-        Err(e)      => print_error(&e.to_string()),
+    let mut succeeded = 0usize;
+    for target in targets {
+        print_status("Packaging", &format!("{} [{}]", project_dir.display(), target));
+        match package_project(&project_dir, release, Some(target)) {
+            Ok(archive) => {
+                print_success(&format!("→ {}", archive.display()));
+                succeeded += 1;
+            }
+            Err(e) => {
+                print_warning(&format!("skipping {target}: {e}"));
+            }
+        }
+    }
+
+    if succeeded == 0 {
+        print_error("all targets failed — no archives produced");
     }
 }

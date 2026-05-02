@@ -9,6 +9,7 @@ use crate::build::build_project_at;
 use crate::error::FreightError;
 use crate::manifest::load_manifest;
 use crate::manifest::types::LibType;
+use crate::vendor::parse_triple;
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -23,6 +24,10 @@ pub struct InstallOptions {
     pub release: bool,
     /// Skip the build step — install whatever is already in `target/`.
     pub no_build: bool,
+    /// Cross-compilation target triple (e.g. `aarch64-linux-gnu`).
+    /// When set, overrides `[compiler] target` in the manifest and drives
+    /// platform-specific install decisions (shared lib naming, DLL placement).
+    pub target: Option<String>,
 }
 
 impl Default for InstallOptions {
@@ -32,6 +37,7 @@ impl Default for InstallOptions {
             destdir:  None,
             release:  true,
             no_build: false,
+            target:   None,
         }
     }
 }
@@ -73,8 +79,16 @@ pub fn install_project(project_dir: &Path, opts: &InstallOptions) -> Result<Inst
     let profile  = if opts.release { "release" } else { "dev" };
 
     if !opts.no_build {
-        build_project_at(project_dir, profile, &[], true)?;
+        build_project_at(project_dir, profile, &[], true, opts.target.as_deref())?;
     }
+
+    // Derive target OS/arch: prefer the explicit override, then the manifest's
+    // [compiler] target, then fall back to the host.
+    let target_str = opts.target.as_deref()
+        .or_else(|| manifest.compiler.target.as_deref());
+    let (target_arch, target_os) = target_str
+        .map(parse_triple)
+        .unwrap_or_else(|| (std::env::consts::ARCH.to_string(), std::env::consts::OS.to_string()));
 
     let root    = install_root(&opts.prefix, opts.destdir.as_deref());
     let bin_dir = root.join("bin");
@@ -118,6 +132,7 @@ pub fn install_project(project_dir: &Path, opts: &InstallOptions) -> Result<Inst
                     &manifest.package.name,
                     &manifest.package.version,
                     &lib_dir, &opts.prefix,
+                    &target_os,
                     &mut items,
                 )?;
             }
@@ -125,7 +140,7 @@ pub fn install_project(project_dir: &Path, opts: &InstallOptions) -> Result<Inst
         }
 
         // ── Public headers ────────────────────────────────────────────────────
-        if let Some(inc_rel) = &lib.include {
+        if let Some(inc_rel) = &lib.inc {
             let inc_src = project_dir.join(inc_rel);
             if inc_src.is_dir() {
                 let inc_dst = root.join("include").join(&manifest.package.name);
@@ -134,32 +149,44 @@ pub fn install_project(project_dir: &Path, opts: &InstallOptions) -> Result<Inst
         }
     }
 
-    // On Linux: refresh the dynamic linker cache when installing shared libs
-    // to a real system path (not a destdir-staged install).
-    #[cfg(target_os = "linux")]
-    if items.iter().any(|i| matches!(i.kind, InstalledKind::SharedLib))
+    // On Linux targets: refresh the dynamic linker cache when installing shared
+    // libs to a real system path (not a destdir-staged install).
+    if target_os == "linux"
+        && items.iter().any(|i| matches!(i.kind, InstalledKind::SharedLib))
         && opts.destdir.is_none()
     {
         run_ldconfig(&lib_dir);
     }
+
+    // suppress unused-variable warning when compiled on non-Linux hosts
+    let _ = target_arch;
 
     Ok(InstallResult { items })
 }
 
 /// Build in release mode, install to a staging dir, and produce a
 /// `{name}-{version}-{arch}-{os}.tar.gz` in `target/package/`.
-pub fn package_project(project_dir: &Path, release: bool) -> Result<PathBuf, FreightError> {
+///
+/// `target` is an optional cross-compilation triple (e.g. `aarch64-linux-gnu`).
+/// When provided it overrides the manifest's `[compiler] target` and is used to
+/// derive the arch/os components of the archive filename.
+pub fn package_project(project_dir: &Path, release: bool, target: Option<&str>) -> Result<PathBuf, FreightError> {
     let manifest = load_manifest(project_dir)?;
     let profile  = if release { "release" } else { "dev" };
 
-    build_project_at(project_dir, profile, &[], true)?;
+    build_project_at(project_dir, profile, &[], true, target)?;
+
+    let (pkg_arch, pkg_os) = target
+        .or_else(|| manifest.compiler.target.as_deref())
+        .map(parse_triple)
+        .unwrap_or_else(|| (std::env::consts::ARCH.to_string(), std::env::consts::OS.to_string()));
 
     let stem = format!(
         "{}-{}-{}-{}",
         manifest.package.name,
         manifest.package.version,
-        std::env::consts::ARCH,
-        std::env::consts::OS,
+        pkg_arch,
+        pkg_os,
     );
 
     let pkg_dir = project_dir.join("target").join("package");
@@ -174,6 +201,7 @@ pub fn package_project(project_dir: &Path, release: bool) -> Result<PathBuf, Fre
         destdir:  None,
         release,
         no_build: true,
+        target:   target.map(str::to_string),
     })?;
 
     let archive = pkg_dir.join(format!("{stem}.tar.gz"));
@@ -192,9 +220,10 @@ fn install_shared_lib(
     version: &str,
     lib_dir: &Path,
     prefix: &Path,
+    target_os: &str,
     items: &mut Vec<InstalledItem>,
 ) -> Result<(), FreightError> {
-    match std::env::consts::OS {
+    match target_os {
         "linux" => {
             let src = project_dir.join("target").join(profile).join(format!("lib{name}.so"));
             if !src.exists() { return Ok(()); }
@@ -333,12 +362,14 @@ fn create_tarball(parent: &Path, stem: &str, archive: &Path) -> Result<(), Freig
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
 fn run_ldconfig(lib_dir: &Path) {
-    // Non-fatal — fails silently when not running as root.
-    let _ = std::process::Command::new("ldconfig")
-        .arg(lib_dir)
-        .status();
+    // Only meaningful on a Linux host; no-op when cross-compiling from another OS.
+    if cfg!(target_os = "linux") {
+        // Non-fatal — fails silently when not running as root.
+        let _ = std::process::Command::new("ldconfig")
+            .arg(lib_dir)
+            .status();
+    }
 }
 
 fn default_prefix() -> PathBuf {
@@ -348,3 +379,4 @@ fn default_prefix() -> PathBuf {
         PathBuf::from("/usr/local")
     }
 }
+

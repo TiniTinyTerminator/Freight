@@ -282,6 +282,10 @@ pub struct Package {
     pub repository: Option<String>,
     #[serde(default)]
     pub keywords: Vec<String>,
+    /// Virtual slots this package fills (e.g. `["blas"]`, `["cxx-stdlib"]`).
+    /// If two active deps declare the same slot, freight errors before compilation.
+    #[serde(default)]
+    pub provides: Vec<String>,
 }
 
 // ── Language ──────────────────────────────────────────────────────────────────
@@ -301,8 +305,9 @@ pub struct LibTarget {
     #[serde(rename = "type", default)]
     pub lib_type: LibType,
     pub src: String,
-    #[serde(default)]
-    pub include: Option<String>,
+    /// Public include directory. Accepts `inc` or `include` in TOML.
+    #[serde(default, alias = "include")]
+    pub inc: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default, PartialEq, Eq)]
@@ -539,6 +544,10 @@ pub struct Profile {
     pub strip: Option<bool>,
     #[serde(default)]
     pub sanitize: Vec<String>,
+    /// Additional features active only in this profile (e.g. `features = ["mkl"]`).
+    /// Merged with any features requested at the command line before resolution.
+    #[serde(default)]
+    pub features: Vec<String>,
 }
 
 // ── Platform overlays ─────────────────────────────────────────────────────────

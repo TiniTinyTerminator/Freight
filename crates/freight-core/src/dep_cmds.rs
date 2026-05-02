@@ -256,7 +256,8 @@ pub fn regen_lock(project_dir: &Path) -> Result<RegenLockOutcome, FreightError> 
     let templates = load_templates(&tdir);
     let _ = detect_all_cached(&templates); // warm the version cache as a side effect
 
-    let resolved = match resolve_dep_graph(project_dir, &manifest, false) {
+    let empty = std::collections::BTreeSet::new();
+    let resolved = match resolve_dep_graph(project_dir, &manifest, false, &empty) {
         Ok(r) => r,
         Err(_) => return Ok(RegenLockOutcome::Skipped),
     };

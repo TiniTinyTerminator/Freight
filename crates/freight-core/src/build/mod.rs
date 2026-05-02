@@ -11,11 +11,12 @@ pub mod modules;
 pub mod script;
 
 pub use compile::{CompileResult, compile_sources, dep_file_path, object_path, select_compiler, settings_for_lang};
-pub use deps::{ResolvedDep, resolve_dep_graph};
+pub use deps::{ResolvedDep, check_slot_conflicts, resolve_dep_graph};
 pub use discover::{DiscoveredSources, SourceFile, discover};
 pub use link::{LinkResult, link_static_lib, link_targets, link_test_binary, select_linker};
 pub use modules::{ModuleBuildPlan, ModuleRole, ScannedSource, bmi_path, compile_module_sources, has_modules, plan_module_build, scan_sources};
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -79,7 +80,7 @@ pub fn build_workspace(profile: &str) -> Result<Vec<BuildOutput>, FreightError> 
     let mut member_dirs: Vec<PathBuf> = Vec::new();
     for member in &ws.members {
         let member_dir = ws_dir.join(member.trim_end_matches('/'));
-        outputs.push(build_project_at(&member_dir, profile, &[], true)?);
+        outputs.push(build_project_at(&member_dir, profile, &[], true, None)?);
         member_dirs.push(member_dir);
     }
 
@@ -141,21 +142,34 @@ pub fn build_project(profile: &str, features: &[String], use_defaults: bool) -> 
     let cwd = std::env::current_dir()?;
     let project_dir = find_manifest_dir(&cwd)
         .ok_or_else(|| FreightError::ManifestNotFound(cwd.to_string_lossy().into_owned()))?;
-    build_project_at(&project_dir, profile, features, use_defaults)
+    build_project_at(&project_dir, profile, features, use_defaults, None)
 }
 
 /// Build the project at a specific `project_dir`.
-pub fn build_project_at(project_dir: &Path, profile: &str, features: &[String], use_defaults: bool) -> Result<BuildOutput, FreightError> {
-    let ctx = load_project_at(project_dir, profile)?;
+///
+/// `target_override` replaces `[compiler] target` from the manifest — useful
+/// for `freight install --target <triple>` and `freight package --target <triple>`.
+pub fn build_project_at(project_dir: &Path, profile: &str, features: &[String], use_defaults: bool, target_override: Option<&str>) -> Result<BuildOutput, FreightError> {
+    let mut ctx = load_project_at(project_dir, profile)?;
+    if let Some(t) = target_override {
+        ctx.manifest.compiler.target = Some(t.to_string());
+    }
     let ProjectContext { project_dir, manifest, templates, detected, found } = &ctx;
 
     use owo_colors::OwoColorize;
     println!("  {} {} ({profile})", "Building".bold(), manifest.package.name);
 
-    let feature_defines = {
-        let active = features::resolve_features(&manifest.features, features, use_defaults)?;
-        features::to_defines(&active)
+    // Merge profile-level features into the caller-supplied list before resolving.
+    let profile_features: &[String] = match profile {
+        "dev"     => manifest.profile.dev.as_ref().map_or(&[], |p| p.features.as_slice()),
+        "release" => manifest.profile.release.as_ref().map_or(&[], |p| p.features.as_slice()),
+        _         => &[],
     };
+    let all_requested: Vec<String> = features.iter().chain(profile_features.iter()).cloned().collect();
+
+    let resolution = features::resolve_features(&manifest.features, &all_requested, use_defaults)?;
+    let feature_defines = features::to_defines(&resolution.active);
+    let activated_deps = resolution.activated_deps;
 
     ensure_git_deps_fetched(project_dir, manifest)?;
     let existing_lock = LockFile::load(project_dir);
@@ -163,7 +177,8 @@ pub fn build_project_at(project_dir: &Path, profile: &str, features: &[String], 
         verify_git_dep_shas(project_dir, manifest, lock);
     }
 
-    let resolved_deps = resolve_dep_graph(project_dir, manifest, false)?;
+    let resolved_deps = resolve_dep_graph(project_dir, manifest, false, &activated_deps)?;
+    check_slot_conflicts(&resolved_deps, manifest)?;
     let built = build_resolved_deps(manifest, project_dir, profile, templates, detected, &resolved_deps)?;
     let (foreign_built, pkg_configs) = foreign::build_foreign_deps(project_dir, manifest, profile)?;
 
@@ -271,10 +286,8 @@ pub fn generate_compile_commands_at(project_dir: &Path, profile: &str) -> Result
     let ctx = load_project_at(project_dir, profile)?;
     let ProjectContext { project_dir, manifest, templates: _, detected, found } = &ctx;
 
-    let feature_defines = {
-        let active = features::resolve_features(&manifest.features, &[], true)?;
-        features::to_defines(&active)
-    };
+    let resolution = features::resolve_features(&manifest.features, &[], true)?;
+    let feature_defines = features::to_defines(&resolution.active);
 
     // Collect dep include dirs without triggering compilation.  Resolution
     // failures are non-fatal — we fall back to project-local dirs only.
@@ -297,7 +310,8 @@ pub fn generate_compile_commands_at(project_dir: &Path, profile: &str) -> Result
 /// `freight compile-commands` command produces complete `-I` flags even when
 /// the project has not been built yet.  Resolution errors are silently ignored.
 fn collect_dep_include_dirs(project_dir: &Path, manifest: &Manifest) -> Vec<PathBuf> {
-    let Ok(resolved) = resolve_dep_graph(project_dir, manifest, false) else {
+    let empty = BTreeSet::new();
+    let Ok(resolved) = resolve_dep_graph(project_dir, manifest, false, &empty) else {
         return vec![];
     };
     resolved
@@ -339,10 +353,16 @@ pub fn test_project_at(project_dir: &Path, profile: &str, filter: Option<&str>, 
     use owo_colors::OwoColorize;
     println!("  {} {} ({profile})", "Testing".bold(), manifest.package.name);
 
-    let feature_defines = {
-        let active = features::resolve_features(&manifest.features, features, use_defaults)?;
-        features::to_defines(&active)
+    let profile_features: &[String] = match profile {
+        "dev"     => manifest.profile.dev.as_ref().map_or(&[], |p| p.features.as_slice()),
+        "release" => manifest.profile.release.as_ref().map_or(&[], |p| p.features.as_slice()),
+        _         => &[],
     };
+    let all_requested: Vec<String> = features.iter().chain(profile_features.iter()).cloned().collect();
+
+    let resolution = features::resolve_features(&manifest.features, &all_requested, use_defaults)?;
+    let feature_defines = features::to_defines(&resolution.active);
+    let activated_deps = resolution.activated_deps;
 
     ensure_git_deps_fetched(project_dir, manifest)?;
     let existing_lock = LockFile::load(project_dir);
@@ -351,7 +371,8 @@ pub fn test_project_at(project_dir: &Path, profile: &str, filter: Option<&str>, 
     }
 
     // Build deps (include dev-dependencies for test runs).
-    let resolved_deps = resolve_dep_graph(project_dir, manifest, true)?;
+    let resolved_deps = resolve_dep_graph(project_dir, manifest, true, &activated_deps)?;
+    check_slot_conflicts(&resolved_deps, manifest)?;
     let built = build_resolved_deps(manifest, project_dir, profile, templates, detected, &resolved_deps)?;
     let (foreign_built, pkg_configs) = foreign::build_foreign_deps(project_dir, manifest, profile)?;
 
@@ -612,8 +633,8 @@ fn build_resolved_deps(
                 .and_then(|d| if let Dependency::Detailed(d) = d { Some(d) } else { None })
                 .map(|d| (d.features.clone(), d.default_features))
                 .unwrap_or_default();
-            let active = features::resolve_features(&dep.manifest.features, &req, use_defaults)?;
-            features::to_defines(&active)
+            let resolution = features::resolve_features(&dep.manifest.features, &req, use_defaults)?;
+            features::to_defines(&resolution.active)
         };
 
         let dep_found = discover(&dep.dir, &dep.manifest, templates);

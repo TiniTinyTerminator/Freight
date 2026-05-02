@@ -1,4 +1,4 @@
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
 use crate::error::FreightError;
@@ -29,11 +29,12 @@ pub fn resolve_dep_graph(
     root_dir: &Path,
     root_manifest: &Manifest,
     include_dev: bool,
+    activated_deps: &BTreeSet<String>,
 ) -> Result<Vec<ResolvedDep>, FreightError> {
     let mut nodes: HashMap<String, (PathBuf, Manifest)> = HashMap::new();
     let mut deps_of: HashMap<String, Vec<String>> = HashMap::new();
 
-    let initial = direct_compilable_deps(root_dir, root_manifest, include_dev);
+    let initial = direct_compilable_deps(root_dir, root_dir, root_manifest, include_dev, activated_deps);
     let mut queue: VecDeque<(String, PathBuf)> = initial.into_iter().collect();
 
     while let Some((name, dir)) = queue.pop_front() {
@@ -50,13 +51,17 @@ pub fn resolve_dep_graph(
         let manifest = load_manifest(&dir)
             .map_err(|e| FreightError::ManifestParse(format!("dep '{name}': {e}")))?;
 
-        // Check sub-deps are available; we don't download them, but we do walk them.
-        let sub_deps = direct_compilable_deps(&dir, &manifest, false);
+        // All deps — including transitive ones — live in the root project's flat
+        // .deps/ pool, not in a nested .deps/ inside each dep.  Path deps in a
+        // transitive manifest are relative to that dep's own directory, but
+        // version/git deps always resolve against root_dir.
+        let empty = BTreeSet::new();
+        let sub_deps = direct_compilable_deps(root_dir, &dir, &manifest, false, &empty);
         for (sub_name, sub_dir) in &sub_deps {
             if !sub_dir.exists() {
                 return Err(FreightError::ManifestParse(format!(
-                    "dep '{name}' requires '{sub_name}', which is not in .deps/. \
-                     Run `freight fetch` to download all dependencies.",
+                    "dep '{name}' requires '{sub_name}', which is not present. \
+                     Add it to your root .deps/ and run `freight fetch`.",
                 )));
             }
         }
@@ -78,6 +83,36 @@ pub fn resolve_dep_graph(
         let (dir, manifest) = remaining.remove(&name).unwrap();
         ResolvedDep { name, dir, manifest }
     }).collect())
+}
+
+/// Check that no two active deps fill the same `provides` slot.
+///
+/// Called after `resolve_dep_graph` with the full resolved list plus the root
+/// manifest itself (so the root package's own `provides` is included).
+/// Returns `Err(SlotConflict)` on the first collision found.
+pub fn check_slot_conflicts(resolved: &[ResolvedDep], root_manifest: &Manifest) -> Result<(), FreightError> {
+    // slot → first dep name that claimed it
+    let mut claimed: HashMap<String, String> = HashMap::new();
+
+    // Include the root package itself so it can declare provides too.
+    for slot in &root_manifest.package.provides {
+        claimed.insert(slot.clone(), root_manifest.package.name.clone());
+    }
+
+    for dep in resolved {
+        for slot in &dep.manifest.package.provides {
+            if let Some(existing) = claimed.get(slot) {
+                return Err(FreightError::SlotConflict(
+                    existing.clone(),
+                    dep.name.clone(),
+                    slot.clone(),
+                ));
+            }
+            claimed.insert(slot.clone(), dep.name.clone());
+        }
+    }
+
+    Ok(())
 }
 
 /// Absolute include directories that `dep` exports to its dependants.
@@ -103,21 +138,36 @@ pub fn dep_include_dirs(dep_dir: &Path, manifest: &Manifest) -> Vec<PathBuf> {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/// `root_dir`      — the root project's directory; version/git deps resolve to
+///                   `root_dir/.deps/{name}/` (flat, shared pool).
+/// `declaring_dir` — the directory of the manifest that declares this dep;
+///                   path deps (`path = "../foo"`) are relative to this.
+///
+/// For the root project both are the same. For transitive deps, `root_dir`
+/// stays fixed while `declaring_dir` is the dep's own directory.
 fn direct_compilable_deps(
-    project_dir: &Path,
+    root_dir: &Path,
+    declaring_dir: &Path,
     manifest: &Manifest,
     include_dev: bool,
+    activated_deps: &BTreeSet<String>,
 ) -> Vec<(String, PathBuf)> {
     let mut result: Vec<(String, PathBuf)> = Vec::new();
     for (name, dep) in manifest.effective_dependencies() {
-        if let Some(dir) = compilable_dep_dir(project_dir, &name, &dep) {
+        // Skip optional deps that haven't been activated via a `dep:name` feature entry.
+        if let Dependency::Detailed(ref d) = dep {
+            if d.optional && !activated_deps.contains(&name) {
+                continue;
+            }
+        }
+        if let Some(dir) = compilable_dep_dir(root_dir, declaring_dir, &name, &dep) {
             result.push((name, dir));
         }
     }
     if include_dev {
         for (name, dep) in &manifest.dev_dependencies {
             if result.iter().any(|(n, _)| n == name) { continue; }
-            if let Some(dir) = compilable_dep_dir(project_dir, name, dep) {
+            if let Some(dir) = compilable_dep_dir(root_dir, declaring_dir, name, dep) {
                 result.push((name.clone(), dir));
             }
         }
@@ -125,18 +175,20 @@ fn direct_compilable_deps(
     result
 }
 
-fn compilable_dep_dir(project_dir: &Path, name: &str, dep: &Dependency) -> Option<PathBuf> {
+fn compilable_dep_dir(root_dir: &Path, declaring_dir: &Path, name: &str, dep: &Dependency) -> Option<PathBuf> {
     match dep {
         Dependency::Simple(_) => {
-            // Version dep → .deps/{name}/
-            Some(project_dir.join(".deps").join(name))
+            // Version dep → root .deps/{name}/ (flat pool)
+            Some(root_dir.join(".deps").join(name))
         }
         Dependency::Detailed(d) => {
             if d.system.is_some() { return None; }
             let dep_dir = if d.git.is_some() {
-                project_dir.join(".deps").join(name)
+                // Git dep → root .deps/{name}/ (flat pool)
+                root_dir.join(".deps").join(name)
             } else if let Some(p) = &d.path {
-                project_dir.join(p)
+                // Path dep → relative to the manifest that declares it
+                declaring_dir.join(p)
             } else {
                 return None;
             };

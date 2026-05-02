@@ -17,6 +17,9 @@ pub enum FreightError {
     #[error("cycle detected in module dependency graph: {0}")]
     DependencyCycle(String),
 
+    #[error("slot conflict — '{0}' and '{1}' both provide '{2}'\n       only one provider per slot may be active")]
+    SlotConflict(String, String, String),
+
     #[error("no compiler found for language '{0}' — is the toolchain installed?")]
     NoCompilerForLang(String),
 

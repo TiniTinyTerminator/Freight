@@ -43,7 +43,7 @@ pub fn to_toml(p: &ImportedProject) -> String {
         writeln!(out, "[lib]").unwrap();
         writeln!(out, "type    = \"{}\"", lib.lib_type).unwrap();
         writeln!(out, "src     = \"{}\"", lib.src).unwrap();
-        if let Some(inc) = &lib.include {
+        if let Some(inc) = &lib.inc {
             writeln!(out, "include = \"{inc}\"").unwrap();
         }
         writeln!(out).unwrap();
@@ -136,7 +136,7 @@ fn emit_lib_member(p: &ImportedProject, lib: &ImportedLib, _dir: &str) -> String
     writeln!(out, "[lib]").unwrap();
     writeln!(out, "type    = \"{}\"", lib.lib_type).unwrap();
     writeln!(out, "src     = \"{}\"", lib.src).unwrap();
-    if let Some(inc) = &lib.include {
+    if let Some(inc) = &lib.inc {
         writeln!(out, "include = \"{inc}\"").unwrap();
     }
     writeln!(out).unwrap();
@@ -325,8 +325,8 @@ mod tests {
         let mut p = ImportedProject::default();
         p.name = Some("demo".into());
         p.version = Some("1.0.0".into());
-        p.libs.push(ImportedLib { name: "foo".into(), lib_type: "static".into(), src: "src/foo/".into(), include: None });
-        p.libs.push(ImportedLib { name: "bar".into(), lib_type: "shared".into(), src: "src/bar/".into(), include: None });
+        p.libs.push(ImportedLib { name: "foo".into(), lib_type: "static".into(), src: "src/foo/".into(), inc: None });
+        p.libs.push(ImportedLib { name: "bar".into(), lib_type: "shared".into(), src: "src/bar/".into(), inc: None });
         p.bins.push(crate::ImportedBin { name: "app".into(), src: "src/main.cpp".into() });
 
         let ws = to_workspace_toml(&p);

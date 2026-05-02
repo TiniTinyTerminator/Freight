@@ -24,7 +24,7 @@ pub fn lookup(path: &str) -> Option<&'static str> {
         "lib" => Some("Library target. `type = \"static\" | \"shared\" | \"header-only\"`."),
         "lib.type" => Some("`static` → `.a`, `shared` → `.so`, `header-only` → no compile output."),
         "lib.src" => Some("Root source directory for the library."),
-        "lib.include" => Some("Public header directory exposed to dependents."),
+        "lib.inc" | "lib.include" => Some("Public header directory exposed to dependents."),
         "bin" => Some("Executable target. Repeat `[[bin]]` for multiple binaries."),
         "bin.name" => Some("Output binary name."),
         "bin.src" => Some("Path to the entry-point source file containing `main`."),

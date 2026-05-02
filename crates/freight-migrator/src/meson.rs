@@ -461,7 +461,7 @@ fn handle_library(
         name: name.clone(),
         lib_type: default_type.to_string(),
         src: src_dir,
-        include: None,
+        inc: None,
     });
     for (k, v) in named {
         if k == "dependencies" {

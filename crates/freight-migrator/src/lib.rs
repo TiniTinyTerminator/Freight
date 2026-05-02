@@ -227,7 +227,7 @@ pub struct ImportedLib {
     pub lib_type: String,
     /// Source directory (e.g. `"src/"`).
     pub src: String,
-    pub include: Option<String>,
+    pub inc: Option<String>,
 }
 
 #[derive(Debug, Clone)]
