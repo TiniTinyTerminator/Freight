@@ -891,7 +891,7 @@ mod tests {
     const OPENCL_RHAI: &str   = include_str!("../../../../toolchains/opencl.rhai");
     const HIPCC_RHAI: &str    = include_str!("../../../../toolchains/amd/hipcc.rhai");
     const ICPX_RHAI: &str     = include_str!("../../../../toolchains/intel/icpx.rhai");
-    const ISPC_RHAI: &str     = include_str!("../../../../toolchains/ispc.rhai");
+    const ISPC_RHAI: &str     = include_str!("../../../../toolchains/intel/ispc.rhai");
     const NASM_RHAI: &str     = include_str!("../../../../toolchains/nasm.rhai");
     const TCC_RHAI: &str      = include_str!("../../../../toolchains/tcc.rhai");
     const NVHPC_RHAI: &str    = include_str!("../../../../toolchains/nvidia/nvhpc.rhai");
