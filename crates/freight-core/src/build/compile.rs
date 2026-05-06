@@ -164,9 +164,6 @@ pub fn settings_for_lang(
     if let Some(stdlib) = lang.stdlib {
         s.stdlib = stdlib;
     }
-    if let Some(runtime) = lang.runtime {
-        s.runtime = runtime;
-    }
     for dir in extra_include_dirs {
         s.include_paths.push(project_dir.join(dir));
     }

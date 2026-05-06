@@ -264,22 +264,6 @@ fn validate_language(m: &Manifest, templates: &[CompilerTemplate], errors: &mut 
             }
         }
 
-        // Validate runtime (C) — checked against the union of flags_runtime keys.
-        if key == "c" {
-            if let Some(runtime) = &settings.runtime {
-                let valid: HashSet<&str> = handling.iter()
-                    .flat_map(|t| t.flags_runtime.keys().map(String::as_str))
-                    .collect();
-                if !valid.is_empty() && !valid.contains(runtime.as_str()) {
-                    let mut sorted: Vec<&str> = valid.into_iter().collect();
-                    sorted.sort();
-                    errors.push(ValidationError::new(
-                        &ctx,
-                        format!("runtime {:?} is not supported; valid values: {}", runtime, sorted.join(", ")),
-                    ));
-                }
-            }
-        }
     }
 }
 

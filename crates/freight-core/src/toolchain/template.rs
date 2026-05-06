@@ -186,8 +186,6 @@ pub struct BuildSettings {
     pub cpu_extensions: Vec<String>,
     /// C++ standard library: `"libc++"` | `"libstdc++"` | `"none"` | `""` (default/unset).
     pub stdlib: String,
-    /// C runtime: `"glibc"` | `"musl"` | `"bionic"` | `"none"` | `""` (default/unset).
-    pub runtime: String,
 }
 
 impl Default for BuildSettings {
@@ -208,7 +206,6 @@ impl Default for BuildSettings {
             arch: std::env::consts::ARCH.to_string(),
             cpu_extensions: vec![],
             stdlib: String::new(),
-            runtime: String::new(),
         }
     }
 }
@@ -704,13 +701,6 @@ impl CompilerTemplate {
             }
         }
 
-        // C runtime flag.
-        if !settings.runtime.is_empty() {
-            if let Some(f) = self.flags_runtime.get(&settings.runtime) {
-                push_flag_str(&mut flags, f);
-            }
-        }
-
         // CPU extension flags (e.g. `-mavx2`, `-mfma`).
         if !self.flags_cpu_extension.is_empty() {
             for ext in &settings.cpu_extensions {
@@ -825,11 +815,6 @@ impl CompilerTemplate {
         // stdlib and runtime flags are also needed at link time.
         if !settings.stdlib.is_empty() {
             if let Some(f) = self.flags_stdlib.get(&settings.stdlib) {
-                push_flag_str(&mut flags, f);
-            }
-        }
-        if !settings.runtime.is_empty() {
-            if let Some(f) = self.flags_runtime.get(&settings.runtime) {
                 push_flag_str(&mut flags, f);
             }
         }

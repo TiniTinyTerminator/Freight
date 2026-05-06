@@ -202,9 +202,8 @@ impl Manifest {
         for plat in host_platforms() {
             if let Some(ov) = self.platform_overlay(plat) {
                 if let Some(lang_ov) = ov.language.get(lang_key) {
-                    if lang_ov.std.is_some()     { s.std     = lang_ov.std.clone(); }
-                    if lang_ov.stdlib.is_some()  { s.stdlib  = lang_ov.stdlib.clone(); }
-                    if lang_ov.runtime.is_some() { s.runtime = lang_ov.runtime.clone(); }
+                    if lang_ov.std.is_some()    { s.std    = lang_ov.std.clone(); }
+                    if lang_ov.stdlib.is_some() { s.stdlib = lang_ov.stdlib.clone(); }
                 }
             }
         }
@@ -349,13 +348,9 @@ pub struct LanguageSettings {
     #[serde(default)]
     pub std: Option<String>,
     /// C++ standard library selection: `"libc++"` | `"libstdc++"` | `"none"`.
-    /// Only meaningful for `[language.cpp]`.
+    /// Only meaningful for `[language.cpp]`. Defaults to the toolchain's built-in choice.
     #[serde(default)]
     pub stdlib: Option<String>,
-    /// C runtime selection: `"glibc"` | `"musl"` | `"bionic"` | `"none"`.
-    /// Only meaningful for `[language.c]`. Libs inherit from the root project.
-    #[serde(default)]
-    pub runtime: Option<String>,
 }
 
 // ── Targets ───────────────────────────────────────────────────────────────────
