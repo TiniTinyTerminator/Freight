@@ -1,8 +1,9 @@
 # Requirements Handling
 
 Freight should validate that every compiler a project needs is actually present
-before starting any compilation. Currently it discovers missing tools mid-build,
-which produces confusing errors deep in the build pipeline.
+before starting any compilation, and allow templates to handle arbitrary
+per-option behaviour (extra flags, validation, configuration) driven entirely by
+the manifest — without touching the Rust binary.
 
 ---
 
@@ -12,28 +13,23 @@ which produces confusing errors deep in the build pipeline.
 already means "this project needs a CUDA compiler." No new manifest section is
 needed — the fix is enforcing that declaration upfront.
 
-### Per-option callbacks via `add_compiler_option`
+### Per-option callbacks
 
-Each option a template wants to support is registered with its own anonymous
-callback. The Rust side exposes `add_compiler_option(name, callback)` as a Rhai
-function during template evaluation. When freight validates a project, it looks
-up which options the manifest declares under `[compiler.<name>]` or
-`[language.<key>]`, finds the registered callback for each one, and calls it
-with a `ctx` object carrying relevant information from the manifest and the
-detected compiler.
+Two registration functions are available inside `.rhai` templates:
 
-```rhai
-add_compiler_option("min_version", |ctx| {
-    if ctx.version < ctx.value {
-        return "clang " + ctx.version + " is below required minimum " + ctx.value;
-    }
-    ""
-});
-```
+| Function | Reads from | Typical use |
+|---|---|---|
+| `compiler_option("key", \|ctx\| { })` | `[compiler.<name>]` in manifest | version constraints, toolchain-wide flags |
+| `language_option("key", \|ctx\| { })` | `[language.<key>]` in manifest | arch checks, extra per-language flags, std overrides |
 
-This keeps each option self-contained. The Rust binary never interprets option
-names or values — it just dispatches to whatever the template registered.
-Templates without registered options pass validation unconditionally.
+When freight evaluates a project, it collects every option declared in the
+manifest, looks up the registered callback for each key, and calls it with a
+`ctx` object. The callback can validate, inject extra compiler flags, or both.
+Unknown keys (no callback registered) are silently ignored — forwards
+compatible by default.
+
+The Rust binary never interprets option names or values itself. It only
+dispatches and surfaces errors.
 
 ### `ctx` fields
 
@@ -44,6 +40,10 @@ Templates without registered options pass validation unconditionally.
 | `ctx.arch` | string | Effective target architecture (e.g. `"x86_64"`) |
 | `ctx.os` | string | Effective target OS (e.g. `"linux"`) |
 | `ctx.name` | string | Template name (e.g. `"clang"`) |
+
+The callback returns `""` on success (no error, no extra flags) or a non-empty
+string as an error message. To inject extra compiler flags the callback calls
+`ctx.add_flag(s)` as a side effect.
 
 ---
 
@@ -75,71 +75,77 @@ for &lang_key in ASM_KEYS {
 
 ---
 
-### 2. Add `arch` field to `LanguageSettings` — `manifest/types.rs`
+### 2. Manifest types — `manifest/types.rs`
+
+Add `arch` to `LanguageSettings` (feeds `language_option` callbacks):
 
 ```rust
 pub struct LanguageSettings {
     pub std:    Option<String>,
     pub stdlib: Option<String>,
-    pub arch:   Option<String>,   // new: e.g. "x86_64", "aarch64"
+    pub arch:   Option<String>,   // e.g. "x86_64", "aarch64"
 }
 ```
 
-**Example manifest usage:**
-```toml
-[language.asm]
-arch = "x86_64"
-```
-
----
-
-### 3. Compiler constraints manifest type — `manifest/types.rs`
+Add free-form option maps for both sections:
 
 ```rust
-/// Free-form key/value options declared under `[compiler.<name>]`.
-/// Each key is dispatched to the callback registered via add_compiler_option().
-/// Keys and their meaning are defined by each template, not by freight.
+/// Options under [compiler.<name>] — dispatched to compiler_option() callbacks.
 #[derive(Debug, Default, Clone, Serialize, Deserialize)]
-pub struct CompilerConstraints(pub HashMap<String, String>);
+pub struct CompilerOptions(pub HashMap<String, String>);
+
+/// Options under [language.<key>] beyond the typed fields are collected here
+/// and dispatched to language_option() callbacks.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct LanguageOptions(pub HashMap<String, String>);
 ```
 
 Add to `Manifest`:
 
 ```rust
 #[serde(default)]
-pub compiler: HashMap<String, CompilerConstraints>,
+pub compiler: HashMap<String, CompilerOptions>,
 ```
+
+`LanguageSettings::to_option_map()` converts the typed fields (`arch`, `std`,
+`stdlib`) plus any unrecognised keys into a `HashMap<String, String>` for
+dispatch.
 
 ---
 
-### 4. `add_compiler_option` Rhai API — `toolchain/template.rs`
+### 3. Option handler storage — `toolchain/template.rs`
 
-During template evaluation, freight registers `add_compiler_option` as a Rhai
-function. Internally it stores a map of `option_name -> FnPtr` on the template.
+During template evaluation, freight registers both Rhai functions. Internally
+the handlers are stored on the template:
 
 ```rust
-// Stored on CompilerTemplate after evaluation:
-pub option_handlers: HashMap<String, rhai::FnPtr>,
+pub struct CompilerTemplate {
+    // ... existing fields ...
+    pub compiler_option_handlers: HashMap<String, rhai::FnPtr>,
+    pub language_option_handlers: HashMap<String, rhai::FnPtr>,
+}
 ```
 
-The Rust registration (pseudocode):
+Registration (pseudocode):
 
 ```rust
-engine.register_fn("add_compiler_option", move |name: String, handler: FnPtr| {
-    option_handlers.insert(name, handler);
+engine.register_fn("compiler_option", |name: String, handler: FnPtr| {
+    compiler_option_handlers.insert(name, handler);
+});
+engine.register_fn("language_option", |name: String, handler: FnPtr| {
+    language_option_handlers.insert(name, handler);
 });
 ```
 
+`run_option_handlers(handlers, options, ctx)` iterates the option map, looks up
+each key in `handlers`, builds the `ctx` dynamic map, calls the `FnPtr`, collects
+`ctx.extra_flags`, and returns the first non-empty error string.
+
 ---
 
-### 5. Pre-build validation — `build/mod.rs`
+### 4. Pre-build validation — `build/mod.rs`
 
 After `detect_all_cached()` and before `discover()`:
-
-1. For every `[language.<key>]` in the manifest, verify `select_compiler()`
-   returns something. If not, error immediately.
-2. For each declared option in the manifest, look up the template's registered
-   callback and call it with a `ctx` built from the manifest + detected info.
 
 ```rust
 fn check_compiler_requirements(
@@ -157,35 +163,35 @@ fn check_compiler_requirements(
             )));
         };
 
-        let settings = manifest.effective_language_settings(lang_key);
-        let options = settings.to_option_map(); // e.g. {"arch": "x86_64"}
-        dc.template.run_option_handlers(&options, &dc.version, effective_arch, effective_os)?;
+        let options = manifest.effective_language_settings(lang_key).to_option_map();
+        dc.template.run_option_handlers(
+            &dc.template.language_option_handlers,
+            &options, &dc.version, effective_arch, effective_os,
+        )?;
     }
 
-    for (name, constraints) in &manifest.compiler {
+    for (name, options) in &manifest.compiler {
         let Some(dc) = detected.iter().find(|d| d.template.name == *name) else {
-            continue; // absent — only an error if also required by a language above
+            continue;
         };
-        dc.template.run_option_handlers(&constraints.0, &dc.version, effective_arch, effective_os)?;
+        dc.template.run_option_handlers(
+            &dc.template.compiler_option_handlers,
+            &options.0, &dc.version, effective_arch, effective_os,
+        )?;
     }
 
     Ok(())
 }
 ```
 
-`run_option_handlers` iterates the provided option map, looks up each key in
-`template.option_handlers`, builds the `ctx` map, and calls the `FnPtr`. Returns
-the first non-empty string as a `FreightError`. Unknown option keys (no handler
-registered) are silently ignored.
-
 ---
 
-### 6. Per-option callbacks in Rhai templates
+### 5. Callbacks in Rhai templates
 
-**`nasm.rhai` / `yasm.rhai`:**
+**`nasm.rhai` / `yasm.rhai`** — arch validation via `language_option`:
 
 ```rhai
-add_compiler_option("arch", |ctx| {
+language_option("arch", |ctx| {
     if ctx.arch != ctx.value {
         return "assembler requires arch '" + ctx.value +
                "' but the effective target is '" + ctx.arch + "'";
@@ -194,10 +200,10 @@ add_compiler_option("arch", |ctx| {
 });
 ```
 
-**`nvcc.rhai`:**
+**`nvcc.rhai`** — version validation via `compiler_option`:
 
 ```rhai
-add_compiler_option("min_version", |ctx| {
+compiler_option("min_version", |ctx| {
     if ctx.version < ctx.value {
         return "nvcc " + ctx.version + " is below required minimum " + ctx.value;
     }
@@ -205,20 +211,29 @@ add_compiler_option("min_version", |ctx| {
 });
 ```
 
-**`clang.rhai` / `gcc.rhai`:**
+**`clang.rhai` / `gcc.rhai`** — version validation and extra flags:
 
 ```rhai
-add_compiler_option("min_version", |ctx| {
+compiler_option("min_version", |ctx| {
     if ctx.version < ctx.value {
         return ctx.name + " " + ctx.version + " is below required minimum " + ctx.value;
     }
     ""
 });
 
-add_compiler_option("max_version", |ctx| {
+compiler_option("max_version", |ctx| {
     if ctx.version > ctx.value {
         return ctx.name + " " + ctx.version + " exceeds required maximum " + ctx.value;
     }
+    ""
+});
+```
+
+**Any template** — extra flags via `language_option`:
+
+```rhai
+language_option("sanitize", |ctx| {
+    ctx.add_flag("-fsanitize=" + ctx.value);
     ""
 });
 ```
@@ -231,16 +246,15 @@ add_compiler_option("max_version", |ctx| {
 # CUDA project — freight errors immediately if nvcc is not on PATH
 [language.cuda]
 
-# x86-64 assembly — errors if no asm compiler found;
-# "arch" dispatched to nasm/yasm's add_compiler_option("arch", ...) callback
+# x86-64 assembly — "arch" dispatched to language_option("arch", ...) in nasm/yasm
 [language.asm]
 arch = "x86_64"
 
-# Fortran — errors if gfortran / flang not found
+# Fortran
 [language.fortran]
 std = "f2018"
 
-# Compiler option constraints — each key dispatched to its registered callback
+# Compiler-level options — dispatched to compiler_option() callbacks
 [compiler.clang]
 min_version = "14.0"
 
@@ -255,9 +269,6 @@ max_version = "14.0"
 ---
 
 ## Error messages
-
-Error strings are returned by the callback, so each template controls the
-wording. Examples with the implementations above:
 
 | Situation | Message |
 |---|---|
@@ -274,10 +285,10 @@ wording. Examples with the implementations above:
 | File | Change |
 |---|---|
 | `crates/freight-core/src/build/discover.rs` | Remove asm always-active block |
-| `crates/freight-core/src/manifest/types.rs` | Add `arch` to `LanguageSettings`; add `CompilerConstraints`; add `compiler` map to `Manifest` |
-| `crates/freight-core/src/toolchain/template.rs` | Register `add_compiler_option` Rhai function; store `option_handlers` map; add `run_option_handlers()` |
+| `crates/freight-core/src/manifest/types.rs` | Add `arch` to `LanguageSettings`; add `CompilerOptions`, `LanguageOptions`; add `compiler` map to `Manifest` |
+| `crates/freight-core/src/toolchain/template.rs` | Register `compiler_option` and `language_option` Rhai functions; store handler maps; add `run_option_handlers()` |
 | `crates/freight-core/src/build/mod.rs` | Add `check_compiler_requirements()`, call before `discover()` |
-| `toolchains/nasm.rhai`, `toolchains/yasm.rhai` | Register `"arch"` option callback |
-| `toolchains/nvidia/nvcc.rhai` | Register `"min_version"` option callback |
-| `toolchains/llvm/clang.rhai`, `toolchains/gnu/gcc.rhai` | Register `"min_version"` and `"max_version"` option callbacks |
+| `toolchains/nasm.rhai`, `toolchains/yasm.rhai` | Register `language_option("arch", ...)` |
+| `toolchains/nvidia/nvcc.rhai` | Register `compiler_option("min_version", ...)` |
+| `toolchains/llvm/clang.rhai`, `toolchains/gnu/gcc.rhai` | Register `compiler_option("min_version", ...)` and `compiler_option("max_version", ...)` |
 | `docs/manifest-reference.md` | Document `arch` under `[language.*]`; document `[compiler.*]` section |
