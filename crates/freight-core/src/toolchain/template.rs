@@ -44,8 +44,6 @@ struct RawFlags {
     lto: HashMap<String, String>,
     #[serde(default)]
     lto_link: HashMap<String, String>,
-    #[serde(default)]
-    strip: HashMap<String, String>,
     sanitize: String,
     /// Template for per-CPU-extension flags, e.g. `"-m{name}"` → `-mavx2`.
     /// Empty string means the compiler does not support such flags.
@@ -327,7 +325,6 @@ pub struct CompilerTemplate {
     /// Separate LTO flags for the link step (MSVC `/LTCG` vs compile-step `/GL`).
     /// When empty, `flags_lto` is used for both compile and link.
     flags_lto_link: HashMap<String, String>,
-    flags_strip: HashMap<String, String>,
     flags_sanitize: String,
     /// Template for CPU-extension flags, e.g. `"-m{name}"`. Empty = unsupported.
     flags_cpu_extension: String,
@@ -417,7 +414,6 @@ impl CompilerTemplate {
             flags_warnings: raw.flags.warnings,
             flags_lto: raw.flags.lto,
             flags_lto_link: raw.flags.lto_link,
-            flags_strip: raw.flags.strip,
             flags_sanitize: raw.flags.sanitize,
             flags_cpu_extension: raw.flags.cpu_extension,
             flags_stdlib: HashMap::new(),
@@ -557,7 +553,6 @@ impl CompilerTemplate {
             flags_warnings:        get_flags("warnings"),
             flags_lto:             get_flags("lto"),
             flags_lto_link:        get_flags("lto_link"),
-            flags_strip:           get_flags("strip"),
             flags_sanitize:        def.flags.get("sanitize")
                                      .and_then(|m| m.get("template")).cloned()
                                      .unwrap_or_default(),
