@@ -13,8 +13,7 @@ Freight handles C, C++, Fortran, CUDA, HIP, OpenCL, ISPC, and assembly — with 
 - **Incremental builds** — mtime dirty checking via `.d` dep files tracks source + headers
 - **Parallel compilation** — sources compiled in parallel with rayon
 - **Profiles** — `dev` (debug, `-O0`) and `release` (`-O3`, LTO, strip) out of the box
-- **Platform-conditional sources** — `[os.linux]`, `[arch.x86_64]` sections include source files and defines only on matching platforms; non-matching files are excluded from the build entirely
-- **Platform overlays** — `[platform.linux]`, `[platform.windows]` for OS-specific deps and compiler flags
+- **Platform-conditional sources** — `[os.linux]`, `[arch.x86_64]` sections gate sources, defines, flags, includes, and deps to matching platforms; non-matching files are excluded entirely
 - **Dependency filters** — `os`, `arch`, and `targets` fields gate deps by host OS, CPU architecture, or cross-compilation triple
 - **Cross-compilation** — `[compiler] target` and `sysroot` for toolchain-native cross builds
 - **`freight watch`** — rebuild automatically on file changes (200 ms debounce)
@@ -244,6 +243,10 @@ The `examples/` directory contains fully buildable projects:
 | `cpp-modules/` | C++20 named modules, ASCII ray tracer |
 | `tri-lang/` | Fortran + C + C++ N-body gravity |
 | `asm-hello/` | C + NASM assembly |
+| `platform-deps/` | `[os.*]` / `[arch.*]` conditional sources, defines, and deps |
+| `features-demo/` | `[features]` conditional compilation |
+| `with-external-deps/` | URL archive and pkg-config deps |
+| `prebuilt-demo/` | `build.freight` pre-build script |
 | `doc-example/` | C, C++, Fortran with LaTeX math in comments |
 | `migrated-from-cmake/` | Before/after for `freight migrate` |
 

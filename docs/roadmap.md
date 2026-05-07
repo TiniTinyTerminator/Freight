@@ -30,7 +30,7 @@ Feature branches follow the convention `feature/<name>` off `master`.
 - [x] `family` field in rhai scripts groups compilers into named suites
 - [x] `requires_toolchain` field marks guest/extension compilers (nvcc, hipcc, nasm, yasm, …); auto-dropped when no host toolchain is detected
 - [x] Toolchain version cache (`~/.freight/toolchain-cache.json`, mtime-validated)
-- [x] 19 bundled toolchain scripts: gcc, clang, nasm, gfortran, gnat, nvcc, dmd, hipcc, icpx, opencl, ispc, tcc, nvhpc, ifx, flang, ldc2, yasm, circle, msvc
+- [x] 20 bundled compiler templates: gcc, g++, gfortran, clang, clang++, flang, icpx, ifx, ispc, hipcc, nvcc, nvc, nvc++, nvfortran, gas, nasm, yasm, msvc, opencl, tcc
 - [x] gcc and clang scripts probe versioned binaries (`g++-14`, `clang++-17`, …) as fallbacks
 
 ### Build Engine ✓ COMPLETE
@@ -80,7 +80,8 @@ Feature branches follow the convention `feature/<name>` off `master`.
 
 ### Assembly & Target Config ✓ COMPLETE
 - [x] NASM template — `.asm`/`.nasm`, arch-specific output format via `[arch_flags]`
-- [x] GAS (AT&T assembly) via GCC/Clang — `.s`/`.S` in `[linking.c]` extensions
+- [x] YASM template — drop-in NASM-compatible x86/x86_64 assembler
+- [x] GAS template (`gas.rhai`) — binutils `as`, `.s`/`.S`, `requires_toolchain = ["c"]`; gcc and clang also handle `.s`/`.S` natively
 - [x] `[target]` section — `arch` and `cpu_extensions` (generates `-m<ext>` flags)
 - [x] `[arch_flags]` in templates — keyed by `"arch.os"` first, `"arch"` fallback
 
@@ -107,7 +108,7 @@ Feature branches follow the convention `feature/<name>` off `master`.
 - [x] Auto-detection of source build system
 - [x] CMake, Makefile, Meson importers — all parse to shared `ImportedProject` IR
 - [x] `emit::to_toml` serializes to `freight.toml` with stable output ordering
-- [x] Platform guards routed to `[platform.<os>]` overlays
+- [x] Platform guards routed to `[os.*]` / `[arch.*]` sections (note: migrator still emits legacy `[platform.*]` — update pending)
 - [x] `find_package()` → `{ system = "..." }` dep with review comment
 - [x] `--dry-run` prints generated `freight.toml` to stdout
 - [x] `examples/migrated-from-cmake/` — before/after worked example

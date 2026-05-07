@@ -306,37 +306,65 @@ common choices: `address`, `undefined`, `thread`, `memory`, `leak`.
 
 ---
 
-## `[platform.<os>]`
+## `[os.<key>]` and `[arch.<key>]`
 
-Per-OS overlays merged into the build at runtime. Use for OS-specific dependencies and compiler
-flags without cluttering the main sections.
+Platform-conditional sections. Each section is applied only when the host OS or CPU architecture
+matches the key. Non-matching sections are completely ignored — their source files are excluded
+from the build, not just skipped at compile time.
 
-Recognized keys: `linux`, `windows`, `macos`, `freebsd`, `openbsd`, `netbsd`, `dragonfly`,
-`android`, `ios`, `solaris`, `illumos`, plus the family aliases `unix` (everything except
-Windows) and `bsd` (all BSDs). Family overlays are applied before the specific OS, so a Linux
-build picks up `[platform.unix]` then `[platform.linux]`.
+### OS keys
+
+Recognized OS keys: `linux`, `windows`, `macos`, `freebsd`, `openbsd`, `netbsd`, `dragonfly`,
+`android`, `ios`, `solaris`, `illumos`. Family aliases: `unix` (everything except Windows) and
+`bsd` (all BSDs). When both a family and a specific OS match (e.g. Linux), both sections are
+applied — family first, then specific OS.
+
+### Arch keys
+
+Recognized arch keys match `std::env::consts::ARCH`: `x86_64`, `aarch64`, `x86`, `arm`,
+`riscv64`, `powerpc64`, `s390x`, `wasm32`, and others.
+
+### Fields
+
+All fields are optional within each section:
+
+| Field | Description |
+|---|---|
+| `sources` | Glob patterns relative to the project root. Matched files are added to the build; files listed in any `[os.*]`/`[arch.*]` section are excluded from the unconditional `src/` walk. |
+| `defines` | Extra `-D` flags applied only on this platform. |
+| `flags` | Extra compiler flags applied only on this platform. |
+| `includes` | Extra include paths (`-I`) applied only on this platform. |
+| `dependencies` | Inline dependency table — same syntax as `[dependencies]`. |
+| `language` | Per-language overrides — same keys as `[language.<key>]`. |
 
 ```toml
-[platform.linux.dependencies]
-dl      = { system = "dl" }
-pthread = { system = "pthread" }
+[os.linux]
+sources      = ["src/os/linux/**"]
+defines      = ["PLATFORM_LINUX", "POSIX_BUILD"]
+flags        = ["-fvisibility=hidden"]
+includes     = ["/usr/local/include"]
+dependencies = { m = { system = "m" }, pthread = { system = "pthread" } }
 
-[platform.windows.dependencies]
-ws2_32  = { system = "ws2_32" }
+[os.windows]
+sources      = ["src/os/windows/**"]
+defines      = ["WIN32_LEAN_AND_MEAN", "PLATFORM_WINDOWS"]
+dependencies = { ws2_32 = { system = "ws2_32" } }
 
-[platform.windows.compiler]
-defines = ["WIN32_LEAN_AND_MEAN"]
-
-[platform.unix.compiler]
+[os.unix]
 defines = ["POSIX_BUILD"]
-flags   = ["-fvisibility=hidden"]
 
-[platform.linux.compiler.includes]
-paths = ["/usr/local/include"]
+[arch.x86_64]
+sources = ["src/arch/x86_64/**"]
+defines = ["HAVE_SSE2"]
+
+[arch.aarch64]
+sources = ["src/arch/aarch64/**"]
+defines = ["HAVE_NEON"]
 ```
 
-Overlayable fields: `dependencies`, `compiler.defines`, `compiler.flags`, `compiler.includes.paths`.
-`[[bin]]`, `[language]`, `[lib]`, profiles, and sanitizers are not overlayable in v1.
+Files matched by `sources` globs in any `[os.*]` or `[arch.*]` section are automatically
+excluded from the unconditional source walk — they will never be compiled on a non-matching
+platform, even if they live under `src/`.
 
 ---
 

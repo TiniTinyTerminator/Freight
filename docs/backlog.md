@@ -56,10 +56,10 @@ better cross-TU inlining without LTO overhead.
 When `FREIGHT_SYSROOT` is set, automatically inject `--sysroot=` even without
 a `[compiler] sysroot` entry. Reduces boilerplate for SDK-based cross builds.
 
-### Per-language `[platform]` overlays
-`[platform.linux.language.cpp]` — deliberately excluded from v1. Per-language
-platform overrides are useful for e.g. switching to a newer C++ standard only
-on Linux where the compiler supports it.
+### Per-language platform overrides
+Per-language overrides within `[os.*]`/`[arch.*]` sections are supported via the `language`
+field (e.g. `[os.linux]` with `language.cpp.std = "c++23"`). Document and add LSP
+completions for this field once usage patterns emerge.
 
 ### Progress callbacks
 Build output currently goes to stdout via `println!`. Routing through a

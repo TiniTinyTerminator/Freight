@@ -38,7 +38,7 @@ int main(void) {
     print_platform();
     print_kernel();
 
-    /* libm linked via [platform.linux.dependencies] */
+    /* libm linked via [os.linux] dependencies */
     double x = 2.0;
     printf("sqrt(%.1f) = %.6f\n", x, sqrt(x));
     return 0;

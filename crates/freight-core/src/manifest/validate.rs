@@ -40,7 +40,7 @@ pub fn validate(manifest: &Manifest, templates: &[CompilerTemplate]) -> Vec<Vali
     validate_targets(manifest, &mut errors);
     validate_compiler(manifest, &mut errors);
     validate_profiles(manifest, &mut errors);
-    validate_platforms(manifest, &mut errors);
+    validate_os_arch_keys(manifest, &mut errors);
     validate_dep_env_filters(manifest, &mut errors);
     validate_features(manifest, &mut errors);
     validate_http_deps(manifest, &mut errors);
@@ -173,17 +173,29 @@ fn validate_dep_env_filters(m: &Manifest, errors: &mut Vec<ValidationError>) {
     }
 }
 
-fn validate_platforms(m: &Manifest, errors: &mut Vec<ValidationError>) {
-    let known = known_platform_keys();
-    for key in m.platform.keys() {
+fn validate_os_arch_keys(m: &Manifest, errors: &mut Vec<ValidationError>) {
+    let known_os   = known_platform_keys();
+    let known_arch = known_arch_keys();
+    for key in m.os.keys() {
         let lc = key.to_ascii_lowercase();
-        if !known.iter().any(|k| *k == lc) {
+        if !known_os.iter().any(|k| *k == lc) {
             errors.push(ValidationError::new(
-                &format!("[platform.{key}]"),
+                &format!("[os.{key}]"),
                 format!(
-                    "unknown platform key {:?}; expected one of: {}",
-                    key,
-                    known.join(", "),
+                    "unknown OS key {:?}; expected one of: {}",
+                    key, known_os.join(", "),
+                ),
+            ));
+        }
+    }
+    for key in m.arch.keys() {
+        let lc = key.to_ascii_lowercase();
+        if !known_arch.iter().any(|k| *k == lc) {
+            errors.push(ValidationError::new(
+                &format!("[arch.{key}]"),
+                format!(
+                    "unknown arch key {:?}; expected one of: {}",
+                    key, known_arch.join(", "),
                 ),
             ));
         }
@@ -1053,7 +1065,7 @@ mylib = { system = "mylib", arch = "pdp11" }
     }
 
     #[test]
-    fn known_platform_keys_validate_clean() {
+    fn known_os_arch_keys_validate_clean() {
         let s = r#"
 [package]
 name    = "foo"
@@ -1061,18 +1073,21 @@ version = "0.1.0"
 [[bin]]
 name = "foo"
 src  = "src/main.cpp"
-[platform.linux.dependencies]
+[os.linux.dependencies]
 dl = { system = "dl" }
-[platform.windows.dependencies]
+[os.windows.dependencies]
 ws2_32 = { system = "ws2_32" }
-[platform.unix.compiler]
+[os.unix]
 defines = ["UNIX_BUILD"]
+[arch.x86_64]
+defines = ["HAVE_SSE2"]
 "#;
-        assert!(field_errors(s, "[platform").is_empty());
+        assert!(field_errors(s, "[os.").is_empty());
+        assert!(field_errors(s, "[arch.").is_empty());
     }
 
     #[test]
-    fn unknown_platform_key_errors() {
+    fn unknown_os_key_errors() {
         let s = r#"
 [package]
 name    = "foo"
@@ -1080,11 +1095,28 @@ version = "0.1.0"
 [[bin]]
 name = "foo"
 src  = "src/main.cpp"
-[platform.beos.dependencies]
+[os.beos.dependencies]
 foo = { system = "foo" }
 "#;
-        let errs = field_errors(s, "[platform.beos]");
+        let errs = field_errors(s, "[os.beos]");
         assert!(!errs.is_empty());
-        assert!(errs.iter().any(|e| e.message.contains("unknown platform key")));
+        assert!(errs.iter().any(|e| e.message.contains("unknown OS key")));
+    }
+
+    #[test]
+    fn unknown_arch_key_errors() {
+        let s = r#"
+[package]
+name    = "foo"
+version = "0.1.0"
+[[bin]]
+name = "foo"
+src  = "src/main.cpp"
+[arch.pdp11]
+defines = ["RETRO"]
+"#;
+        let errs = field_errors(s, "[arch.pdp11]");
+        assert!(!errs.is_empty());
+        assert!(errs.iter().any(|e| e.message.contains("unknown arch key")));
     }
 }

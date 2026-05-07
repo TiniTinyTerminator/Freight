@@ -1,7 +1,7 @@
 [package]
 name        = "platform-deps"
 version     = "0.1.0"
-description = "Per-platform dependencies and compiler settings via [platform.*] overlays"
+description = "Per-OS dependencies and compiler settings via [os.*] and [arch.*] sections"
 
 [language.c]
 std = "c17"
@@ -13,23 +13,20 @@ src  = "src/main.c"
 [compiler]
 warnings = "all"
 
-# Platform overlays are merged at build time based on the host OS.
+# OS-conditional sections — merged at build time based on the host OS.
 # Family aliases: unix (everything except windows), bsd (all BSDs).
 
-[platform.linux.dependencies]
-# Link libm only on Linux; macOS and Windows include it in libc.
-m = { system = "m" }
+[os.linux]
+defines      = ["PLATFORM_LINUX"]
+dependencies = { m = { system = "m" } }
 
-[platform.linux.compiler]
-defines = ["PLATFORM_LINUX"]
-
-[platform.macos.compiler]
+[os.macos]
 defines = ["PLATFORM_MACOS"]
 
-[platform.windows.compiler]
+[os.windows]
 defines = ["PLATFORM_WINDOWS"]
 
-[platform.unix.compiler]
+[os.unix]
 defines = ["PLATFORM_UNIX"]
 
 [profile.dev]
