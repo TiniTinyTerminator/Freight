@@ -2,9 +2,20 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use rhai::{Array, Dynamic, Engine, Expression, ImmutableString, Map, Scope};
+use rhai::{Array, Dynamic, Engine, Expression, FnPtr, ImmutableString, Map, Scope, AST};
 
 use crate::error::FreightError;
+
+// ── Handler result type ───────────────────────────────────────────────────────
+
+/// Everything produced by evaluating a toolchain Rhai script.
+pub(super) struct EvalResult {
+    pub def: ToolchainDef,
+    pub engine: Engine,
+    pub ast: AST,
+    pub compiler_option_handlers: HashMap<String, FnPtr>,
+    pub language_option_handlers: HashMap<String, FnPtr>,
+}
 
 // ── Builder structs ───────────────────────────────────────────────────────────
 
@@ -71,6 +82,12 @@ pub(super) struct LinkingParams {
 
 thread_local! {
     static CURRENT: RefCell<Option<ToolchainDef>> = RefCell::new(None);
+    /// Collected `compiler_option(name, fn)` registrations from the current script eval.
+    static COLLECTED_COMP_OPTS: RefCell<HashMap<String, FnPtr>> = RefCell::new(HashMap::new());
+    /// Collected `language_option(name, fn)` registrations from the current script eval.
+    static COLLECTED_LANG_OPTS: RefCell<HashMap<String, FnPtr>> = RefCell::new(HashMap::new());
+    /// Flags accumulated by `add_flag(s)` calls inside option handlers at build time.
+    static PENDING_FLAGS: RefCell<Vec<String>> = RefCell::new(Vec::new());
 }
 
 fn with_def<F: FnOnce(&mut ToolchainDef)>(f: F) {
@@ -81,7 +98,11 @@ fn with_def<F: FnOnce(&mut ToolchainDef)>(f: F) {
 
 struct Guard;
 impl Drop for Guard {
-    fn drop(&mut self) { CURRENT.with(|c| *c.borrow_mut() = None); }
+    fn drop(&mut self) {
+        CURRENT.with(|c| *c.borrow_mut() = None);
+        COLLECTED_COMP_OPTS.with(|c| c.borrow_mut().clear());
+        COLLECTED_LANG_OPTS.with(|c| c.borrow_mut().clear());
+    }
 }
 
 // ── Map types exposed to templates ────────────────────────────────────────────
@@ -142,9 +163,9 @@ pub(super) fn quick_kind(src: &str) -> String {
     "compiler".to_string()
 }
 
-/// Evaluate a Rhai toolchain script. When `dir` is provided, `read_file("path")`
-/// calls inside the script resolve relative to that directory.
-pub(super) fn eval_script(src: &str, dir: Option<&Path>) -> Result<ToolchainDef, FreightError> {
+/// Evaluate a Rhai toolchain script. When `dir` is provided, `include()` directives
+/// inside the script resolve relative to that directory.
+pub(super) fn eval_script(src: &str, dir: Option<&Path>) -> Result<EvalResult, FreightError> {
     let engine = make_engine(dir.map(|d| d.to_path_buf()));
 
     let ast = engine
@@ -281,7 +302,32 @@ pub(super) fn eval_script(src: &str, dir: Option<&Path>) -> Result<ToolchainDef,
         ));
     }
 
-    Ok(def)
+    let compiler_option_handlers = COLLECTED_COMP_OPTS.with(|c| c.borrow_mut().drain().collect());
+    let language_option_handlers = COLLECTED_LANG_OPTS.with(|c| c.borrow_mut().drain().collect());
+
+    Ok(EvalResult { def, engine, ast, compiler_option_handlers, language_option_handlers })
+}
+
+// ── Handler invocation ────────────────────────────────────────────────────────
+
+/// Call each handler whose name matches a key in `options`, collecting any flags
+/// emitted via `add_flag()`. `version` is passed as the second argument to the handler.
+pub(super) fn run_handlers(
+    engine: &Engine,
+    ast: &AST,
+    handlers: &HashMap<String, FnPtr>,
+    options: &HashMap<String, String>,
+    version: &str,
+) -> Vec<String> {
+    let mut all_flags = Vec::new();
+    for (name, value) in options {
+        let Some(handler) = handlers.get(name) else { continue };
+        PENDING_FLAGS.with(|f| f.borrow_mut().clear());
+        let _ = handler.call::<()>(engine, ast, (value.clone(), version.to_string()));
+        let collected: Vec<String> = PENDING_FLAGS.with(|f| f.borrow().clone());
+        all_flags.extend(collected);
+    }
+    all_flags
 }
 
 // ── Engine factory ────────────────────────────────────────────────────────────
@@ -424,6 +470,31 @@ fn make_engine(base_dir: Option<PathBuf>) -> Engine {
         find_binary(&name).map(Dynamic::from).unwrap_or(Dynamic::UNIT)
     });
 
+    // ── compiler_option / language_option ─────────────────────────────────────
+    // Called in template scripts to declare per-option callbacks. Handlers are
+    // stored in thread-locals during eval, then moved into CompilerTemplate.
+    e.register_fn("compiler_option", |name: String, handler: FnPtr| {
+        COLLECTED_COMP_OPTS.with(|c| { c.borrow_mut().insert(name, handler); });
+    });
+    e.register_fn("language_option", |name: String, handler: FnPtr| {
+        COLLECTED_LANG_OPTS.with(|c| { c.borrow_mut().insert(name, handler); });
+    });
+
+    // ── add_flag ──────────────────────────────────────────────────────────────
+    // Called inside option handlers to inject a compiler flag. Accumulates into
+    // PENDING_FLAGS which is drained by run_handlers() after each call.
+    e.register_fn("add_flag", |flag: String| {
+        PENDING_FLAGS.with(|f| f.borrow_mut().push(flag));
+    });
+
+    // ── version comparison helpers ────────────────────────────────────────────
+    // Compare version strings component-by-component (e.g. "14.1.0" vs "14.0").
+    // Suffixes after '-' (e.g. "17.0.6-r1") are ignored.
+    e.register_fn("version_gte", |a: String, b: String| version_cmp(&a, &b) != std::cmp::Ordering::Less);
+    e.register_fn("version_lte", |a: String, b: String| version_cmp(&a, &b) != std::cmp::Ordering::Greater);
+    e.register_fn("version_gt",  |a: String, b: String| version_cmp(&a, &b) == std::cmp::Ordering::Greater);
+    e.register_fn("version_lt",  |a: String, b: String| version_cmp(&a, &b) == std::cmp::Ordering::Less);
+
     e
 }
 
@@ -452,6 +523,30 @@ fn extract_linking(params: Map) -> LinkingParams {
         }
     }
     lp
+}
+
+/// Compare two version strings component-by-component.
+/// Ignores any suffix after the first `-` (e.g. "17.0.6-r1" → [17, 0, 6]).
+/// Missing components are treated as 0 ("14.1" vs "14.1.0" are equal).
+fn version_cmp(a: &str, b: &str) -> std::cmp::Ordering {
+    let parse = |s: &str| -> Vec<u64> {
+        s.split('-').next().unwrap_or(s)
+         .split('.')
+         .filter_map(|c| c.parse().ok())
+         .collect()
+    };
+    let av = parse(a);
+    let bv = parse(b);
+    let len = av.len().max(bv.len());
+    for i in 0..len {
+        let ai = av.get(i).copied().unwrap_or(0);
+        let bi = bv.get(i).copied().unwrap_or(0);
+        match ai.cmp(&bi) {
+            std::cmp::Ordering::Equal => continue,
+            ord => return ord,
+        }
+    }
+    std::cmp::Ordering::Equal
 }
 
 fn find_binary(name: &str) -> Option<String> {

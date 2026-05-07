@@ -61,6 +61,14 @@ linking["cuda"] = #{
     extensions: [".cu", ".cuh"],
 };
 
+// ── language_option handlers ──────────────────────────────────────────────────
+// Declare options users can set under [language.cuda] in freight.toml.
+
+// [language.cuda] arch = "sm_89"  →  -arch=sm_89  (GPU compute capability target)
+language_option("arch", |val, _ver| {
+    add_flag(`-arch=${val}`);
+});
+
 fn check() {
     let h = arch;
     if h != "x86_64" && h != "aarch64" { return false; }

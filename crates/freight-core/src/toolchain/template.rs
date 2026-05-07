@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use rhai::{AST, Engine, FnPtr};
 use serde::Deserialize;
 
 use crate::error::FreightError;
@@ -324,6 +326,19 @@ pub struct CompilerTemplate {
     pub toolset: HashMap<String, String>,
     /// Precompiled header support configuration.
     pub pch: PchConfig,
+
+    // ── Option handler fields ──────────────────────────────────────────────────
+    // Present only when the Rhai script registered `compiler_option` or
+    // `language_option` callbacks. `None` when loaded from a TOML template.
+    /// Rhai engine used to call stored FnPtrs (kept alive so closures remain valid).
+    pub(super) handler_engine: Option<Arc<Engine>>,
+    /// AST of the script that declared the handlers (needed by Rhai closure calls).
+    pub(super) handler_ast: Option<AST>,
+    /// Handlers registered via `compiler_option(name, fn)` in the Rhai script.
+    pub compiler_option_handlers: HashMap<String, FnPtr>,
+    /// Handlers registered via `language_option(name, fn)` in the Rhai script.
+    pub language_option_handlers: HashMap<String, FnPtr>,
+
     flags_opt: HashMap<String, String>,
     flags_debug: HashMap<String, String>,
     flags_warnings: HashMap<String, String>,
@@ -417,6 +432,10 @@ impl CompilerTemplate {
             toolset: HashMap::new(),
             pch: PchConfig::default(),
             linking,
+            handler_engine: None,
+            handler_ast: None,
+            compiler_option_handlers: HashMap::new(),
+            language_option_handlers: HashMap::new(),
             flags_opt: raw.flags.opt,
             flags_debug: raw.flags.debug,
             flags_warnings: raw.flags.warnings,
@@ -431,8 +450,8 @@ impl CompilerTemplate {
 
     /// Parse a compiler template from a Rhai script (no include resolution).
     pub fn from_rhai(src: &str) -> Result<Self, FreightError> {
-        let def = script::eval_script(src, None)?;
-        Self::from_def(def)
+        let r = script::eval_script(src, None)?;
+        Self::from_eval_result(r)
     }
 
     /// Read a `.rhai` file from disk and parse it, resolving any `include()`
@@ -440,11 +459,29 @@ impl CompilerTemplate {
     pub fn from_rhai_file(path: &Path) -> Result<Self, FreightError> {
         let src = std::fs::read_to_string(path).map_err(FreightError::Io)?;
         let dir = path.parent().unwrap_or(Path::new("."));
-        let def = script::eval_script(&src, Some(dir))?;
-        Self::from_def(def)
+        let r = script::eval_script(&src, Some(dir))?;
+        Self::from_eval_result(r)
     }
 
-    fn from_def(def: script::ToolchainDef) -> Result<Self, FreightError> {
+    fn from_eval_result(r: script::EvalResult) -> Result<Self, FreightError> {
+        let script::EvalResult { def, engine, ast, compiler_option_handlers, language_option_handlers } = r;
+        let has_handlers = !compiler_option_handlers.is_empty() || !language_option_handlers.is_empty();
+        let (handler_engine, handler_ast) = if has_handlers {
+            (Some(Arc::new(engine)), Some(ast))
+        } else {
+            (None, None)
+        };
+        Self::from_def_inner(def, handler_engine, handler_ast, compiler_option_handlers, language_option_handlers)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn from_def_inner(
+        def: script::ToolchainDef,
+        handler_engine: Option<Arc<Engine>>,
+        handler_ast: Option<AST>,
+        compiler_option_handlers: HashMap<String, FnPtr>,
+        language_option_handlers: HashMap<String, FnPtr>,
+    ) -> Result<Self, FreightError> {
         // Primary binary: prefer explicit toolset roles, fall back to set_binary()
         let binary = ["ld", "cxx", "cc"]
             .iter()
@@ -564,6 +601,10 @@ impl CompilerTemplate {
             toolset:               def.toolset,
             pch,
             linking,
+            handler_engine,
+            handler_ast,
+            compiler_option_handlers,
+            language_option_handlers,
             flags_opt:             def.flags_opt,
             flags_debug:           def.flags_debug,
             flags_warnings:        def.flags_warnings,
@@ -780,6 +821,34 @@ impl CompilerTemplate {
     /// GCC/Clang: `"-lssl"`, MSVC: `"ssl.lib"`.
     pub fn system_lib_flag(&self, name: &str) -> String {
         self.structure.system_lib.replace("{name}", name)
+    }
+
+    /// Run `language_option` handlers for the given freeform options map.
+    /// `version` is the detected compiler version string passed to each handler.
+    /// Returns all flags injected by the handlers via `add_flag()`.
+    pub fn run_language_option_handlers(
+        &self,
+        options: &HashMap<String, String>,
+        version: &str,
+    ) -> Vec<String> {
+        let (Some(engine), Some(ast)) = (&self.handler_engine, &self.handler_ast) else {
+            return vec![];
+        };
+        script::run_handlers(engine, ast, &self.language_option_handlers, options, version)
+    }
+
+    /// Run `compiler_option` handlers for the given freeform options map.
+    /// `version` is the detected compiler version string passed to each handler.
+    /// Returns all flags injected by the handlers via `add_flag()`.
+    pub fn run_compiler_option_handlers(
+        &self,
+        options: &HashMap<String, String>,
+        version: &str,
+    ) -> Vec<String> {
+        let (Some(engine), Some(ast)) = (&self.handler_engine, &self.handler_ast) else {
+            return vec![];
+        };
+        script::run_handlers(engine, ast, &self.compiler_option_handlers, options, version)
     }
 
     /// Assemble flags for the **link step**.

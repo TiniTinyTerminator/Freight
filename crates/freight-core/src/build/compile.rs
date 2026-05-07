@@ -199,6 +199,8 @@ pub fn settings_for_lang(
         s.include_paths.push(project_dir.join(dir));
     }
     s.defines.extend_from_slice(feature_defines);
+    // Flags injected by language_option handlers at build startup.
+    s.extra_flags.extend_from_slice(&lang.injected_flags);
     s
 }
 

@@ -210,6 +210,7 @@ impl Manifest {
                 if let Some(lang_ov) = ov.language.get(lang_key) {
                     if lang_ov.std.is_some()    { s.std    = lang_ov.std.clone(); }
                     if lang_ov.stdlib.is_some() { s.stdlib = lang_ov.stdlib.clone(); }
+                    // extra and injected_flags stay from the base (not overlaid per-platform)
                 }
             }
         }
@@ -357,6 +358,20 @@ pub struct LanguageSettings {
     /// Only meaningful for `[language.cpp]`. Defaults to the toolchain's built-in choice.
     #[serde(default)]
     pub stdlib: Option<String>,
+    /// Freeform options forwarded to the active compiler template's `language_option` handlers.
+    /// E.g. `[language.cpp] unity_build = "true"` if the template declares that option.
+    #[serde(flatten, default)]
+    pub extra: HashMap<String, String>,
+    /// Flags injected at build time by `language_option` handlers. Not persisted to TOML.
+    #[serde(skip)]
+    pub injected_flags: Vec<String>,
+}
+
+impl LanguageSettings {
+    /// Returns just the freeform `extra` options (excluding `std`/`stdlib`).
+    pub fn extra_options(&self) -> &HashMap<String, String> {
+        &self.extra
+    }
 }
 
 // ── Targets ───────────────────────────────────────────────────────────────────
@@ -589,6 +604,15 @@ pub struct TargetConfig {
 
 // ── Compiler config ───────────────────────────────────────────────────────────
 
+/// Per-compiler-tool options declared under `[compiler.<name>]` in `freight.toml`.
+/// E.g. `[compiler.clang++] march = "native"` → forwarded to the template's
+/// `compiler_option` handlers when that tool is the active compiler.
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct CompilerToolOptions {
+    #[serde(flatten)]
+    pub options: HashMap<String, String>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CompilerConfig {
     #[serde(rename = "opt-level", default = "default_opt_level")]
@@ -618,6 +642,10 @@ pub struct CompilerConfig {
     /// injected into every source file of the matching language.
     #[serde(default)]
     pub pch: Option<String>,
+    /// Per-compiler-tool option sub-tables: `[compiler.<name>]`.
+    /// Options here are forwarded to the matching template's `compiler_option` handlers.
+    #[serde(flatten, default)]
+    pub per_tool: HashMap<String, CompilerToolOptions>,
 }
 
 impl Default for CompilerConfig {
@@ -633,6 +661,7 @@ impl Default for CompilerConfig {
             target: None,
             sysroot: None,
             pch: None,
+            per_tool: HashMap::default(),
         }
     }
 }
