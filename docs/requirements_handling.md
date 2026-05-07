@@ -1,13 +1,15 @@
 # Requirements Handling
 
-Freight should validate that every compiler a project needs is actually present
-before starting any compilation, and allow templates to handle arbitrary
-per-option behaviour (extra flags, validation, configuration) driven entirely by
-the manifest — without touching the Rust binary.
+This document covers how freight validates compiler availability and routes
+per-compiler options from the manifest into compiler invocations — without
+hardcoding any compiler knowledge in Rust.
+
+**Implemented:** language auto-detection, requirement check after discovery.
+**Planned:** `compiler_option` / `language_option` callback system described below.
 
 ---
 
-## Design
+## Implemented: language detection and requirement check
 
 Languages are detected automatically from the source files in `src/`. A `.cu`
 file activates the `cuda` language key; a `.asm` file activates `asm`; and so
@@ -23,10 +25,12 @@ languages that were actually found. If freight discovers `.cu` files but no
 CUDA compiler is on `PATH`, that is the error — not a missing manifest
 declaration.
 
-### Per-option callbacks
+---
+
+## Planned: per-option callbacks
 
 Options that every compiler shares (opt level, warnings, LTO, debug, sanitizers,
-standard) are already handled by the existing template variables (`flags`,
+standard) are handled by the existing template maps (`opt`, `dbg`, `warnings`, `lto`,
 `standards`, etc.) and are not part of this system.
 
 `compiler_option` and `language_option` are exclusively for **compiler-specific
@@ -410,15 +414,13 @@ max_version = "14.0"
 
 ---
 
-## Files touched
+## Files to touch (planned)
 
 | File | Change |
 |---|---|
-| `crates/freight-core/src/build/discover.rs` | Remove asm always-active special case |
-| `crates/freight-core/src/manifest/types.rs` | Add `arch` to `LanguageSettings`; add `CompilerOptions`; add `compiler` map to `Manifest` |
+| `crates/freight-core/src/manifest/types.rs` | Add `CompilerOptions`; add `compiler` map to `Manifest` |
 | `crates/freight-core/src/toolchain/template.rs` | Register `compiler_option` and `language_option` Rhai functions; store handler maps; add `run_option_handlers()` |
 | `crates/freight-core/src/build/mod.rs` | Add `check_compiler_requirements()`, call after `discover()` |
 | `toolchains/asm/nasm.rhai`, `toolchains/asm/yasm.rhai` | Register `language_option("arch", ...)` |
 | `toolchains/nvidia/nvcc.rhai` | Register `compiler_option("min_version", ...)` and `compiler_option("sm_arch", ...)` |
 | `toolchains/llvm/clang++.rhai`, `toolchains/gnu/g++.rhai` | Register `compiler_option("min_version", ...)` and `compiler_option("max_version", ...)` |
-| `docs/manifest-reference.md` | Document `[language.*]` as optional config; document `[compiler.*]` section |
