@@ -4,8 +4,8 @@ This document covers how freight validates compiler availability and routes
 per-compiler options from the manifest into compiler invocations — without
 hardcoding any compiler knowledge in Rust.
 
-**Implemented:** language auto-detection, requirement check after discovery.
-**Planned:** `compiler_option` / `language_option` callback system described below.
+**Implemented:** language auto-detection, requirement check after discovery,
+`compiler_option` / `language_option` callback system.
 
 ---
 
