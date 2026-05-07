@@ -1,23 +1,16 @@
-// NASM assembler — x86/x86_64 assembly.
-// Output format is arch+OS dependent; arch_flags selects -f elf64 etc.
+// Shared base for x86/x86_64 assemblers (NASM, YASM).
+// Both assemblers produce object files linked by the host C toolchain.
 
-name          = "nasm";
-family        = "";
-requires_toolchain = ["c"];
-sanitizer_options = [];
-homepage      = "https://www.nasm.us/";
-binary        = "nasm";
-version_arg   = "--version";
-version_regex = "NASM version (\\d+\\.\\d+(?:\\.\\d+)?)";
-extensions    = [".asm", ".nasm"];
+family             = "";
+sanitizer_options  = [];
+version_arg        = "--version";
 passthrough        = false;
 passthrough_prefix = "";
-// NASM only understands x86 assembly syntax; useless on non-x86 hosts.
-supported_archs = ["x86", "x86_64"];
+supported_archs    = ["x86", "x86_64"];
+requires_toolchain = ["c"];
+extensions         = [".asm", ".nasm"];
 
-toolset["as"] = "nasm";
-
-// NASM has no optimisation, LTO, sanitize or CPU extension flags.
+// Assemblers have no optimisation, LTO, sanitize or CPU extension flags.
 opt["0"] = "";
 opt["1"] = "";
 opt["2"] = "";
@@ -25,7 +18,6 @@ opt["3"] = "";
 opt["s"] = "";
 opt["z"] = "";
 
-dbg["true"]  = "-g -F dwarf";
 dbg["false"] = "";
 
 warnings["none"]    = "";
@@ -35,7 +27,6 @@ warnings["error"]   = "-w+all -Werror";
 
 lto["true"]  = "";
 lto["false"] = "";
-
 
 include_dir  = "-I{path}";
 define       = "-D{name}";
@@ -63,9 +54,3 @@ linking["asm"] = #{
     linker:     "",
     extensions: [".asm", ".nasm"],
 };
-
-fn check() {
-    let h = arch;
-    if h != "x86_64" && h != "x86" { return false; }
-    find_tool("nasm") != ()
-}

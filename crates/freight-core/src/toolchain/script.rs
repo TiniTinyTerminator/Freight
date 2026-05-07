@@ -2,7 +2,7 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use rhai::{Array, Dynamic, Engine, ImmutableString, Map, Scope};
+use rhai::{Array, Dynamic, Engine, Expression, ImmutableString, Map, Scope};
 
 use crate::error::FreightError;
 
@@ -120,58 +120,12 @@ impl Drop for Guard {
 /// `env` — read-only host environment: `env["ONEAPI_ROOT"]` → string or `()`.
 #[derive(Clone)] struct EnvMap;
 
-// ── Include preprocessor ──────────────────────────────────────────────────────
-
-/// Resolve `include("path")` directives by inlining the referenced file's
-/// content at the call site. Paths are relative to `dir`; `.rhai` is appended
-/// when the path has no extension. Nested includes are resolved recursively.
-pub(super) fn resolve_includes(src: &str, dir: &Path) -> Result<String, FreightError> {
-    let mut out = String::with_capacity(src.len());
-    for line in src.lines() {
-        if let Some(path_str) = parse_include(line) {
-            let file = if path_str.ends_with(".rhai") {
-                PathBuf::from(path_str)
-            } else {
-                PathBuf::from(format!("{path_str}.rhai"))
-            };
-            let full = dir.join(&file);
-            let inc = std::fs::read_to_string(&full).map_err(|e| {
-                FreightError::TemplateError(format!("include \"{path_str}\": {e}"))
-            })?;
-            let resolved = resolve_includes(&inc, full.parent().unwrap_or(dir))?;
-            out.push_str(&resolved);
-            out.push('\n');
-        } else {
-            out.push_str(line);
-            out.push('\n');
-        }
-    }
-    Ok(out)
-}
-
-fn parse_include(line: &str) -> Option<&str> {
-    let s = line.trim().strip_prefix("include(")?;
-    let s = s.strip_prefix('"')?;
-    let end = s.find('"')?;
-    let path = &s[..end];
-    let rest = s[end + 1..].trim().strip_prefix(')')?.trim().trim_start_matches(';').trim();
-    if rest.is_empty() { Some(path) } else { None }
-}
-
 // ── Script evaluation ─────────────────────────────────────────────────────────
 
-/// Evaluate a Rhai toolchain script. When `dir` is provided, `include("path")`
-/// directives in the script are resolved relative to that directory first.
+/// Evaluate a Rhai toolchain script. When `dir` is provided, `read_file("path")`
+/// calls inside the script resolve relative to that directory.
 pub(super) fn eval_script(src: &str, dir: Option<&Path>) -> Result<ToolchainDef, FreightError> {
-    let resolved;
-    let src = if let Some(d) = dir {
-        resolved = resolve_includes(src, d)?;
-        resolved.as_str()
-    } else {
-        src
-    };
-
-    let engine = make_engine();
+    let engine = make_engine(dir.map(|d| d.to_path_buf()));
 
     let ast = engine
         .compile(src)
@@ -310,9 +264,49 @@ pub(super) fn eval_script(src: &str, dir: Option<&Path>) -> Result<ToolchainDef,
 
 // ── Engine factory ────────────────────────────────────────────────────────────
 
-fn make_engine() -> Engine {
+fn make_engine(base_dir: Option<PathBuf>) -> Engine {
     let mut e = Engine::new();
     e.set_max_operations(100_000);
+
+    // ── include("path") — engine-native include custom syntax ────────────────
+    // Runs the referenced file in the current scope so variable assignments and
+    // `let` declarations from the included file are visible to the caller.
+    // Paths without an extension get ".rhai" appended automatically.
+    if let Some(dir) = base_dir {
+        e.register_custom_syntax(
+            &["include", "$string$"],
+            true,
+            move |context: &mut rhai::EvalContext, inputs: &[Expression]| {
+                let path_str = inputs[0]
+                    .get_string_value()
+                    .ok_or_else(|| -> Box<rhai::EvalAltResult> {
+                        "include: expected a string literal".into()
+                    })?;
+
+                let p = dir.join(path_str);
+                let p = if p.extension().is_some() { p } else { p.with_extension("rhai") };
+
+                let src = std::fs::read_to_string(&p)
+                    .map_err(|err| -> Box<rhai::EvalAltResult> {
+                        format!("include \"{path_str}\": {err}").into()
+                    })?;
+
+                // engine() returns &'a Engine — borrow on context ends immediately.
+                // scope_mut() can then be called without a conflict.
+                let ast = context.engine().compile(&src)
+                    .map_err(|err| -> Box<rhai::EvalAltResult> {
+                        format!("include \"{path_str}\" compile error: {err}").into()
+                    })?;
+
+                let engine = context.engine();
+                let scope  = context.scope_mut();
+                engine.run_ast_with_scope(scope, &ast)?;
+
+                Ok(Dynamic::UNIT)
+            },
+        )
+        .expect("failed to register include syntax");
+    }
 
     // ── standards map ─────────────────────────────────────────────────────────
     e.register_type_with_name::<StandardsMap>("StandardsMap");

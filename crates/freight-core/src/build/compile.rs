@@ -441,30 +441,30 @@ mod tests {
     fn named_backend_matches_template_name() {
         let ts = templates();
         let detected = fake_detected(&ts);
-        // "gnu" family → gcc-cpp for cpp language
+        // "gnu" family → g++ for cpp language
         let backend = Backend("gnu".into());
         let found = select_compiler("cpp", &backend, &detected, None);
         assert!(found.is_some());
-        assert_eq!(found.unwrap().template.name, "gcc-cpp");
+        assert_eq!(found.unwrap().template.name, "g++");
     }
 
     #[test]
     fn named_backend_family_picks_right_compiler_per_lang() {
         let ts = templates();
         let detected = fake_detected(&ts);
-        // "gnu" family → gcc-cpp for cpp, gcc-c for c, gfortran for fortran
+        // "gnu" family → g++ for cpp, gcc for c, gfortran for fortran
         let cpp = select_compiler("cpp", &Backend("gnu".into()), &detected, None);
         assert!(cpp.is_some(), "gnu backend should find a C++ compiler");
-        assert_eq!(cpp.unwrap().template.name, "gcc-cpp");
+        assert_eq!(cpp.unwrap().template.name, "g++");
 
         let fortran = select_compiler("fortran", &Backend("gnu".into()), &detected, None);
         assert!(fortran.is_some(), "gnu backend should find a Fortran compiler");
         assert_eq!(fortran.unwrap().template.name, "gfortran");
 
-        // "llvm" family → clang for cpp
+        // "llvm" family → clang++ for cpp
         let cpp_llvm = select_compiler("cpp", &Backend("llvm".into()), &detected, None);
         assert!(cpp_llvm.is_some(), "llvm backend should find a C++ compiler");
-        assert_eq!(cpp_llvm.unwrap().template.name, "clang");
+        assert_eq!(cpp_llvm.unwrap().template.name, "clang++");
     }
 
     #[test]
@@ -639,7 +639,7 @@ src  = "src/main.cpp"
     fn gcc_c_uses_different_binary_than_linker() {
         let ts = templates();
         let detected = fake_detected(&ts);
-        // gcc-c uses gcc as the C compile binary but g++ as the linker binary.
+        // gcc uses gcc as the C compile binary but g++ as the linker binary.
         let backend = Backend("gnu".into());
         let compiler = select_compiler("c", &backend, &detected, None).unwrap();
         let c_info = compiler.template.linking.get("c").unwrap();

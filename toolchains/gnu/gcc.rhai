@@ -1,9 +1,7 @@
-include("_gnu-base");
+include "_gnu-base";
+include "../languages/_c";
 
-let _gxx = detect_gxx();
-let _gcc = gcc_from_gxx(_gxx);
-
-name       = "gcc-c";
+name       = "gcc";
 homepage   = "https://gcc.gnu.org/";
 binary     = _gcc;
 extensions = [".c", ".s", ".S"];
@@ -11,10 +9,6 @@ extensions = [".c", ".s", ".S"];
 toolset["cc"]  = _gcc;
 toolset["cxx"] = _gxx;
 toolset["ld"]  = _gxx;
-
-standards["c11"] = "-std=c11";
-standards["c17"] = "-std=c17";
-standards["c23"] = "-std=c23";
 
 linking["c"] = #{
     abi:            "c",

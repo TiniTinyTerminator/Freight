@@ -385,9 +385,10 @@ mod tests {
     #[test]
     fn load_templates_finds_all() {
         let templates = load_templates(Path::new(TEMPLATES_DIR));
-        assert_eq!(templates.len(), 16,
-            "expected gcc-cpp, gcc-c, clang, gfortran, nvcc, opencl, hipcc, icpx, ispc, \
-             nasm, tcc, nvhpc, ifx, flang, yasm, msvc");
+        assert_eq!(templates.len(), 19,
+            "expected g++, gcc, gfortran, clang++, clang, flang, \
+             icpx, ifx, ispc, hipcc, nvcc, nvc++, nvc, nvfortran, \
+             nasm, yasm, msvc, opencl, tcc");
     }
 
     #[test]
@@ -460,8 +461,8 @@ mod tests {
         let gnu = groups.toolchains.iter().find(|tc| tc.name == "gnu")
             .expect("gnu toolchain should exist");
         let names: Vec<&str> = gnu.compilers.iter().map(|c| c.template.name.as_str()).collect();
-        assert!(names.contains(&"gcc-cpp"), "gnu should contain gcc-cpp");
-        assert!(names.contains(&"gcc-c"),   "gnu should contain gcc-c");
+        assert!(names.contains(&"g++"),  "gnu should contain g++");
+        assert!(names.contains(&"gcc"),  "gnu should contain gcc");
         assert!(names.contains(&"gfortran"), "gnu should contain gfortran");
         assert!(gnu.languages.contains(&"cpp".to_string()), "gnu covers cpp");
         assert!(gnu.languages.contains(&"c".to_string()), "gnu covers c");
@@ -477,8 +478,12 @@ mod tests {
         let llvm = groups.toolchains.iter().find(|tc| tc.name == "llvm")
             .expect("llvm toolchain should exist");
         let names: Vec<&str> = llvm.compilers.iter().map(|c| c.template.name.as_str()).collect();
-        assert!(names.contains(&"clang"), "llvm should contain clang");
-        assert!(names.contains(&"flang"), "llvm should contain flang");
+        assert!(names.contains(&"clang++"), "llvm should contain clang++");
+        assert!(names.contains(&"clang"),   "llvm should contain clang");
+        assert!(names.contains(&"flang"),     "llvm should contain flang");
+        assert!(llvm.languages.contains(&"cpp".to_string()),     "llvm covers cpp");
+        assert!(llvm.languages.contains(&"c".to_string()),       "llvm covers c");
+        assert!(llvm.languages.contains(&"fortran".to_string()), "llvm covers fortran");
     }
 
     #[test]
@@ -577,9 +582,9 @@ mod tests {
     #[test]
     fn toolchain_use_rejects_individual_compiler_with_family() {
         let templates = load_templates(Path::new(TEMPLATES_DIR));
-        // "gcc" has family "gnu", so it should be rejected — use "gnu" instead.
-        let result = super::super::super::toolchain::toolchain_use("gcc", &templates);
-        assert!(result.is_err(), "'gcc' (has family 'gnu') should not be a valid toolchain name");
+        // "g++" has family "gnu", so it should be rejected — use "gnu" instead.
+        let result = super::super::super::toolchain::toolchain_use("g++", &templates);
+        assert!(result.is_err(), "'g++' (has family 'gnu') should not be a valid toolchain name");
     }
 
     #[test]

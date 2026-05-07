@@ -308,7 +308,7 @@ mod tests {
 
     fn gcc() -> CompilerTemplate {
         CompilerTemplate::from_rhai_file(
-            &std::path::Path::new(TEMPLATES_DIR).join("gnu/gcc-cpp.rhai")
+            &std::path::Path::new(TEMPLATES_DIR).join("gnu/g++.rhai")
         ).unwrap()
     }
     fn msvc() -> CompilerTemplate { CompilerTemplate::from_rhai(MSVC_RHAI).unwrap() }

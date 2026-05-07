@@ -920,55 +920,59 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    const CLANG_RHAI: &str    = include_str!("../../../../toolchains/llvm/clang.rhai");
-    const NVCC_RHAI: &str     = include_str!("../../../../toolchains/nvidia/nvcc.rhai");
-    const OPENCL_RHAI: &str   = include_str!("../../../../toolchains/opencl.rhai");
-    const HIPCC_RHAI: &str    = include_str!("../../../../toolchains/amd/hipcc.rhai");
-    const ICPX_RHAI: &str     = include_str!("../../../../toolchains/intel/icpx.rhai");
-    const ISPC_RHAI: &str     = include_str!("../../../../toolchains/intel/ispc.rhai");
-    const NASM_RHAI: &str     = include_str!("../../../../toolchains/nasm.rhai");
-    const TCC_RHAI: &str      = include_str!("../../../../toolchains/tcc.rhai");
-    const NVHPC_RHAI: &str    = include_str!("../../../../toolchains/nvidia/nvhpc.rhai");
-    const IFX_RHAI: &str      = include_str!("../../../../toolchains/intel/ifx.rhai");
-    const FLANG_RHAI: &str    = include_str!("../../../../toolchains/llvm/flang.rhai");
-    const YASM_RHAI: &str     = include_str!("../../../../toolchains/yasm.rhai");
-    const MSVC_RHAI: &str     = include_str!("../../../../toolchains/msvc.rhai");
+    // Standalone templates (no include) — from_rhai is fine without a directory.
+    const NVCC_RHAI: &str   = include_str!("../../../../toolchains/nvidia/nvcc.rhai");
+    const OPENCL_RHAI: &str = include_str!("../../../../toolchains/opencl.rhai");
+    const HIPCC_RHAI: &str  = include_str!("../../../../toolchains/amd/hipcc.rhai");
+    const ISPC_RHAI: &str   = include_str!("../../../../toolchains/intel/ispc.rhai");
+    const TCC_RHAI: &str    = include_str!("../../../../toolchains/tcc.rhai");
+    const MSVC_RHAI: &str   = include_str!("../../../../toolchains/msvc.rhai");
 
     const TOOLCHAINS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../toolchains");
     fn rhai(rel: &str) -> CompilerTemplate {
         CompilerTemplate::from_rhai_file(&std::path::Path::new(TOOLCHAINS).join(rel)).unwrap()
     }
-    fn gcc()   -> CompilerTemplate { rhai("gnu/gcc-cpp.rhai") }
-    fn gcc_c() -> CompilerTemplate { rhai("gnu/gcc-c.rhai") }
-    fn clang() -> CompilerTemplate { CompilerTemplate::from_rhai(CLANG_RHAI).unwrap() }
+    fn gcc()   -> CompilerTemplate { rhai("gnu/g++.rhai") }
+    fn gcc_c() -> CompilerTemplate { rhai("gnu/gcc.rhai") }
+    fn clang() -> CompilerTemplate { rhai("llvm/clang++.rhai") }
     fn nvcc()  -> CompilerTemplate { CompilerTemplate::from_rhai(NVCC_RHAI).unwrap() }
 
     // ── Parsing ───────────────────────────────────────────────────────────────
 
     #[test]
     fn all_templates_parse() {
-        rhai("gnu/gcc-cpp.rhai");
-        rhai("gnu/gcc-c.rhai");
+        // GNU family
+        rhai("gnu/g++.rhai");
+        rhai("gnu/gcc.rhai");
         rhai("gnu/gfortran.rhai");
-        CompilerTemplate::from_rhai(CLANG_RHAI).unwrap();
-        CompilerTemplate::from_rhai(NVCC_RHAI).unwrap();
-        CompilerTemplate::from_rhai(OPENCL_RHAI).unwrap();
-        CompilerTemplate::from_rhai(HIPCC_RHAI).unwrap();
-        CompilerTemplate::from_rhai(ICPX_RHAI).unwrap();
+        // LLVM family
+        rhai("llvm/clang++.rhai");
+        rhai("llvm/clang.rhai");
+        rhai("llvm/flang.rhai");
+        // Intel
+        rhai("intel/icpx.rhai");
+        rhai("intel/ifx.rhai");
         CompilerTemplate::from_rhai(ISPC_RHAI).unwrap();
-        CompilerTemplate::from_rhai(NASM_RHAI).unwrap();
+        // AMD
+        CompilerTemplate::from_rhai(HIPCC_RHAI).unwrap();
+        // NVIDIA
+        CompilerTemplate::from_rhai(NVCC_RHAI).unwrap();
+        rhai("nvidia/nvc++.rhai");
+        rhai("nvidia/nvc.rhai");
+        rhai("nvidia/nvfortran.rhai");
+        // Assemblers
+        rhai("asm/nasm.rhai");
+        rhai("asm/yasm.rhai");
+        // Standalone
         CompilerTemplate::from_rhai(TCC_RHAI).unwrap();
-        CompilerTemplate::from_rhai(NVHPC_RHAI).unwrap();
-        CompilerTemplate::from_rhai(IFX_RHAI).unwrap();
-        CompilerTemplate::from_rhai(FLANG_RHAI).unwrap();
-        CompilerTemplate::from_rhai(YASM_RHAI).unwrap();
+        CompilerTemplate::from_rhai(OPENCL_RHAI).unwrap();
         CompilerTemplate::from_rhai(MSVC_RHAI).unwrap();
     }
 
     #[test]
     fn gcc_cpp_linking() {
         let t = gcc();
-        let cpp = t.linking.get("cpp").expect("gcc-cpp should have linking.cpp");
+        let cpp = t.linking.get("cpp").expect("g++ should have linking.cpp");
         assert_eq!(cpp.abi, "c++");
         assert!(cpp.compatible.contains(&"c".to_string()));
         assert!(cpp.compatible.contains(&"fortran".to_string()));
@@ -978,7 +982,7 @@ mod tests {
     #[test]
     fn gcc_c_linking() {
         let t = gcc_c();
-        let c = t.linking.get("c").expect("gcc-c should have linking.c");
+        let c = t.linking.get("c").expect("gcc should have linking.c");
         assert_eq!(c.abi, "c");
         assert_eq!(c.compile_binary.as_deref(), Some("gcc"),
             "C files must be compiled with gcc, not g++");
@@ -996,13 +1000,13 @@ mod tests {
     #[test]
     fn gcc_fields() {
         let t = gcc();
-        assert_eq!(t.name, "gcc-cpp");
+        assert_eq!(t.name, "g++");
         assert_eq!(t.binary, "g++");
         assert!(t.extensions.contains(&".cpp".to_string()));
         assert!(t.standards.contains_key("c++20"));
 
         let tc = gcc_c();
-        assert_eq!(tc.name, "gcc-c");
+        assert_eq!(tc.name, "gcc");
         assert!(tc.extensions.contains(&".c".to_string()));
         assert!(tc.standards.contains_key("c17"));
     }

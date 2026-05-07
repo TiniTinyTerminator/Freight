@@ -1,25 +1,22 @@
-// Shared GNU compiler defaults — loaded via eval(read_file("_gnu-base")) in per-language files.
-// Top-level code here runs in the calling file's scope via Rhai's eval(); variables declared
-// with `let` (e.g. _gxx, _gcc) are visible in the calling script after the eval returns.
-// Any field can be overridden by an assignment after the eval(read_file(...)) call.
+// Shared LLVM/Clang base — loaded via include in clang, clang++, flang.
+// Variables declared with `let` (_cxx, _cc) are visible in the calling file after eval.
 
 // ── Binary detection ──────────────────────────────────────────────────────────
-// _gxx / _gcc are available to the language file after eval returns.
 
-let _gxx = "g++";
-for _b in ["g++", "g++-14", "g++-13", "g++-12", "g++-11", "g++-10"] {
-    if find_tool(_b) != () { _gxx = _b; break; }
+let _cxx = "clang++";
+for _b in ["clang++", "clang++-18", "clang++-17", "clang++-16", "clang++-15", "clang++-14"] {
+    if find_tool(_b) != () { _cxx = _b; break; }
 }
-let _gcc = if _gxx == "g++" { "gcc" } else { "gcc" + _gxx.sub_string(3) };
+// "clang++".len() == 7; sub_string(7) strips the "clang++" prefix.
+let _cc = if _cxx == "clang++" { "clang" } else { "clang" + _cxx.sub_string(7) };
 
 // ── Identity defaults ─────────────────────────────────────────────────────────
 
-family        = "gnu";
+family        = "llvm";
 version_arg   = "--version";
 version_regex = "\\b(\\d+\\.\\d+\\.\\d+)\\b";
 passthrough        = false;
 passthrough_prefix = "";
-sanitizer_options  = ["address", "undefined", "thread", "leak"];
 
 toolset["ar"]    = "ar";
 toolset["strip"] = "strip";
@@ -47,7 +44,9 @@ lto["false"] = "";
 sanitize = "-fsanitize={values}";
 cpu_ext  = "-m{name}";
 
-stdlib["libstdc++"] = "";
+// Clang supports selecting the C++ standard library at both compile and link time.
+stdlib["libc++"]    = "-stdlib=libc++";
+stdlib["libstdc++"] = "-stdlib=libstdc++";
 stdlib["none"]      = "-nostdlib";
 
 runtime["glibc"]  = "";
@@ -63,17 +62,5 @@ define_value = "-D{name}={value}";
 output       = "-o {path}";
 compile_only = "-c";
 dep_file     = "-MMD -MF {path}";
-target       = "";
+target       = "--target={triple}";
 sysroot      = "--sysroot={path}";
-
-// ── Architecture flags ────────────────────────────────────────────────────────
-
-if arch == "x86_64" || arch == "x64" {
-    load_flags["cc"]  += ["-m64"];
-    load_flags["cxx"] += ["-m64"];
-    load_flags["ld"]  += ["-m64"];
-} else if arch == "i386" || arch == "x86" {
-    load_flags["cc"]  += ["-m32"];
-    load_flags["cxx"] += ["-m32"];
-    load_flags["ld"]  += ["-m32"];
-}
