@@ -2,3 +2,7 @@
 *.mod
 .vscode/
 .claude/
+# Generated per-project artifacts in examples
+examples/**/.deps/
+examples/**/freight.lock
+examples/**/compile_commands.json
