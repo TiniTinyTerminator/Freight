@@ -1,22 +1,11 @@
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, IsTerminal, Read, Write};
 use std::path::{Path, PathBuf};
 
-use crossterm::event::{self, Event, KeyCode};
-use crossterm::execute;
-use crossterm::terminal::{
-    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
-};
 use freight_core::manifest::types::{Dependency, Manifest};
 use freight_core::manifest::{find_manifest_dir, load_manifest};
 use freight_core::toolchain::freight_home;
 use freight_doc::extract::{extract_dir, DocSet};
 use freight_doc::{render, OutputFormat};
-use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout};
-use ratatui::style::{Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
-use ratatui::Terminal;
 
 use crate::output::{print_error, print_status, print_success, print_warning};
 
@@ -455,95 +444,201 @@ fn print_dependency_table(deps: &[DocDependency]) {
 
 fn run_dependency_tui(deps: &[DocDependency]) -> anyhow::Result<()> {
     let mut stdout = io::stdout();
-    enable_raw_mode()?;
-    execute!(stdout, EnterAlternateScreen)?;
+    let _guard = TerminalGuard::enter(&mut stdout)?;
 
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend)?;
-    let _guard = RatatuiTerminalGuard;
-    let mut state = ListState::default();
-    state.select(Some(0));
+    let mut selected = 0usize;
+    let mut scroll = 0usize;
+    loop {
+        let (cols, rows) = terminal_size();
+        let list_width = (cols / 3).max(28).min(cols.saturating_sub(30));
+        let visible = rows.saturating_sub(5) as usize;
+        if selected < scroll {
+            scroll = selected;
+        }
+        if selected >= scroll.saturating_add(visible.max(1)) {
+            scroll = selected.saturating_sub(visible.saturating_sub(1));
+        }
+        draw_dependency_tui(&mut stdout, deps, selected, scroll, list_width, cols, rows)?;
 
-    let result = run_dependency_tui_loop(&mut terminal, deps, &mut state);
-    terminal.show_cursor()?;
-    result
+        match read_key()? {
+            UiKey::Quit => break,
+            UiKey::Down => selected = (selected + 1).min(deps.len() - 1),
+            UiKey::Up => selected = selected.saturating_sub(1),
+            UiKey::PageDown => selected = (selected + visible.max(1)).min(deps.len() - 1),
+            UiKey::PageUp => selected = selected.saturating_sub(visible.max(1)),
+            UiKey::Home => selected = 0,
+            UiKey::End => selected = deps.len() - 1,
+            UiKey::Ignore => {}
+        }
+    }
+    Ok(())
 }
 
-struct RatatuiTerminalGuard;
+struct TerminalGuard {
+    saved_stty: Option<String>,
+}
 
-impl Drop for RatatuiTerminalGuard {
-    fn drop(&mut self) {
-        let _ = disable_raw_mode();
-        let _ = execute!(io::stdout(), LeaveAlternateScreen);
+impl TerminalGuard {
+    fn enter(stdout: &mut io::Stdout) -> anyhow::Result<Self> {
+        let saved_stty = std::process::Command::new("stty")
+            .arg("-g")
+            .output()
+            .ok()
+            .and_then(|out| {
+                out.status
+                    .success()
+                    .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
+            });
+        let _ = std::process::Command::new("stty")
+            .args(["raw", "-echo"])
+            .status();
+        write!(stdout, "\x1b[?1049h\x1b[?25l")?;
+        stdout.flush()?;
+        Ok(Self { saved_stty })
     }
 }
 
-fn run_dependency_tui_loop(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    deps: &[DocDependency],
-    state: &mut ListState,
-) -> anyhow::Result<()> {
-    loop {
-        terminal.draw(|frame| draw_dependency_tui(frame, deps, state))?;
-
-        if let Event::Key(key) = event::read()? {
-            let selected = state.selected().unwrap_or(0);
-            let next = match key.code {
-                KeyCode::Char('q') | KeyCode::Esc => return Ok(()),
-                KeyCode::Down | KeyCode::Char('j') => (selected + 1).min(deps.len() - 1),
-                KeyCode::Up | KeyCode::Char('k') => selected.saturating_sub(1),
-                KeyCode::PageDown | KeyCode::Char(' ') => (selected + 10).min(deps.len() - 1),
-                KeyCode::PageUp => selected.saturating_sub(10),
-                KeyCode::Home | KeyCode::Char('g') => 0,
-                KeyCode::End | KeyCode::Char('G') => deps.len() - 1,
-                _ => selected,
-            };
-            state.select(Some(next));
+impl Drop for TerminalGuard {
+    fn drop(&mut self) {
+        let mut stdout = io::stdout();
+        let _ = write!(stdout, "\x1b[?25h\x1b[?1049l");
+        let _ = stdout.flush();
+        if let Some(saved) = &self.saved_stty {
+            let _ = std::process::Command::new("stty").arg(saved).status();
+        } else {
+            let _ = std::process::Command::new("stty").args(["sane"]).status();
         }
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum UiKey {
+    Up,
+    Down,
+    PageUp,
+    PageDown,
+    Home,
+    End,
+    Quit,
+    Ignore,
+}
+
+fn read_key() -> io::Result<UiKey> {
+    let mut stdin = io::stdin();
+    let mut byte = [0_u8; 1];
+    stdin.read_exact(&mut byte)?;
+    Ok(match byte[0] {
+        b'q' | 27 => {
+            if byte[0] == 27 {
+                let mut seq = [0_u8; 2];
+                if stdin.read(&mut seq)? == 2 && seq[0] == b'[' {
+                    match seq[1] {
+                        b'A' => UiKey::Up,
+                        b'B' => UiKey::Down,
+                        b'H' => UiKey::Home,
+                        b'F' => UiKey::End,
+                        b'5' | b'6' => {
+                            let mut tilde = [0_u8; 1];
+                            let _ = stdin.read(&mut tilde);
+                            if seq[1] == b'5' {
+                                UiKey::PageUp
+                            } else {
+                                UiKey::PageDown
+                            }
+                        }
+                        _ => UiKey::Quit,
+                    }
+                } else {
+                    UiKey::Quit
+                }
+            } else {
+                UiKey::Quit
+            }
+        }
+        b'j' => UiKey::Down,
+        b'k' => UiKey::Up,
+        b'g' => UiKey::Home,
+        b'G' => UiKey::End,
+        b' ' => UiKey::PageDown,
+        _ => UiKey::Ignore,
+    })
+}
+
+fn terminal_size() -> (u16, u16) {
+    if let Ok(out) = std::process::Command::new("stty").arg("size").output() {
+        if out.status.success() {
+            let text = String::from_utf8_lossy(&out.stdout);
+            let mut parts = text
+                .split_whitespace()
+                .filter_map(|p| p.parse::<u16>().ok());
+            if let (Some(rows), Some(cols)) = (parts.next(), parts.next()) {
+                return (cols, rows);
+            }
+        }
+    }
+    let cols = std::env::var("COLUMNS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(100);
+    let rows = std::env::var("LINES")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(30);
+    (cols, rows)
+}
+
 fn draw_dependency_tui(
-    frame: &mut ratatui::Frame<'_>,
+    stdout: &mut io::Stdout,
     deps: &[DocDependency],
-    state: &mut ListState,
-) {
-    let root = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(0)])
-        .split(frame.area());
-    let panes = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(35), Constraint::Percentage(65)])
-        .split(root[1]);
+    selected: usize,
+    scroll: usize,
+    list_width: u16,
+    cols: u16,
+    rows: u16,
+) -> io::Result<()> {
+    write!(stdout, "\x1b[2J\x1b[H")?;
+    write!(stdout, "freight doc — dependency documentation browser\r\n")?;
+    write!(stdout, "↑/↓ or j/k scroll  PgUp/PgDn jump  q quit\r\n\r\n")?;
+    write!(
+        stdout,
+        "{:<width$}  Details\r\n",
+        "Dependencies",
+        width = list_width as usize
+    )?;
 
-    let title = Paragraph::new(
-        "freight doc — dependency documentation browser\n↑/↓ or j/k scroll  PgUp/PgDn jump  q quit",
-    )
-    .block(Block::default().borders(Borders::BOTTOM));
-    frame.render_widget(title, root[0]);
-
-    let items: Vec<ListItem<'_>> = deps
-        .iter()
-        .map(|dep| {
-            ListItem::new(Line::from(vec![
-                Span::raw("["),
-                Span::styled(dep.scope, Style::default().add_modifier(Modifier::BOLD)),
-                Span::raw(format!("] {} {}", dep.name, dep.version)),
-            ]))
-        })
-        .collect();
-    let list = List::new(items)
-        .block(Block::default().title("Dependencies").borders(Borders::ALL))
-        .highlight_symbol("› ")
-        .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-    frame.render_stateful_widget(list, panes[0], state);
-
-    let selected = state.selected().unwrap_or(0).min(deps.len() - 1);
-    let detail = Paragraph::new(detail_lines(&deps[selected]).join("\n"))
-        .block(Block::default().title("Details").borders(Borders::ALL))
-        .wrap(Wrap { trim: false });
-    frame.render_widget(detail, panes[1]);
+    let max_rows = rows.saturating_sub(5) as usize;
+    let detail = detail_lines(&deps[selected]);
+    for line_idx in 0..max_rows {
+        let dep_idx = scroll + line_idx;
+        let list_text = if let Some(dep) = deps.get(dep_idx) {
+            let marker = if dep_idx == selected { "›" } else { " " };
+            truncate(
+                &format!("{marker} [{}] {}", dep.scope, dep.name),
+                list_width.saturating_sub(1) as usize,
+            )
+        } else {
+            String::new()
+        };
+        let detail_text = detail.get(line_idx).map(String::as_str).unwrap_or("");
+        if dep_idx == selected {
+            write!(
+                stdout,
+                "\x1b[7m{:<width$}\x1b[0m  {}\r\n",
+                list_text,
+                truncate(detail_text, cols.saturating_sub(list_width + 3) as usize),
+                width = list_width as usize
+            )?;
+        } else {
+            write!(
+                stdout,
+                "{:<width$}  {}\r\n",
+                list_text,
+                truncate(detail_text, cols.saturating_sub(list_width + 3) as usize),
+                width = list_width as usize
+            )?;
+        }
+    }
+    stdout.flush()
 }
 
 fn detail_lines(dep: &DocDependency) -> Vec<String> {
@@ -569,4 +664,14 @@ fn detail_lines(dep: &DocDependency) -> Vec<String> {
         lines.extend(dep.docs.iter().map(|p| format!("  {}", p.display())));
     }
     lines
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        return s.to_string();
+    }
+    let keep = max.saturating_sub(1);
+    let mut out: String = s.chars().take(keep).collect();
+    out.push('…');
+    out
 }
