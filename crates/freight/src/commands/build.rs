@@ -7,11 +7,69 @@ use std::time::Duration;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 
 use freight_core::build::{
-    build_project, build_workspace, clean_project, clean_workspace, test_project, test_workspace,
+    build_project_with, build_workspace_with, clean_project, clean_workspace,
+    test_project_with, test_workspace_with,
 };
+use freight_core::event::{BuildEvent, Progress};
 use freight_core::manifest::{find_manifest_dir, load_workspace_manifest};
 
-use crate::output::{print_error, print_success};
+use crate::output::{print_error, print_status, print_success, print_warning};
+
+// ── Progress ──────────────────────────────────────────────────────────────────
+
+fn make_progress() -> Progress {
+    use std::sync::Arc;
+    use owo_colors::OwoColorize;
+    Arc::new(|event| match event {
+        BuildEvent::BuildStarted { name, profile } => {
+            print_status("Building", &format!("{name} [{profile}]"));
+        }
+        BuildEvent::Compiling { path } => {
+            print_status("Compiling", &path.display().to_string());
+        }
+        BuildEvent::Fresh { path } => {
+            println!("{:>12} {}", "Fresh".dimmed(), path.display());
+        }
+        BuildEvent::Linking { name } => {
+            print_status("Linking", &name);
+        }
+        BuildEvent::Archiving { name } => {
+            print_status("Archiving", &name);
+        }
+        BuildEvent::RunningScript { cached } => {
+            if cached {
+                println!("{:>12} build script (cached)", "Running".dimmed());
+            } else {
+                print_status("Running", "build script");
+            }
+        }
+        BuildEvent::FetchingDep { name, source } => {
+            print_status("Fetching", &format!("{name} ({source})"));
+        }
+        BuildEvent::ResolvingDep { name, via } => {
+            println!("{:>12} {} ({})", "Resolving".dimmed(), name, via);
+        }
+        BuildEvent::BuildingForeignDep { name, backend } => {
+            print_status("Building", &format!("{name} ({backend})"));
+        }
+        BuildEvent::Warning(msg) => {
+            print_warning(&msg);
+        }
+        BuildEvent::TestLinking { name } => {
+            print_status("Linking", &name);
+        }
+        BuildEvent::TestRunning { name } => {
+            print_status("Running", &name);
+        }
+        BuildEvent::TestResult { name, passed } => {
+            if passed {
+                println!("{:>12} {} ... ok", "test".bold(), name);
+            } else {
+                println!("{:>12} {} ... FAILED", "test".bold().red(), name);
+            }
+        }
+    })
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -29,8 +87,9 @@ fn at_workspace_root() -> bool {
 pub fn cmd_build(release: bool, features: &[String], use_defaults: bool, sanitize: &[String]) {
     let profile = if release { "release" } else { "dev" };
 
+    let progress = make_progress();
     if at_workspace_root() {
-        match build_workspace(profile) {
+        match build_workspace_with(profile, &progress) {
             Ok(outputs) => {
                 println!();
                 for o in &outputs {
@@ -48,7 +107,7 @@ pub fn cmd_build(release: bool, features: &[String], use_defaults: bool, sanitiz
         return;
     }
 
-    match build_project(profile, features, use_defaults, sanitize) {
+    match build_project_with(profile, features, use_defaults, sanitize, &progress) {
         Ok(output) => {
             println!();
             print_success(&format!(
@@ -71,7 +130,7 @@ pub fn cmd_run(release: bool, bin: Option<&str>, features: &[String], use_defaul
         return;
     }
 
-    let output = match build_project(profile, features, use_defaults, sanitize) {
+    let output = match build_project_with(profile, features, use_defaults, sanitize, &make_progress()) {
         Ok(o) => o,
         Err(e) => { println!(); print_error(&e.to_string()); return; }
     };
@@ -220,7 +279,7 @@ fn is_relevant(ev: &Event) -> bool {
 fn run_build(profile: &str, project_dir: &std::path::Path) {
     use owo_colors::OwoColorize;
     println!("\n  {} …", "Rebuilding".bold().cyan());
-    match build_project(profile, &[], true, &[]) {
+    match build_project_with(profile, &[], true, &[], &make_progress()) {
         Ok(output) => {
             println!();
             print_success(&format!(
@@ -235,8 +294,9 @@ fn run_build(profile: &str, project_dir: &std::path::Path) {
 
 pub fn cmd_test(filter: Option<&str>, release: bool, features: &[String], use_defaults: bool, sanitize: &[String]) {
     let profile = if release { "release" } else { "dev" };
+    let progress = make_progress();
     if at_workspace_root() {
-        match test_workspace(profile, filter) {
+        match test_workspace_with(profile, filter, &progress) {
             Ok(summary) => {
                 println!();
                 if summary.total == 0 {
@@ -259,7 +319,7 @@ pub fn cmd_test(filter: Option<&str>, release: bool, features: &[String], use_de
         return;
     }
 
-    match test_project(profile, filter, features, use_defaults, sanitize) {
+    match test_project_with(profile, filter, features, use_defaults, sanitize, &progress) {
         Ok(summary) => {
             println!();
             if summary.total == 0 {

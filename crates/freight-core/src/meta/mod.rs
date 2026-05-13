@@ -18,6 +18,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::error::FreightError;
+use crate::event::{BuildEvent, Progress};
 use crate::manifest::types::{Dependency, Manifest};
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -39,15 +40,15 @@ pub fn build_foreign_deps(
     project_dir: &Path,
     manifest: &Manifest,
     profile: &str,
+    progress: &Progress,
 ) -> Result<(Vec<ForeignBuilt>, Vec<ResolvedPkgConfig>), FreightError> {
     let mut results: Vec<ForeignBuilt> = Vec::new();
     let mut pkg_results: Vec<ResolvedPkgConfig> = Vec::new();
 
     for (name, dep) in &manifest.dependencies {
         if let Some(version) = package_dep_version(dep) {
-            use owo_colors::OwoColorize;
             let query = package_query(name, version);
-            println!("  {} {} ({})", "Resolving".dimmed(), name, query);
+            progress(BuildEvent::ResolvingDep { name: name.clone(), via: query.clone() });
             match pkg_config_query(&query) {
                 Ok(pc) => {
                     pkg_results.push(ResolvedPkgConfig {
@@ -64,7 +65,7 @@ pub fn build_foreign_deps(
                     });
                 }
                 Err(_) => {
-                    match crate::fetch::vcpkg::resolve_vcpkg_dep(name, name, None, project_dir) {
+                    match crate::fetch::vcpkg::resolve_vcpkg_dep(name, name, None, project_dir, progress) {
                         Ok(v) => results.push(ForeignBuilt {
                             name: name.clone(),
                             libs: v.libs,
@@ -72,10 +73,9 @@ pub fn build_foreign_deps(
                             raw_link_flags: v.raw_link_flags,
                         }),
                         Err(e) if package_dep_optional(dep) => {
-                            println!(
-                                "  {} package '{name}' not found (optional, skipping): {e}",
-                                "warning:".yellow()
-                            );
+                            progress(BuildEvent::Warning(format!(
+                                "package '{name}' not found (optional, skipping): {e}"
+                            )));
                         }
                         Err(e) => return Err(e),
                     }
@@ -88,8 +88,7 @@ pub fn build_foreign_deps(
 
         // ── pkg-config dep ────────────────────────────────────────────────────
         if let Some(query) = &d.pkg_config {
-            use owo_colors::OwoColorize;
-            println!("  {} {} (pkg-config)", "Resolving".dimmed(), name);
+            progress(BuildEvent::ResolvingDep { name: name.clone(), via: "pkg-config".to_string() });
             match pkg_config_query(query) {
                 Ok(pc) => {
                     let version = pkg_config_version(query);
@@ -108,11 +107,9 @@ pub fn build_foreign_deps(
                 }
                 Err(e) => {
                     if let Some(fallback) = &d.system {
-                        println!(
-                            "  {} pkg-config for '{name}' failed ({e}); \
-                             falling back to -l{fallback}",
-                            "warning:".yellow()
-                        );
+                        progress(BuildEvent::Warning(format!(
+                            "pkg-config for '{name}' failed ({e}); falling back to -l{fallback}"
+                        )));
                         pkg_results.push(ResolvedPkgConfig {
                             name: name.clone(), found: false,
                             version: String::new(), include_dirs: vec![],
@@ -123,10 +120,9 @@ pub fn build_foreign_deps(
                             raw_link_flags: vec![format!("-l{fallback}")],
                         });
                     } else if d.optional {
-                        println!(
-                            "  {} pkg-config for '{name}' not found (optional, skipping)",
-                            "warning:".yellow()
-                        );
+                        progress(BuildEvent::Warning(format!(
+                            "pkg-config for '{name}' not found (optional, skipping)"
+                        )));
                         pkg_results.push(ResolvedPkgConfig {
                             name: name.clone(), found: false,
                             version: String::new(), include_dirs: vec![],
@@ -202,7 +198,7 @@ pub fn build_foreign_deps(
         };
 
         let build_dir = dep_dir.join(".freight-build");
-        let libs = invoke_build_system(&dep_dir, &build_dir, name, &bs, profile, &d.cmake_args)?;
+        let libs = invoke_build_system(&dep_dir, &build_dir, name, &bs, profile, &d.cmake_args, progress)?;
         let include_dirs = collect_include_dirs(&dep_dir, &d.include, Some(&build_dir));
 
         results.push(ForeignBuilt {
@@ -306,13 +302,13 @@ fn invoke_build_system(
     build_system: &str,
     profile: &str,
     cmake_args: &[String],
+    progress: &Progress,
 ) -> Result<Vec<PathBuf>, FreightError> {
     let resolved = build_system.to_string();
 
     std::fs::create_dir_all(build_dir)?;
 
-    use owo_colors::OwoColorize;
-    println!("  {} {} ({})", "Building".dimmed(), name, resolved);
+    progress(BuildEvent::BuildingForeignDep { name: name.to_string(), backend: resolved.clone() });
 
     let search_dir = match resolved.as_str() {
         "cmake"     => { cmake::build_cmake(dep_dir, build_dir, profile, cmake_args)?; build_dir.to_path_buf() }

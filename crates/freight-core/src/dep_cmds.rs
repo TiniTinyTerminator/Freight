@@ -233,6 +233,7 @@ pub struct PackageDepOutcome {
 }
 
 pub fn fetch_package_deps(project_dir: &Path) -> Result<Vec<PackageDepOutcome>, FreightError> {
+    use crate::event::silent;
     use crate::fetch::vcpkg;
     use crate::meta::pkg_config_query;
 
@@ -254,7 +255,7 @@ pub fn fetch_package_deps(project_dir: &Path) -> Result<Vec<PackageDepOutcome>, 
             .join(format!("{name}.{triplet}.fetched"))
             .exists();
         if !already {
-            vcpkg::fetch_vcpkg_dep(name, name, Some(&triplet), project_dir)?;
+            vcpkg::fetch_vcpkg_dep(name, name, Some(&triplet), project_dir, &silent())?;
         }
 
         outcomes.push(PackageDepOutcome {
