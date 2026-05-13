@@ -8,6 +8,7 @@ pub fn lookup(kind: DocumentKind, path: &str) -> Option<&'static str> {
         DocumentKind::Manifest => lookup_manifest(path),
         DocumentKind::BuildScript => lookup_build_script(path),
         DocumentKind::CompilerTemplate => lookup_compiler_template(path),
+        DocumentKind::FortranSource => None,
     }
 }
 

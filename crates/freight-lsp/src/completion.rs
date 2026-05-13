@@ -12,6 +12,7 @@ pub enum DocumentKind {
     Manifest,
     BuildScript,
     CompilerTemplate,
+    FortranSource,
 }
 
 /// Build a list of completion items for `pos` in `src`.
@@ -25,6 +26,7 @@ pub fn complete(
         DocumentKind::Manifest => complete_manifest(src, pos, templates),
         DocumentKind::BuildScript => build_script_items(),
         DocumentKind::CompilerTemplate => compiler_template_items(),
+        DocumentKind::FortranSource => crate::fortran::completions(src),
     }
 }
 

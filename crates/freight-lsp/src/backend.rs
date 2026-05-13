@@ -13,6 +13,7 @@ use rhai::Engine;
 
 use crate::completion::{self, DocumentKind};
 use crate::docs;
+use crate::fortran;
 use crate::position::{byte_to_position, locate, position_to_byte};
 
 pub struct Backend {
@@ -47,6 +48,8 @@ impl Backend {
             Some(DocumentKind::BuildScript)
         } else if file_name.ends_with(".rhai") {
             Some(DocumentKind::CompilerTemplate)
+        } else if is_fortran_file(file_name) {
+            Some(DocumentKind::FortranSource)
         } else {
             None
         }
@@ -66,6 +69,7 @@ impl Backend {
                 compute_rhai_syntax_diagnostics(src, "build.freight")
             }
             Some(DocumentKind::CompilerTemplate) => compute_template_diagnostics(src),
+            Some(DocumentKind::FortranSource) => fortran::analyze(src).diagnostics,
             None => Vec::new(),
         }
     }
@@ -100,6 +104,31 @@ impl Backend {
 
         out
     }
+
+    fn fortran_definition(
+        &self,
+        src: &str,
+        pos: Position,
+    ) -> Result<Option<GotoDefinitionResponse>> {
+        let Some(name) = fortran::identifier_at(src, pos) else {
+            return Ok(None);
+        };
+
+        for doc in &self.docs {
+            let uri = doc.key();
+            if Self::document_kind(uri) != Some(DocumentKind::FortranSource) {
+                continue;
+            }
+            if let Some(symbol) = fortran::find_symbol(doc.value(), &name) {
+                return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                    uri: uri.clone(),
+                    range: symbol.selection_range,
+                })));
+            }
+        }
+
+        Ok(None)
+    }
 }
 
 // ── LanguageServer implementation ────────────────────────────────────────────
@@ -128,6 +157,7 @@ impl LanguageServer for Backend {
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 definition_provider: Some(OneOf::Left(true)),
+                document_symbol_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
         })
@@ -208,6 +238,19 @@ impl LanguageServer for Backend {
         };
 
         let pos = params.text_document_position_params.position;
+        if kind == DocumentKind::FortranSource {
+            let Some(doc) = fortran::hover(&src, pos) else {
+                return Ok(None);
+            };
+            return Ok(Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: doc,
+                }),
+                range: None,
+            }));
+        }
+
         let Some(field_path) = symbol_path_at(&src, pos, kind) else {
             return Ok(None);
         };
@@ -229,7 +272,7 @@ impl LanguageServer for Backend {
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
         let uri = params.text_document_position_params.text_document.uri;
-        let Some(DocumentKind::Manifest) = Self::document_kind(&uri) else {
+        let Some(kind) = Self::document_kind(&uri) else {
             return Ok(None);
         };
         let Some(src) = self.docs.get(&uri).map(|t| t.clone()) else {
@@ -237,44 +280,84 @@ impl LanguageServer for Backend {
         };
 
         let pos = params.text_document_position_params.position;
-        // Find the path string literal under the cursor — only inside a `path = "..."` assignment.
-        let Some(rel) = path_dep_target_at(&src, pos) else {
-            return Ok(None);
-        };
-
-        let Ok(this_file) = uri.to_file_path() else {
-            return Ok(None);
-        };
-        let Some(project_dir) = this_file.parent() else {
-            return Ok(None);
-        };
-
-        let target_dir: PathBuf = project_dir.join(&rel);
-        let target = target_dir.join("freight.toml");
-        if !target.exists() {
-            return Ok(None);
+        match kind {
+            DocumentKind::Manifest => manifest_path_definition(uri, &src, pos),
+            DocumentKind::FortranSource => self.fortran_definition(&src, pos),
+            DocumentKind::BuildScript | DocumentKind::CompilerTemplate => Ok(None),
         }
+    }
 
-        let Ok(target_uri) = Url::from_file_path(&target) else {
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        let uri = params.text_document.uri;
+        let Some(DocumentKind::FortranSource) = Self::document_kind(&uri) else {
             return Ok(None);
         };
-        Ok(Some(GotoDefinitionResponse::Scalar(Location {
-            uri: target_uri,
-            range: Range {
-                start: Position {
-                    line: 0,
-                    character: 0,
-                },
-                end: Position {
-                    line: 0,
-                    character: 0,
-                },
-            },
-        })))
+        let Some(src) = self.docs.get(&uri).map(|t| t.clone()) else {
+            return Ok(None);
+        };
+
+        let symbols = fortran::analyze(&src)
+            .symbols
+            .into_iter()
+            .map(|s| s.to_document_symbol())
+            .collect();
+        Ok(Some(DocumentSymbolResponse::Nested(symbols)))
     }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+fn is_fortran_file(file_name: &str) -> bool {
+    let lower = file_name.to_ascii_lowercase();
+    matches!(
+        lower.rsplit_once('.').map(|(_, ext)| ext),
+        Some("f" | "for" | "f90" | "f95" | "f03" | "f08" | "f18" | "fpp")
+    )
+}
+
+fn manifest_path_definition(
+    uri: Url,
+    src: &str,
+    pos: Position,
+) -> Result<Option<GotoDefinitionResponse>> {
+    // Find the path string literal under the cursor — only inside a `path = "..."` assignment.
+    let Some(rel) = path_dep_target_at(src, pos) else {
+        return Ok(None);
+    };
+
+    let Ok(this_file) = uri.to_file_path() else {
+        return Ok(None);
+    };
+    let Some(project_dir) = this_file.parent() else {
+        return Ok(None);
+    };
+
+    let target_dir: PathBuf = project_dir.join(&rel);
+    let target = target_dir.join("freight.toml");
+    if !target.exists() {
+        return Ok(None);
+    }
+
+    let Ok(target_uri) = Url::from_file_path(&target) else {
+        return Ok(None);
+    };
+    Ok(Some(GotoDefinitionResponse::Scalar(Location {
+        uri: target_uri,
+        range: Range {
+            start: Position {
+                line: 0,
+                character: 0,
+            },
+            end: Position {
+                line: 0,
+                character: 0,
+            },
+        },
+    })))
+}
 
 fn diagnostic(range: Range, severity: DiagnosticSeverity, message: String) -> Diagnostic {
     Diagnostic {
@@ -410,6 +493,7 @@ fn symbol_path_at(src: &str, pos: Position, kind: DocumentKind) -> Option<String
     match kind {
         DocumentKind::Manifest => dotted_path_at(src, pos),
         DocumentKind::BuildScript | DocumentKind::CompilerTemplate => identifier_at(src, pos),
+        DocumentKind::FortranSource => fortran::identifier_at(src, pos),
     }
 }
 
