@@ -7,10 +7,12 @@
 pub mod autotools;
 pub mod bazel;
 pub mod cmake;
+pub mod conan;
 pub mod make;
 pub mod meson;
 pub mod pkg_config;
 pub mod scons;
+pub mod system_pm;
 
 pub use pkg_config::{PkgConfigResult, ResolvedPkgConfig, pkg_config_query, pkg_config_version};
 
@@ -18,6 +20,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::error::FreightError;
+use crate::event::{BuildEvent, Progress};
 use crate::manifest::types::{Dependency, Manifest};
 
 // ── Public types ──────────────────────────────────────────────────────────────
@@ -39,47 +42,22 @@ pub fn build_foreign_deps(
     project_dir: &Path,
     manifest: &Manifest,
     profile: &str,
+    progress: &Progress,
 ) -> Result<(Vec<ForeignBuilt>, Vec<ResolvedPkgConfig>), FreightError> {
     let mut results: Vec<ForeignBuilt> = Vec::new();
     let mut pkg_results: Vec<ResolvedPkgConfig> = Vec::new();
 
     for (name, dep) in &manifest.dependencies {
         if let Some(version) = package_dep_version(dep) {
-            use owo_colors::OwoColorize;
-            let query = package_query(name, version);
-            println!("  {} {} ({})", "Resolving".dimmed(), name, query);
-            match pkg_config_query(&query) {
-                Ok(pc) => {
-                    pkg_results.push(ResolvedPkgConfig {
-                        name: name.clone(),
-                        found: true,
-                        version: pkg_config_version(&query),
-                        include_dirs: pc.include_dirs.clone(),
-                    });
-                    results.push(ForeignBuilt {
-                        name: name.clone(),
-                        libs: vec![],
-                        include_dirs: pc.include_dirs,
-                        raw_link_flags: pc.link_flags,
-                    });
+            let query    = package_query(name, version);
+            let repo     = dep_repo(dep);
+            let optional = package_dep_optional(dep);
+            match resolve_version_dep(name, &query, version, repo, optional, project_dir, progress)? {
+                Some((built, maybe_pc)) => {
+                    if let Some(pc) = maybe_pc { pkg_results.push(pc); }
+                    results.push(built);
                 }
-                Err(_) => {
-                    match crate::fetch::vcpkg::resolve_vcpkg_dep(name, name, None, project_dir) {
-                        Ok(v) => results.push(ForeignBuilt {
-                            name: name.clone(),
-                            libs: v.libs,
-                            include_dirs: v.include_dirs,
-                            raw_link_flags: v.raw_link_flags,
-                        }),
-                        Err(e) if package_dep_optional(dep) => {
-                            println!(
-                                "  {} package '{name}' not found (optional, skipping): {e}",
-                                "warning:".yellow()
-                            );
-                        }
-                        Err(e) => return Err(e),
-                    }
-                }
+                None => {} // optional, not found
             }
             continue;
         }
@@ -88,8 +66,7 @@ pub fn build_foreign_deps(
 
         // ── pkg-config dep ────────────────────────────────────────────────────
         if let Some(query) = &d.pkg_config {
-            use owo_colors::OwoColorize;
-            println!("  {} {} (pkg-config)", "Resolving".dimmed(), name);
+            progress(BuildEvent::ResolvingDep { name: name.clone(), via: "pkg-config".to_string() });
             match pkg_config_query(query) {
                 Ok(pc) => {
                     let version = pkg_config_version(query);
@@ -108,11 +85,9 @@ pub fn build_foreign_deps(
                 }
                 Err(e) => {
                     if let Some(fallback) = &d.system {
-                        println!(
-                            "  {} pkg-config for '{name}' failed ({e}); \
-                             falling back to -l{fallback}",
-                            "warning:".yellow()
-                        );
+                        progress(BuildEvent::Warning(format!(
+                            "pkg-config for '{name}' failed ({e}); falling back to -l{fallback}"
+                        )));
                         pkg_results.push(ResolvedPkgConfig {
                             name: name.clone(), found: false,
                             version: String::new(), include_dirs: vec![],
@@ -123,10 +98,9 @@ pub fn build_foreign_deps(
                             raw_link_flags: vec![format!("-l{fallback}")],
                         });
                     } else if d.optional {
-                        println!(
-                            "  {} pkg-config for '{name}' not found (optional, skipping)",
-                            "warning:".yellow()
-                        );
+                        progress(BuildEvent::Warning(format!(
+                            "pkg-config for '{name}' not found (optional, skipping)"
+                        )));
                         pkg_results.push(ResolvedPkgConfig {
                             name: name.clone(), found: false,
                             version: String::new(), include_dirs: vec![],
@@ -152,7 +126,7 @@ pub fn build_foreign_deps(
         } else if d.git.is_some() {
             project_dir.join(".deps").join(name)
         } else if let Some(url) = &d.url {
-            crate::fetch::http::fetch_url_dep(name, url, d.sha256.as_deref(), project_dir)?
+            crate::fetch::http::fetch_url_dep(name, url, d.sha256.as_deref(), project_dir, progress)?
         } else {
             continue; // version dep — not a foreign build
         };
@@ -202,7 +176,7 @@ pub fn build_foreign_deps(
         };
 
         let build_dir = dep_dir.join(".freight-build");
-        let libs = invoke_build_system(&dep_dir, &build_dir, name, &bs, profile, &d.cmake_args)?;
+        let libs = invoke_build_system(&dep_dir, &build_dir, name, &bs, profile, &d.cmake_args, progress)?;
         let include_dirs = collect_include_dirs(&dep_dir, &d.include, Some(&build_dir));
 
         results.push(ForeignBuilt {
@@ -231,6 +205,10 @@ fn package_dep_optional(dep: &Dependency) -> bool {
     matches!(dep, Dependency::Detailed(d) if d.optional)
 }
 
+fn dep_repo(dep: &Dependency) -> Option<&str> {
+    if let Dependency::Detailed(d) = dep { d.repo.as_deref() } else { None }
+}
+
 fn package_query(name: &str, version: &str) -> String {
     let version = version.trim();
     if version.is_empty() || version == "*" {
@@ -240,6 +218,110 @@ fn package_query(name: &str, version: &str) -> String {
         format!("{name} {version}")
     } else {
         format!("{name} >= {version}")
+    }
+}
+
+// ── Version dep resolution chain ─────────────────────────────────────────────
+
+/// Resolve a version dep (`name = "1.3"` or `{ version = "1.3", repo = "..." }`)
+/// through the configured resolver chain.
+///
+/// Returns `Ok(Some((built, maybe_pc)))` on success, `Ok(None)` when the dep
+/// is optional and not found, or `Err` when the dep is required and all
+/// resolvers fail.
+///
+/// Default chain (no explicit `repo`): pkg-config → conan → vcpkg
+/// If all fail and a system PM is detectable, a helpful install hint is emitted
+/// as a `BuildEvent::Warning` before returning the error.
+fn resolve_version_dep(
+    name: &str,
+    query: &str,
+    version: &str,
+    repo: Option<&str>,
+    optional: bool,
+    project_dir: &Path,
+    progress: &Progress,
+) -> Result<Option<(ForeignBuilt, Option<ResolvedPkgConfig>)>, FreightError> {
+    match repo {
+        Some("pkg-config") => {
+            progress(BuildEvent::ResolvingDep { name: name.to_string(), via: "pkg-config".to_string() });
+            match pkg_config_query(query) {
+                Ok(pc) => {
+                    let ver = pkg_config_version(query);
+                    Ok(Some((
+                        ForeignBuilt { name: name.to_string(), libs: vec![], include_dirs: pc.include_dirs.clone(), raw_link_flags: pc.link_flags },
+                        Some(ResolvedPkgConfig { name: name.to_string(), found: true, version: ver, include_dirs: pc.include_dirs }),
+                    )))
+                }
+                Err(e) if optional => {
+                    progress(BuildEvent::Warning(format!("'{name}' not found via pkg-config (optional, skipping): {e}")));
+                    Ok(None)
+                }
+                Err(e) => Err(e),
+            }
+        }
+        Some("conan") => {
+            match conan::resolve_conan_dep(name, name, version, project_dir, progress) {
+                Ok(built) => Ok(Some((built, None))),
+                Err(e) if optional => {
+                    progress(BuildEvent::Warning(format!("'{name}' not found via conan (optional, skipping): {e}")));
+                    Ok(None)
+                }
+                Err(e) => Err(e),
+            }
+        }
+        Some("vcpkg") => {
+            match crate::fetch::vcpkg::resolve_vcpkg_dep(name, name, None, project_dir, progress) {
+                Ok(v) => Ok(Some((
+                    ForeignBuilt { name: name.to_string(), libs: v.libs, include_dirs: v.include_dirs, raw_link_flags: v.raw_link_flags },
+                    None,
+                ))),
+                Err(e) if optional => {
+                    progress(BuildEvent::Warning(format!("'{name}' not found via vcpkg (optional, skipping): {e}")));
+                    Ok(None)
+                }
+                Err(e) => Err(e),
+            }
+        }
+        Some(other) => Err(FreightError::ManifestParse(format!(
+            "unknown repo '{other}' for dep '{name}'; accepted: pkg-config, conan, vcpkg"
+        ))),
+        None => {
+            // Default chain: pkg-config → conan (if available) → vcpkg → system hint
+            progress(BuildEvent::ResolvingDep { name: name.to_string(), via: query.to_string() });
+            if let Ok(pc) = pkg_config_query(query) {
+                let ver = pkg_config_version(query);
+                return Ok(Some((
+                    ForeignBuilt { name: name.to_string(), libs: vec![], include_dirs: pc.include_dirs.clone(), raw_link_flags: pc.link_flags },
+                    Some(ResolvedPkgConfig { name: name.to_string(), found: true, version: ver, include_dirs: pc.include_dirs }),
+                )));
+            }
+            if conan::is_conan_available() {
+                if let Ok(built) = conan::resolve_conan_dep(name, name, version, project_dir, progress) {
+                    return Ok(Some((built, None)));
+                }
+            }
+            match crate::fetch::vcpkg::resolve_vcpkg_dep(name, name, None, project_dir, progress) {
+                Ok(v) => Ok(Some((
+                    ForeignBuilt { name: name.to_string(), libs: v.libs, include_dirs: v.include_dirs, raw_link_flags: v.raw_link_flags },
+                    None,
+                ))),
+                Err(e) => {
+                    if let Some(pm) = system_pm::detect() {
+                        progress(BuildEvent::Warning(format!(
+                            "hint: try `{}` to install the system package",
+                            pm.install_hint(name),
+                        )));
+                    }
+                    if optional {
+                        progress(BuildEvent::Warning(format!("'{name}' not found (optional, skipping): {e}")));
+                        Ok(None)
+                    } else {
+                        Err(e)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -306,13 +388,13 @@ fn invoke_build_system(
     build_system: &str,
     profile: &str,
     cmake_args: &[String],
+    progress: &Progress,
 ) -> Result<Vec<PathBuf>, FreightError> {
     let resolved = build_system.to_string();
 
     std::fs::create_dir_all(build_dir)?;
 
-    use owo_colors::OwoColorize;
-    println!("  {} {} ({})", "Building".dimmed(), name, resolved);
+    progress(BuildEvent::BuildingForeignDep { name: name.to_string(), backend: resolved.clone() });
 
     let search_dir = match resolved.as_str() {
         "cmake"     => { cmake::build_cmake(dep_dir, build_dir, profile, cmake_args)?; build_dir.to_path_buf() }

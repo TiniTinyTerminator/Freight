@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::error::FreightError;
+use crate::event::{BuildEvent, Progress};
 
 /// Libraries and include directories made available by a vcpkg package.
 pub struct VcpkgResolution {
@@ -24,6 +25,7 @@ pub fn fetch_vcpkg_dep(
     package: &str,
     triplet: Option<&str>,
     project_dir: &Path,
+    progress: &Progress,
 ) -> Result<PathBuf, FreightError> {
     let triplet = triplet.map(str::to_string).unwrap_or_else(default_triplet);
     let root = installed_root(project_dir);
@@ -35,13 +37,7 @@ pub fn fetch_vcpkg_dep(
         return Ok(root.join(&triplet));
     }
 
-    use owo_colors::OwoColorize;
-    println!(
-        "  {} {} from vcpkg ({})",
-        "Fetching".dimmed(),
-        name,
-        package
-    );
+    progress(BuildEvent::FetchingDep { name: name.to_string(), source: format!("vcpkg:{package}") });
 
     std::fs::create_dir_all(root.join(".freight"))?;
 
@@ -76,9 +72,10 @@ pub fn resolve_vcpkg_dep(
     package: &str,
     triplet: Option<&str>,
     project_dir: &Path,
+    progress: &Progress,
 ) -> Result<VcpkgResolution, FreightError> {
     let triplet = triplet.map(str::to_string).unwrap_or_else(default_triplet);
-    let triplet_dir = fetch_vcpkg_dep(name, package, Some(&triplet), project_dir)?;
+    let triplet_dir = fetch_vcpkg_dep(name, package, Some(&triplet), project_dir, progress)?;
 
     let include = triplet_dir.join("include");
     let include_dirs = if include.is_dir() {
