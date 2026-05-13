@@ -3,7 +3,7 @@ use super::types::{host_platforms, Manifest};
 impl Manifest {
     /// Evaluate the optional `[package].supports` expression against this build.
     ///
-    /// The syntax mirrors vcpkg-style boolean platform expressions:
+    /// The syntax mirrors boolean platform expressions:
     /// identifiers, `!`, `&`, `|`, and parentheses. Missing `supports` means true.
     pub fn supports_current_platform(&self) -> Result<bool, String> {
         let Some(expr) = self.package.supports.as_deref() else {
@@ -285,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn supports_expr_handles_vcpkg_style_expression() {
+    fn supports_expr_handles_nested_boolean_expression() {
         let expr = "(windows & !uwp & (x86 | x64)) | (!windows & !osx)";
         assert!(eval(
             expr,

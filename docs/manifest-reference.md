@@ -19,7 +19,7 @@ license     = "MIT"                # optional — SPDX identifier
 supports    = "(windows & !uwp & (x86 | x64)) | (!windows & !osx)"
 ```
 
-`supports` is optional. When present, it is a vcpkg-style boolean platform expression that
+`supports` is optional. When present, it is a boolean platform expression that
 controls whether the package is buildable on the current host/target. Freight supports
 identifiers such as `windows`, `linux`, `macos`/`osx`, `unix`, `uwp`, `x86`, `x64`/`x86_64`,
 `arm`, and `arm64`/`aarch64`, plus the operators `!`, `&`, `|`, and parentheses.

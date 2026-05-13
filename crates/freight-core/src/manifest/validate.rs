@@ -634,6 +634,69 @@ src  = "src/main.cpp"
     }
 
     #[test]
+    fn package_supports_matching_platform_is_valid() {
+        let platform = if std::env::consts::OS == "macos" {
+            "osx"
+        } else {
+            std::env::consts::OS
+        };
+        let s = format!(r#"
+[package]
+name    = "foo"
+version = "0.1.0"
+supports = "{platform}"
+[[bin]]
+name = "foo"
+src  = "src/main.cpp"
+"#);
+
+        assert!(field_errors(&s, "[package]").is_empty());
+    }
+
+    #[test]
+    fn package_supports_rejects_non_matching_platform() {
+        let unsupported = if std::env::consts::OS == "windows" {
+            "linux"
+        } else {
+            "windows"
+        };
+        let s = format!(r#"
+[package]
+name    = "foo"
+version = "0.1.0"
+supports = "{unsupported}"
+[[bin]]
+name = "foo"
+src  = "src/main.cpp"
+"#);
+
+        let errs = field_errors(&s, "[package]");
+        assert!(
+            errs.iter().any(|e| e.message.contains("current platform is not supported")),
+            "expected unsupported-platform error, got {errs:?}"
+        );
+    }
+
+    #[test]
+    fn package_supports_rejects_invalid_expression() {
+        let s = r#"
+[package]
+name    = "foo"
+version = "0.1.0"
+supports = "windows &"
+[[bin]]
+name = "foo"
+src  = "src/main.cpp"
+"#;
+
+        let errs = field_errors(s, "[package]");
+        assert!(
+            errs.iter().any(|e| e.message.contains("invalid supports expression")),
+            "expected invalid-expression error, got {errs:?}"
+        );
+    }
+
+    #[test]
     fn unsupported_language() {
         let s = r#"
 [package]
@@ -915,6 +978,53 @@ ghost = { path = "does-not-exist" }
         let manifest = load_manifest_str(s).unwrap();
         let errs = validate_dep_compat(&manifest, dir.path(), &test_templates());
         assert!(errs.is_empty(), "missing dep dir should be silently skipped");
+    }
+
+    #[test]
+    fn path_dep_with_non_matching_supports_is_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let dep_dir = dir.path().join("unsupported");
+        std::fs::create_dir_all(&dep_dir).unwrap();
+        let unsupported = if std::env::consts::OS == "windows" {
+            "linux"
+        } else {
+            "windows"
+        };
+        std::fs::write(
+            dep_dir.join("freight.toml"),
+            format!(r#"
+[package]
+name = "unsupported"
+version = "0.1.0"
+supports = "{unsupported}"
+[language.c]
+[[bin]]
+name = "unsupported"
+src = "src/main.c"
+"#),
+        )
+        .unwrap();
+
+        let s = r#"
+[package]
+name    = "foo"
+version = "0.1.0"
+[language.c]
+[[bin]]
+name = "foo"
+src  = "src/main.c"
+[dependencies]
+unsupported = { path = "unsupported" }
+"#;
+        let manifest = load_manifest_str(s).unwrap();
+        let errs = validate_dep_compat(&manifest, dir.path(), &test_templates());
+        assert!(
+            errs.iter().any(|e| {
+                e.context.contains("unsupported")
+                    && e.message.contains("does not support the current platform")
+            }),
+            "expected dependency supports error, got {errs:?}"
+        );
     }
 
     // ── C/C++ std consistency ─────────────────────────────────────────────────
