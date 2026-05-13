@@ -222,6 +222,6 @@ See `docs/compiler-templates.md` for the full script API including `family` and 
 ### vcpkg
 - **What**: Microsoft's C++ package manager for libraries. Installs to a `vcpkg_installed/`
   directory with standard include/lib layout.
-- **Integration [needs Rust]**: Detect `vcpkg.json` manifest; read installed packages from
-  `vcpkg_installed/<triplet>/include/` and `vcpkg_installed/<triplet>/lib/`. Could be a new
-  dep kind: `mylib = { vcpkg = "mylib" }`.
+- **Integration**: Version-only manifest dependencies now check system metadata first and fall
+  back to a project-local `.deps/vcpkg_installed/` install. Future work can add explicit
+  repository selection such as `repo = "vcpkg"` once more repositories are available.

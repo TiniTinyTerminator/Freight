@@ -95,14 +95,29 @@ ensures that `main()` from one binary is not linked into another.
 Dependencies listed under `[dependencies]` are always compiled and linked. Those under
 `[dev-dependencies]` are only linked when running `freight test`.
 
-### Version dependency (registry)
+### Version dependency (system package, vcpkg fallback)
 
 ```toml
-mylib = "1.2"          # resolved from freight.dev; exact pinning via freight.lock
-mylib = ">=1.0, <2.0"  # semver range
+zlib    = "1.3.1"       # require at least this version
+openssl = ">=3.0"       # comparator-style constraint
+libpng  = "*"           # any installed or fetched version
+
+# Equivalent detailed form, useful with optional/features/default-features keys:
+zstd = { version = "1.5" }
 ```
 
-> Registry resolution is not yet implemented. Version deps produce a clear "registry not yet available" message.
+For version-only dependencies, Freight first checks whether a compatible system package is already
+available through `pkg-config` (for example, `zlib = "1.3.1"` checks `zlib >= 1.3.1`). If the
+system package is not found, Freight installs the same package name with `vcpkg install` into the
+project-local `.deps/vcpkg_installed/` tree and adds its `include/` directory and discovered
+libraries under `lib/` to the build.
+
+`VCPKG_DEFAULT_TRIPLET` controls the triplet used for the fallback install; otherwise Freight chooses
+a host default such as `x64-linux`, `x64-windows`, `x64-osx`, or `arm64-osx`. Set the `VCPKG`
+environment variable to override the executable path if `vcpkg` is not on `PATH`. vcpkg port
+baselines decide the exact fetched version; the manifest version is used to validate system packages
+and document the required API version. A future `repo = "vcpkg"` selector can make this fallback
+explicit once multiple repositories are available.
 
 ### Path dependency
 

@@ -219,6 +219,79 @@ pub fn fetch_url_deps(project_dir: &Path) -> Result<Vec<(String, bool)>, Freight
     Ok(outcomes)
 }
 
+/// Resolve version-only package deps by preferring system packages and falling
+/// back to the project-local vcpkg install tree.
+pub enum PackageDepAction {
+    SystemPresent,
+    Fetched,
+    AlreadyPresent,
+}
+
+pub struct PackageDepOutcome {
+    pub name: String,
+    pub action: PackageDepAction,
+}
+
+pub fn fetch_package_deps(project_dir: &Path) -> Result<Vec<PackageDepOutcome>, FreightError> {
+    use crate::fetch::vcpkg;
+    use crate::meta::pkg_config_query;
+
+    let manifest = load_manifest(project_dir)?;
+    let mut outcomes = Vec::new();
+
+    for (name, dep) in &manifest.dependencies {
+        let Some(version) = package_dep_version(dep) else { continue };
+        let query = package_query(name, version);
+
+        if pkg_config_query(&query).is_ok() {
+            outcomes.push(PackageDepOutcome { name: name.clone(), action: PackageDepAction::SystemPresent });
+            continue;
+        }
+
+        let triplet = vcpkg::default_triplet();
+        let already = vcpkg::installed_root(project_dir)
+            .join(".freight")
+            .join(format!("{name}.{triplet}.fetched"))
+            .exists();
+        if !already {
+            vcpkg::fetch_vcpkg_dep(name, name, Some(&triplet), project_dir)?;
+        }
+
+        outcomes.push(PackageDepOutcome {
+            name: name.clone(),
+            action: if already { PackageDepAction::AlreadyPresent } else { PackageDepAction::Fetched },
+        });
+    }
+
+    Ok(outcomes)
+}
+
+fn package_dep_version(dep: &Dependency) -> Option<&str> {
+    match dep {
+        Dependency::Simple(version) => Some(version.as_str()),
+        Dependency::Detailed(d)
+            if d.version.is_some()
+                && d.path.is_none()
+                && d.system.is_none()
+                && d.git.is_none()
+                && d.url.is_none()
+                && d.pkg_config.is_none() => d.version.as_deref(),
+        _ => None,
+    }
+}
+
+fn package_query(name: &str, version: &str) -> String {
+    let version = version.trim();
+    if version.is_empty() || version == "*" {
+        return name.to_string();
+    }
+    if matches!(version.as_bytes().first(), Some(b'<' | b'>' | b'=' | b'!')) {
+        format!("{name} {version}")
+    } else {
+        format!("{name} >= {version}")
+    }
+}
+
 /// Remove the `.freight-fetched` sentinel for the named url dep so
 /// `freight fetch` (or the next build) will re-download it.
 pub fn invalidate_url_dep(project_dir: &Path, name: &str) -> bool {

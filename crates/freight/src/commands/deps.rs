@@ -2,8 +2,8 @@ use std::path::Path;
 
 use freight_core::dep_cmds::{
     locate_project, manifest_add_dep, manifest_remove_dep, regen_lock,
-    fetch_git_deps, fetch_url_deps, update_git_deps, invalidate_url_dep,
-    DetailedDep, GitDepAction, RegenLockOutcome,
+    fetch_git_deps, fetch_package_deps, fetch_url_deps, update_git_deps, invalidate_url_dep,
+    DetailedDep, GitDepAction, PackageDepAction, RegenLockOutcome,
 };
 use freight_core::manifest::types::{Dependency, Manifest};
 use freight_core::manifest::{find_manifest_dir, load_manifest};
@@ -36,7 +36,7 @@ fn print_dep_tree(manifest: &Manifest, project_dir: &Path, prefix: &str, _is_roo
 
         match dep {
             Dependency::Simple(ver) => {
-                println!("{}{}{} {} (registry)", prefix, connector, name, ver);
+                println!("{}{}{} {} (package)", prefix, connector, name, ver);
             }
             Dependency::Detailed(d) if d.system.is_some() => {
                 if let Some(query) = &d.pkg_config {
@@ -65,7 +65,7 @@ fn print_dep_tree(manifest: &Manifest, project_dir: &Path, prefix: &str, _is_roo
             }
             Dependency::Detailed(d) => {
                 let ver = d.version.as_deref().unwrap_or("*");
-                println!("{}{}{} {} (registry)", prefix, connector, name, ver);
+                println!("{}{}{} {} (package)", prefix, connector, name, ver);
             }
         }
     }
@@ -132,9 +132,6 @@ pub fn cmd_add(
             ..Default::default()
         })
     } else {
-        if version.is_none() {
-            print_warning("freight.dev registry is not yet available — this dependency cannot be fetched");
-        }
         let ver = version.unwrap_or("*").to_string();
         Dependency::Simple(ver)
     };
@@ -200,10 +197,6 @@ pub fn cmd_update(package: Option<&str>) {
         Ok(m) => m,
         Err(e) => { print_error(&e.to_string()); return; }
     };
-
-    if manifest.dependencies.values().any(|d| matches!(d, Dependency::Simple(_))) {
-        print_warning("freight.dev registry is not yet available — version dependencies cannot be updated");
-    }
 
     let target = package.map(|p| p.to_string());
 
@@ -310,10 +303,6 @@ pub fn cmd_fetch() {
             Dependency::Detailed(d) if d.backend.is_some() => {
                 print_status("skip", &format!("{name} (foreign — built on demand)"));
             }
-            Dependency::Simple(_) => {
-                any_work = true;
-                print_warning(&format!("{name}: freight.dev registry not yet available — skipping"));
-            }
             _ => {}
         }
     }
@@ -342,6 +331,27 @@ pub fn cmd_fetch() {
                     print_status("ok", &format!("{name} (http, up to date)"));
                 } else {
                     print_success(&format!("fetched `{name}`"));
+                }
+            }
+        }
+        Err(e) => { print_error(&e.to_string()); all_ok = false; }
+    }
+
+    // Resolve version package deps (system first, vcpkg fallback).
+    match fetch_package_deps(&project_dir) {
+        Ok(outcomes) => {
+            for outcome in outcomes {
+                any_work = true;
+                match outcome.action {
+                    PackageDepAction::SystemPresent => {
+                        print_status("ok", &format!("{} (system package)", outcome.name));
+                    }
+                    PackageDepAction::AlreadyPresent => {
+                        print_status("ok", &format!("{} (vcpkg, up to date)", outcome.name));
+                    }
+                    PackageDepAction::Fetched => {
+                        print_success(&format!("fetched `{}`", outcome.name));
+                    }
                 }
             }
         }

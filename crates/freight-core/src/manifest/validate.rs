@@ -43,7 +43,7 @@ pub fn validate(manifest: &Manifest, templates: &[CompilerTemplate]) -> Vec<Vali
     validate_os_arch_keys(manifest, &mut errors);
     validate_dep_env_filters(manifest, &mut errors);
     validate_features(manifest, &mut errors);
-    validate_http_deps(manifest, &mut errors);
+    validate_foreign_deps(manifest, &mut errors);
 
     errors
 }
@@ -101,7 +101,7 @@ fn validate_features(m: &Manifest, errors: &mut Vec<ValidationError>) {
     }
 }
 
-fn validate_http_deps(m: &Manifest, errors: &mut Vec<ValidationError>) {
+fn validate_foreign_deps(m: &Manifest, errors: &mut Vec<ValidationError>) {
     for (name, dep) in &m.dependencies {
         let Dependency::Detailed(d) = dep else { continue };
         let ctx = format!("[dependencies.{name}]");

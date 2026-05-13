@@ -44,6 +44,46 @@ pub fn build_foreign_deps(
     let mut pkg_results: Vec<ResolvedPkgConfig> = Vec::new();
 
     for (name, dep) in &manifest.dependencies {
+        if let Some(version) = package_dep_version(dep) {
+            use owo_colors::OwoColorize;
+            let query = package_query(name, version);
+            println!("  {} {} ({})", "Resolving".dimmed(), name, query);
+            match pkg_config_query(&query) {
+                Ok(pc) => {
+                    pkg_results.push(ResolvedPkgConfig {
+                        name: name.clone(),
+                        found: true,
+                        version: pkg_config_version(&query),
+                        include_dirs: pc.include_dirs.clone(),
+                    });
+                    results.push(ForeignBuilt {
+                        name: name.clone(),
+                        libs: vec![],
+                        include_dirs: pc.include_dirs,
+                        raw_link_flags: pc.link_flags,
+                    });
+                }
+                Err(_) => {
+                    match crate::fetch::vcpkg::resolve_vcpkg_dep(name, name, None, project_dir) {
+                        Ok(v) => results.push(ForeignBuilt {
+                            name: name.clone(),
+                            libs: v.libs,
+                            include_dirs: v.include_dirs,
+                            raw_link_flags: v.raw_link_flags,
+                        }),
+                        Err(e) if package_dep_optional(dep) => {
+                            println!(
+                                "  {} package '{name}' not found (optional, skipping): {e}",
+                                "warning:".yellow()
+                            );
+                        }
+                        Err(e) => return Err(e),
+                    }
+                }
+            }
+            continue;
+        }
+
         let Dependency::Detailed(d) = dep else { continue };
 
         // ── pkg-config dep ────────────────────────────────────────────────────
@@ -171,6 +211,36 @@ pub fn build_foreign_deps(
     }
 
     Ok((results, pkg_results))
+}
+
+fn package_dep_version(dep: &Dependency) -> Option<&str> {
+    match dep {
+        Dependency::Simple(version) => Some(version.as_str()),
+        Dependency::Detailed(d)
+            if d.version.is_some()
+                && d.path.is_none()
+                && d.system.is_none()
+                && d.git.is_none()
+                && d.url.is_none()
+                && d.pkg_config.is_none() => d.version.as_deref(),
+        _ => None,
+    }
+}
+
+fn package_dep_optional(dep: &Dependency) -> bool {
+    matches!(dep, Dependency::Detailed(d) if d.optional)
+}
+
+fn package_query(name: &str, version: &str) -> String {
+    let version = version.trim();
+    if version.is_empty() || version == "*" {
+        return name.to_string();
+    }
+    if matches!(version.as_bytes().first(), Some(b'<' | b'>' | b'=' | b'!')) {
+        format!("{name} {version}")
+    } else {
+        format!("{name} >= {version}")
+    }
 }
 
 // ── Validation ────────────────────────────────────────────────────────────────
