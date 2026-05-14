@@ -177,7 +177,7 @@ pub fn build_foreign_deps(
         };
 
         let build_dir = dep_dir.join(".freight-build");
-        let libs = invoke_build_system(&dep_dir, &build_dir, name, &bs, profile, &d.cmake_args, progress)?;
+        let libs = invoke_build_system(&dep_dir, &build_dir, name, &bs, profile, &d.cmake_args, manifest.compiler.target.as_deref(), progress)?;
         let include_dirs = collect_include_dirs(&dep_dir, &d.include, Some(&build_dir));
 
         results.push(ForeignBuilt {
@@ -413,6 +413,7 @@ fn invoke_build_system(
     build_system: &str,
     profile: &str,
     cmake_args: &[String],
+    target: Option<&str>,
     progress: &Progress,
 ) -> Result<Vec<PathBuf>, FreightError> {
     let resolved = build_system.to_string();
@@ -422,10 +423,10 @@ fn invoke_build_system(
     progress(BuildEvent::BuildingForeignDep { name: name.to_string(), backend: resolved.clone() });
 
     let search_dir = match resolved.as_str() {
-        "cmake"     => { cmake::build_cmake(dep_dir, build_dir, profile, cmake_args)?; build_dir.to_path_buf() }
+        "cmake"     => { cmake::build_cmake(dep_dir, build_dir, profile, cmake_args, target)?; build_dir.to_path_buf() }
         "make"      => { make::build_make(dep_dir)?; dep_dir.to_path_buf() }
         "meson"     => { meson::build_meson(dep_dir, build_dir)?; build_dir.to_path_buf() }
-        "autotools" => { autotools::build_autotools(dep_dir, build_dir)?; build_dir.join("install") }
+        "autotools" => { autotools::build_autotools(dep_dir, build_dir, target)?; build_dir.join("install") }
         "scons"     => { scons::build_scons(dep_dir)?; dep_dir.to_path_buf() }
         "bazel"     => { bazel::build_bazel(dep_dir)?; dep_dir.to_path_buf() }
         other => {

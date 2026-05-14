@@ -493,6 +493,7 @@ dependencies = [
 name = "freight-core"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "curl",
  "git2",
  "glob",
