@@ -3,10 +3,9 @@
 use std::path::{Path, PathBuf};
 use std::fs;
 
-use walkdir::WalkDir;
-
 use crate::build::build_project_at;
 use crate::error::FreightError;
+use crate::event::silent;
 use crate::manifest::load_manifest;
 use crate::manifest::types::LibType;
 use crate::toolchain::GlobalConfig;
@@ -80,7 +79,7 @@ pub fn install_project(project_dir: &Path, opts: &InstallOptions) -> Result<Inst
     let profile  = if opts.release { "release" } else { "dev" };
 
     if !opts.no_build {
-        build_project_at(project_dir, profile, &[], true, opts.target.as_deref(), &[])?;
+        build_project_at(project_dir, profile, &[], true, opts.target.as_deref(), &[], &silent())?;
     }
 
     // Derive target OS/arch: prefer the explicit override, then ~/.freight/config.toml, then host.
@@ -180,7 +179,7 @@ pub fn package_project(project_dir: &Path, release: bool, target: Option<&str>) 
     let manifest = load_manifest(project_dir)?;
     let profile  = if release { "release" } else { "dev" };
 
-    build_project_at(project_dir, profile, &[], true, target, &[])?;
+    build_project_at(project_dir, profile, &[], true, target, &[], &silent())?;
 
     let global_target = GlobalConfig::load().target;
     let (pkg_arch, pkg_os) = target

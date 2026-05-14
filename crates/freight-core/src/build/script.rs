@@ -107,6 +107,7 @@ use rhai::{Array, Dynamic, Engine, ImmutableString, Map, Scope};
 use serde::{Deserialize, Serialize};
 
 use crate::error::FreightError;
+use crate::event::{BuildEvent, Progress};
 use crate::manifest::types::{Backend, Manifest};
 use crate::toolchain::DetectedCompiler;
 use super::compile::select_compiler;
@@ -278,6 +279,7 @@ pub fn run_build_script(
     profile: &str,
     detected: &[DetectedCompiler],
     pkg_configs: &[ResolvedPkgConfig],
+    progress: &Progress,
 ) -> Result<ScriptOutput, FreightError> {
     let script_path = project_dir.join(SCRIPT_NAME);
     if !script_path.is_file() {
@@ -289,17 +291,17 @@ pub fn run_build_script(
 
     // Skip re-execution if all rerun_if deps are unchanged.
     if let Some(mut cached) = load_stamp_if_current(project_dir, profile, &script_path) {
-        use owo_colors::OwoColorize;
-        println!("  {} {SCRIPT_NAME} (cached)", "Running".bold().cyan());
+        progress(BuildEvent::RunningScript { cached: true });
         if !cached.include_dirs.contains(&out_d) {
             cached.include_dirs.insert(0, out_d);
         }
-        print_warnings(&cached.warnings);
+        for w in &cached.warnings {
+            progress(BuildEvent::Warning(w.clone()));
+        }
         return Ok(cached);
     }
 
-    use owo_colors::OwoColorize;
-    println!("  {} {SCRIPT_NAME}", "Running".bold().cyan());
+    progress(BuildEvent::RunningScript { cached: false });
 
     let src = std::fs::read_to_string(&script_path)?;
 
@@ -386,8 +388,6 @@ pub fn run_build_script(
         with_state(|s| s.output.extra_sources.push(PathBuf::from(path)));
     });
     engine.register_fn("warning", |msg: String| {
-        use owo_colors::OwoColorize;
-        eprintln!("  {} {msg}", "warning:".yellow().bold());
         with_state(|s| s.output.warnings.push(msg));
     });
 
@@ -598,6 +598,11 @@ pub fn run_build_script(
         output.include_dirs.insert(0, out_d);
     }
 
+    // Emit warnings collected during script execution.
+    for w in &output.warnings {
+        progress(BuildEvent::Warning(w.clone()));
+    }
+
     // Persist stamp when the script declared at least one rerun_if dep.
     if !rerun_deps.is_empty() {
         save_stamp(project_dir, profile, &script_path, &rerun_deps, &output);
@@ -732,12 +737,6 @@ fn glob_files(project_dir: &Path, pattern: &str) -> Vec<PathBuf> {
     results
 }
 
-fn print_warnings(warnings: &[String]) {
-    use owo_colors::OwoColorize;
-    for w in warnings {
-        eprintln!("  {} {w}", "warning:".yellow().bold());
-    }
-}
 
 #[cfg(test)]
 mod tests {

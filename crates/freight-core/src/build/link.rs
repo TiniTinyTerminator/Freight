@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::error::FreightError;
+use crate::event::{BuildEvent, Progress};
 use crate::manifest::types::{Dependency, LibType, Manifest};
 use crate::toolchain::template::BuildSettings;
 use crate::toolchain::{CompilerTemplate, DetectedCompiler};
@@ -34,6 +35,7 @@ pub fn link_targets(
     templates: &[CompilerTemplate],
     dep_libs: &[PathBuf],
     extra_link_flags: &[String],
+    progress: &Progress,
 ) -> Result<LinkResult, FreightError> {
     let mut outputs: Vec<PathBuf> = Vec::new();
 
@@ -52,7 +54,7 @@ pub fn link_targets(
             .cloned()
             .collect();
 
-        print_linking(&bin.name);
+        progress(BuildEvent::Linking { name: bin.name.clone() });
         link_executable(&bin_objects, &out, linker, manifest, profile, dep_libs, extra_link_flags)?;
         if link_settings(manifest, profile).strip {
             strip_output(&out, linker)?;
@@ -67,7 +69,7 @@ pub fn link_targets(
                     .join(format!("lib{}.a", manifest.package.name));
                 let linker = select_linker(manifest, detected, templates)
                     .ok_or_else(|| FreightError::CompilerNotFound("no suitable linker found".into()))?;
-                print_archiving(out.file_name().unwrap_or_default().to_str().unwrap_or("lib"));
+                progress(BuildEvent::Archiving { name: format!("lib{}.a", manifest.package.name) });
                 link_static(&out, objects, linker.template.ar_binary())?;
                 outputs.push(out);
             }
@@ -76,7 +78,7 @@ pub fn link_targets(
                 let out = project_dir.join("target").join(profile).join(&lib_name);
                 let linker = select_linker(manifest, detected, templates)
                     .ok_or_else(|| FreightError::CompilerNotFound("no suitable linker found".into()))?;
-                print_linking(out.file_name().unwrap_or_default().to_str().unwrap_or("lib"));
+                progress(BuildEvent::Linking { name: lib_name.clone() });
                 link_shared(objects, &out, linker, manifest, profile, dep_libs, extra_link_flags)?;
                 if link_settings(manifest, profile).strip {
                     strip_output(&out, linker)?;
@@ -136,7 +138,7 @@ pub fn select_linker<'a>(
     }
 
     const PRIORITY: &[&str] = &[
-        "cpp", "cuda", "hip", "sycl", "c", "fortran", "ada", "d", "opencl", "ispc",
+        "cpp", "objcpp", "cuda", "hip", "sycl", "objc", "c", "fortran", "ada", "d", "opencl", "ispc",
     ];
     for &lang in PRIORITY {
         if manifest.language.contains_key(lang) {
@@ -275,18 +277,6 @@ pub fn link_settings(manifest: &Manifest, profile: &str) -> BuildSettings {
     s.defines.clear();
     s.include_paths.clear();
     s
-}
-
-// ── Progress output ───────────────────────────────────────────────────────────
-
-fn print_linking(name: &str) {
-    use owo_colors::OwoColorize;
-    println!("   {} {name}", "Linking".bold().cyan());
-}
-
-fn print_archiving(name: &str) {
-    use owo_colors::OwoColorize;
-    println!(" {} {name}", "Archiving".bold().cyan());
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

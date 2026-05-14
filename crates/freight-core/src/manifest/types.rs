@@ -29,7 +29,7 @@ pub(crate) struct WorkspaceToml {
 pub struct Manifest {
     pub package: Package,
     /// Language sections keyed by identifier, e.g. `[language.cpp]`, `[language.fortran]`.
-    /// Valid keys: `c`, `cpp`, `fortran`, `ada`, `d`, `cuda`.
+    /// Common keys: `c`, `cpp`, `fortran`, `ada`, `d`, `cuda`, `objc`, `objcpp`.
     #[serde(default)]
     pub language: HashMap<String, LanguageSettings>,
     #[serde(rename = "lib", default)]
@@ -117,6 +117,7 @@ impl Manifest {
             extra_flags: flags,
             target_triple: self.compiler.target.clone(),
             sysroot: self.compiler.sysroot.as_deref().map(PathBuf::from),
+            auto_cpu_tuning: self.compiler.auto_cpu_tuning,
             arch: self.target.arch.clone()
                 .unwrap_or_else(|| std::env::consts::ARCH.to_string()),
             cpu_extensions: self.target.cpu_extensions.clone(),
@@ -352,6 +353,11 @@ pub struct Package {
     pub repository: Option<String>,
     #[serde(default)]
     pub keywords: Vec<String>,
+    /// Boolean platform expression that gates whether this package
+    /// can be built on the current host/target. Examples:
+    /// `"windows & x64"`, `"!windows"`, `"(windows & !uwp) | linux"`.
+    #[serde(default)]
+    pub supports: Option<String>,
     /// Virtual slots this package fills (e.g. `["blas"]`, `["cxx-stdlib"]`).
     /// If two active deps declare the same slot, freight errors before compilation.
     #[serde(default)]
@@ -506,6 +512,11 @@ pub struct DetailedDep {
     /// compilation and linking. No source build is performed.
     #[serde(default, skip_serializing_if = "Option::is_none", rename = "pkg-config", alias = "pkg_config")]
     pub pkg_config: Option<String>,
+    /// Explicit resolver to use for this version dep.
+    /// Accepted values: `"pkg-config"`, `"conan"`, `"vcpkg"`.
+    /// When omitted, freight tries `pkg-config → conan → vcpkg` in order.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
 }
 
 fn default_true() -> bool { true }
@@ -669,6 +680,9 @@ pub struct CompilerConfig {
     /// (machine-local absolute path).
     #[serde(skip)]
     pub sysroot: Option<String>,
+    /// Whether compiler templates may derive CPU tuning flags from target/sysroot.
+    #[serde(skip)]
+    pub auto_cpu_tuning: bool,
     /// Path to a header to precompile (relative to the project root).
     /// E.g. `pch = "include/stdafx.h"`. The PCH is compiled once and
     /// injected into every source file of the matching language.
@@ -692,6 +706,7 @@ impl Default for CompilerConfig {
             includes: vec![],
             target: None,
             sysroot: None,
+            auto_cpu_tuning: true,
             pch: None,
             per_tool: HashMap::default(),
         }

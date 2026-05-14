@@ -7,6 +7,7 @@ use std::time::SystemTime;
 use rayon::prelude::*;
 
 use crate::error::FreightError;
+use crate::event::{BuildEvent, Progress};
 use crate::manifest::types::{Backend, Manifest};
 use crate::toolchain::template::BuildSettings;
 use crate::toolchain::DetectedCompiler;
@@ -64,8 +65,10 @@ pub fn compile_sources(
     detected: &[DetectedCompiler],
     feature_defines: &[String],
     header_unit_flags: &[String],
+    progress: &Progress,
 ) -> Result<CompileResult, FreightError> {
     let pf = primary_family(backend, detected);
+    let progress = progress.clone();
 
     let results: Result<Vec<(PathBuf, bool)>, FreightError> = sources
         .par_iter()
@@ -75,7 +78,7 @@ pub fn compile_sources(
             let dep = dep_file_path(project_dir, profile, &src.path);
 
             if is_up_to_date(&src_abs, &obj, &dep) {
-                print_fresh(&src.path);
+                progress(BuildEvent::Fresh { path: src.path.clone() });
                 return Ok((obj, false));
             }
 
@@ -87,7 +90,7 @@ pub fn compile_sources(
 
             fs::create_dir_all(obj.parent().expect("obj path always has a parent"))?;
 
-            print_compiling(&src.path);
+            progress(BuildEvent::Compiling { path: src.path.clone() });
             compile_one(&src_abs, &obj, &dep, &compile_bin, compiler, &settings, header_unit_flags)?;
 
             Ok((obj, true))
@@ -386,17 +389,7 @@ fn write_stdout_dep_file(
     fs::write(dep_path, content)
 }
 
-// ── Progress output ───────────────────────────────────────────────────────────
-
-pub(crate) fn print_compiling(path: &Path) {
-    use owo_colors::OwoColorize;
-    println!("  {} {}", "Compiling".bold().green(), path.display());
-}
-
-pub(crate) fn print_fresh(path: &Path) {
-    use owo_colors::OwoColorize;
-    println!("    {} {}", "Fresh".dimmed(), path.display());
-}
+// ── Debug command printer (kept for FREIGHT_VERBOSE) ─────────────────────────
 
 pub(crate) fn print_cmd(cmd: &Command) {
     use owo_colors::OwoColorize;

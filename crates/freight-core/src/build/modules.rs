@@ -15,14 +15,14 @@ use std::process::Command;
 use rayon::prelude::*;
 
 use crate::error::FreightError;
+use crate::event::{BuildEvent, Progress};
 use crate::manifest::types::{Backend, Manifest};
 use crate::toolchain::template::{BuildSettings, ModuleStyle};
 use crate::toolchain::DetectedCompiler;
 
 use super::compile::{
     compile_one, dep_file_path, is_up_to_date, object_path,
-    print_compiling, print_fresh, resolve_compile_binary,
-    select_compiler, settings_for_lang, CompileResult,
+    resolve_compile_binary, select_compiler, settings_for_lang, CompileResult,
 };
 use super::discover::SourceFile;
 
@@ -248,19 +248,23 @@ pub fn compile_module_sources(
     detected: &[DetectedCompiler],
     feature_defines: &[String],
     header_unit_flags: &[String],
+    progress: &Progress,
 ) -> Result<CompileResult, FreightError> {
     let mut all_objects: Vec<PathBuf> = Vec::new();
     let mut total_compiled = 0usize;
     let mut total_skipped = 0usize;
 
+    let progress = progress.clone();
+
     // Phase 1: MIU batches — sequential between batches, parallel within each batch.
     for batch in &plan.miu_batches {
         let bmi_snapshot = plan.module_bmi_map.clone();
+        let progress = progress.clone();
 
         let results: Result<Vec<(PathBuf, bool)>, FreightError> = batch
             .par_iter()
             .map(|scanned| {
-                compile_miu(project_dir, manifest, backend, profile, scanned, include_dirs, detected, &bmi_snapshot, feature_defines, header_unit_flags)
+                compile_miu(project_dir, manifest, backend, profile, scanned, include_dirs, detected, &bmi_snapshot, feature_defines, header_unit_flags, &progress)
             })
             .collect();
 
@@ -276,7 +280,7 @@ pub fn compile_module_sources(
         .par_iter()
         .map(|scanned| {
             let mflags = import_flags(&scanned.imports, bmi_map);
-            compile_non_miu(project_dir, manifest, backend, profile, scanned, include_dirs, detected, &mflags, feature_defines, header_unit_flags)
+            compile_non_miu(project_dir, manifest, backend, profile, scanned, include_dirs, detected, &mflags, feature_defines, header_unit_flags, &progress)
         })
         .collect();
 
@@ -301,6 +305,7 @@ fn compile_miu(
     bmi_map: &HashMap<String, PathBuf>,
     feature_defines: &[String],
     header_unit_flags: &[String],
+    progress: &Progress,
 ) -> Result<(PathBuf, bool), FreightError> {
     let src_abs = project_dir.join(&scanned.source.path);
     let obj = object_path(project_dir, profile, &scanned.source.path);
@@ -312,7 +317,7 @@ fn compile_miu(
     let bmi = bmi_path(project_dir, profile, module_name);
 
     if is_up_to_date(&src_abs, &obj, &dep) && bmi.exists() {
-        print_fresh(&scanned.source.path);
+        progress(BuildEvent::Fresh { path: scanned.source.path.clone() });
         return Ok((obj, false));
     }
 
@@ -326,7 +331,7 @@ fn compile_miu(
 
     let dep_import_flags = import_flags(&scanned.imports, bmi_map);
 
-    print_compiling(&scanned.source.path);
+    progress(BuildEvent::Compiling { path: scanned.source.path.clone() });
 
     match &compiler.template.modules {
         ModuleStyle::Gcc { compile_miu: miu_flag_tmpl, .. } => {
@@ -404,13 +409,14 @@ fn compile_non_miu(
     module_flags_slice: &[String],
     feature_defines: &[String],
     header_unit_flags: &[String],
+    progress: &Progress,
 ) -> Result<(PathBuf, bool), FreightError> {
     let src_abs = project_dir.join(&scanned.source.path);
     let obj = object_path(project_dir, profile, &scanned.source.path);
     let dep = dep_file_path(project_dir, profile, &scanned.source.path);
 
     if is_up_to_date(&src_abs, &obj, &dep) {
-        print_fresh(&scanned.source.path);
+        progress(BuildEvent::Fresh { path: scanned.source.path.clone() });
         return Ok((obj, false));
     }
 
@@ -423,7 +429,7 @@ fn compile_non_miu(
     all_flags.extend_from_slice(header_unit_flags);
 
     fs::create_dir_all(obj.parent().unwrap())?;
-    print_compiling(&scanned.source.path);
+    progress(BuildEvent::Compiling { path: scanned.source.path.clone() });
     compile_one(&src_abs, &obj, &dep, &compile_bin, compiler, &settings, &all_flags)?;
     Ok((obj, true))
 }

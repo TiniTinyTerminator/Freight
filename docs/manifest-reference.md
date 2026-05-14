@@ -16,7 +16,13 @@ version     = "0.1.0"             # required — semver string
 authors     = ["Alice <a@b.com>"]  # optional — shown in freight info
 description = "Short description"  # optional
 license     = "MIT"                # optional — SPDX identifier
+supports    = "(windows & !uwp & (x86 | x64)) | (!windows & !osx)"
 ```
+
+`supports` is optional. When present, it is a boolean platform expression that
+controls whether the package is buildable on the current host/target. Freight supports
+identifiers such as `windows`, `linux`, `macos`/`osx`, `unix`, `uwp`, `x86`, `x64`/`x86_64`,
+`arm`, and `arm64`/`aarch64`, plus the operators `!`, `&`, `|`, and parentheses.
 
 ---
 
@@ -58,13 +64,21 @@ Declares a library output. Omit this section for binary-only projects.
 
 ```toml
 [lib]
-type    = "static"     # required — static | shared | header-only
-src     = "src/"       # directory containing source files (default: "src/")
-include = "include/"   # public include directory exposed to dependents
+type = "static"                          # required — static | shared | header-only
+srcs = ["src/mathlib.cpp", "src/vec.cpp"] # source files (string or list; globs allowed)
+hdrs = ["include/mathlib.h"]             # public headers exposed to dependents
 ```
 
-`header-only` libraries skip compilation entirely — freight records the include path so dependents
-can use it, but no `.a` or `.so` is produced.
+`srcs` accepts either a single string or a list. Glob patterns are expanded relative to the
+project root.
+
+`hdrs` lists the public API headers. Freight infers the public include directories from the
+parent paths of the listed files — e.g. `["include/mathlib.h", "include/vec.h"]` automatically
+exposes `include/` to dependents. When `hdrs` is empty, freight falls back to auto-detecting
+`include/` or `inc/` directories.
+
+`header-only` libraries skip compilation entirely — freight records the include paths so
+dependents can use them, but no `.a` or `.so` is produced.
 
 ---
 
@@ -89,14 +103,29 @@ ensures that `main()` from one binary is not linked into another.
 Dependencies listed under `[dependencies]` are always compiled and linked. Those under
 `[dev-dependencies]` are only linked when running `freight test`.
 
-### Version dependency (registry)
+### Version dependency (system package, vcpkg fallback)
 
 ```toml
-mylib = "1.2"          # resolved from freight.dev; exact pinning via freight.lock
-mylib = ">=1.0, <2.0"  # semver range
+zlib    = "1.3.1"       # require at least this version
+openssl = ">=3.0"       # comparator-style constraint
+libpng  = "*"           # any installed or fetched version
+
+# Equivalent detailed form, useful with optional/features/default-features keys:
+zstd = { version = "1.5" }
 ```
 
-> Registry resolution is not yet implemented. Version deps produce a clear "registry not yet available" message.
+For version-only dependencies, Freight first checks whether a compatible system package is already
+available through `pkg-config` (for example, `zlib = "1.3.1"` checks `zlib >= 1.3.1`). If the
+system package is not found, Freight installs the same package name with `vcpkg install` into the
+project-local `.deps/vcpkg_installed/` tree and adds its `include/` directory and discovered
+libraries under `lib/` to the build.
+
+`VCPKG_DEFAULT_TRIPLET` controls the triplet used for the fallback install; otherwise Freight chooses
+a host default such as `x64-linux`, `x64-windows`, `x64-osx`, or `arm64-osx`. Set the `VCPKG`
+environment variable to override the executable path if `vcpkg` is not on `PATH`. vcpkg port
+baselines decide the exact fetched version; the manifest version is used to validate system packages
+and document the required API version. A future `repo = "vcpkg"` selector can make this fallback
+explicit once multiple repositories are available.
 
 ### Path dependency
 
@@ -121,18 +150,18 @@ Passes `-l{name}` to the linker. No source build; assumes the library is install
 
 ```toml
 # pkg-config only — error if pkg-config is not found
-zlib = { pkg_config = "zlib" }
+zlib = { pkg-config = "zlib" }
 
 # Combined — pkg-config first, bare -l{name} fallback if pkg-config fails
-zlib = { system = "z", pkg_config = "zlib" }
+zlib = { system = "z", pkg-config = "zlib" }
 ```
 
-`pkg_config` runs `pkg-config --cflags --libs <query>` and injects the resulting include dirs
+`pkg-config` runs `pkg-config --cflags --libs <query>` and injects the resulting include dirs
 (`-I`) into compilation and link flags (`-L`, `-l`, `-pthread` etc.) verbatim into the linker
 command. The query string is passed as-is to pkg-config, so version constraints work:
 `"glib-2.0 >= 2.56"`.
 
-When both `system` and `pkg_config` are set, pkg-config is tried first. If it fails (not installed
+When both `system` and `pkg-config` are set, pkg-config is tried first. If it fails (not installed
 or package not found), freight falls back to `-l{system}` and prints a warning.
 
 ### Git dependency
@@ -173,10 +202,10 @@ Any dep with a source (path, git, http, github) supports these additional keys:
 
 ```toml
 dep = {
-    path       = "../dep",
-    backend    = "cmake",               # cmake | make | meson | autotools | scons | bazel | none
-    cmake_args = ["-DBUILD_TESTS=OFF"], # extra args forwarded to cmake configure step
-    include    = ["include/", "src/"],  # explicit include dirs (skips auto-detection)
+    path        = "../dep",
+    backend     = "cmake",               # cmake | make | meson | autotools | scons | bazel | none
+    cmake-args  = ["-DBUILD_TESTS=OFF"], # extra args forwarded to cmake configure step
+    include     = ["include/", "src/"],  # explicit include dirs (skips auto-detection)
 }
 ```
 
@@ -248,11 +277,9 @@ debug     = false                 # emit debug symbols (-g)
 warnings  = "all"                 # none | default | all | error
 defines   = ["USE_BLAS", "FOO=1"] # extra -D flags
 flags     = ["-march=native"]     # verbatim extra flags appended to every compile invocation
+includes  = ["include/", "third-party/include/"]  # extra -I directories
 target    = "aarch64-linux-gnu"   # cross-compilation target triple
 sysroot   = "/opt/sysroot"        # sysroot path for cross-compilation
-
-[compiler.includes]
-paths = ["include/", "third_party/include/"]  # extra -I directories
 ```
 
 `backend = "auto"` selects the first detected compiler whose template handles the project's source
@@ -260,11 +287,11 @@ languages. Override with an explicit name (e.g. `"clang"`) to pin a specific too
 
 ### Cross-compilation
 
-`target` passes `--target={triple}` to compilers that support it (clang, gfortran, hipcc, icpx).
-GCC requires a dedicated cross-compilation binary (e.g. `aarch64-linux-gnu-gcc`) — set
-`backend = "aarch64-linux-gnu-gcc"` and leave `target` empty for GCC.
-
+`target` passes the active target triple to compilers that support a target flag.
 `sysroot` passes `--sysroot={path}` to compilers that support it.
+
+When both `target` and `sysroot` are configured, freight also derives conservative CPU tuning flags
+(such as `-march=`, `-mcpu=`, or `-mtune=`) from the target/sysroot pair unless auto CPU tuning is disabled in `~/.freight/config.toml`.
 
 Deps with `targets = [...]` lists are filtered: a dep is included only when its target list
 contains the active `compiler.target` value (or always when no target list is set).
@@ -278,7 +305,7 @@ Hardware-specific flags. Drives `[arch_flags]` lookups and `-m<ext>` flag genera
 ```toml
 [target]
 arch           = "x86_64"           # overrides host arch for template [arch_flags] lookup
-cpu_extensions = ["avx2", "fma"]    # → -mavx2 -mfma  (template: cpu_extension = "-m{name}")
+cpu-extensions = ["avx2", "fma"]    # → -mavx2 -mfma  (template: cpu_extension = "-m{name}")
 ```
 
 `arch` defaults to `std::env::consts::ARCH`. It is used by assembler templates to select the
@@ -334,7 +361,7 @@ All fields are optional within each section:
 
 | Field | Description |
 |---|---|
-| `sources` | Glob patterns relative to the project root. Matched files are added to the build; files listed in any `[os.*]`/`[arch.*]` section are excluded from the unconditional `src/` walk. |
+| `srcs` | Glob patterns relative to the project root. Matched files are added to the build; files listed in any `[os.*]`/`[arch.*]` section are excluded from the unconditional `src/` walk. |
 | `defines` | Extra `-D` flags applied only on this platform. |
 | `flags` | Extra compiler flags applied only on this platform. |
 | `includes` | Extra include paths (`-I`) applied only on this platform. |
@@ -343,14 +370,14 @@ All fields are optional within each section:
 
 ```toml
 [os.linux]
-sources      = ["src/os/linux/**"]
+srcs         = ["src/os/linux/**"]
 defines      = ["PLATFORM_LINUX", "POSIX_BUILD"]
 flags        = ["-fvisibility=hidden"]
 includes     = ["/usr/local/include"]
 dependencies = { m = { system = "m" }, pthread = { system = "pthread" } }
 
 [os.windows]
-sources      = ["src/os/windows/**"]
+srcs         = ["src/os/windows/**"]
 defines      = ["WIN32_LEAN_AND_MEAN", "PLATFORM_WINDOWS"]
 dependencies = { ws2_32 = { system = "ws2_32" } }
 
@@ -358,15 +385,15 @@ dependencies = { ws2_32 = { system = "ws2_32" } }
 defines = ["POSIX_BUILD"]
 
 [arch.x86_64]
-sources = ["src/arch/x86_64/**"]
+srcs    = ["src/arch/x86_64/**"]
 defines = ["HAVE_SSE2"]
 
 [arch.aarch64]
-sources = ["src/arch/aarch64/**"]
+srcs    = ["src/arch/aarch64/**"]
 defines = ["HAVE_NEON"]
 ```
 
-Files matched by `sources` globs in any `[os.*]` or `[arch.*]` section are automatically
+Files matched by `srcs` globs in any `[os.*]` or `[arch.*]` section are automatically
 excluded from the unconditional source walk — they will never be compiled on a non-matching
 platform, even if they live under `src/`.
 
@@ -449,6 +476,7 @@ Local config overrides global. Both share the same format:
 default_backend = "clang"       # preferred compiler family
 target          = "aarch64-linux-gnu"  # cross-compilation target triple
 sysroot         = "/opt/sysroot"
+auto-cpu-tuning = true          # set false to suppress derived -march/-mcpu/-mtune flags
 
 [debugger.gdb]
 args  = ["--tui"]   # raw extra flags before the program separator

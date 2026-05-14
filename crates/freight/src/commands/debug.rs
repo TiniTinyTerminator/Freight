@@ -3,7 +3,8 @@
 
 use std::path::{Path, PathBuf};
 
-use freight_core::build::{build_project, BuildOutput};
+use freight_core::build::{build_project_with, BuildOutput};
+use freight_core::event::silent;
 use freight_core::manifest::{find_manifest_dir, load_manifest};
 use freight_core::toolchain::{detect_debuggers, load_debugger_templates, GlobalConfig};
 
@@ -82,7 +83,7 @@ pub fn cmd_debug(
     };
 
     // ── Build with debug profile ───────────────────────────────────────────────
-    let output = match build_project("debug", &[], true, &[]) {
+    let output = match build_project_with("debug", &[], true, &[], &silent()) {
         Ok(o) => o,
         Err(e) => { print_error(&e.to_string()); return; }
     };
