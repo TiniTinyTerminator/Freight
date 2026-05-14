@@ -1,8 +1,8 @@
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use regex::Regex;
+use semver;
 
 use super::cache::{freight_home, ToolchainCache};
 use super::script::quick_kind;
@@ -285,29 +285,58 @@ fn version_ge(a: &str, b: &str) -> bool {
     true // equal counts as satisfied
 }
 
-/// Check `[compiler.<name>] min_version` / `max_version` manifest constraints
+/// Check the `version` semver requirement declared under `[compiler.<name>]`
 /// against the detected compiler version.  Returns an error whose message can
 /// be forwarded directly to the user.
+///
+/// `version_req` is the raw requirement string from `freight.toml`, e.g.
+/// `">=14.0"` or `">=14, <16"` (semver range syntax). `detected` is the
+/// version string reported by the compiler (e.g. `"14.2.0"` or `"17.0.6-r1"`).
 pub fn check_manifest_version_bounds(
     tool_name: &str,
     detected: &str,
-    options: &HashMap<String, String>,
+    version_req: Option<&str>,
 ) -> Result<(), FreightError> {
-    if let Some(min) = options.get("min_version") {
-        if !version_ge(detected, min) {
-            return Err(FreightError::OptionError(format!(
-                "{tool_name} {detected} is below required minimum {min}"
-            )));
-        }
-    }
-    if let Some(max) = options.get("max_version") {
-        if !version_ge(max, detected) {
-            return Err(FreightError::OptionError(format!(
-                "{tool_name} {detected} exceeds required maximum {max}"
-            )));
-        }
+    let Some(req_str) = version_req else { return Ok(()) };
+
+    let req = semver::VersionReq::parse(req_str).map_err(|e| {
+        FreightError::OptionError(format!(
+            "[compiler.{tool_name}] version = {req_str:?} is not valid semver: {e}"
+        ))
+    })?;
+
+    // Coerce the detected version string to a semver-compatible form.
+    // Compilers often report "14", "14.2", "17.0.6-r1", etc.
+    let coerced = coerce_semver(detected);
+    let ver = semver::Version::parse(&coerced).map_err(|e| {
+        FreightError::OptionError(format!(
+            "{tool_name}: cannot parse detected version {detected:?} as semver: {e}"
+        ))
+    })?;
+
+    if !req.matches(&ver) {
+        return Err(FreightError::OptionError(format!(
+            "{tool_name} {detected} does not satisfy version requirement {req_str}"
+        )));
     }
     Ok(())
+}
+
+/// Coerce a compiler-reported version string (e.g. `"14"`, `"17.0.6-r1"`,
+/// `"12.3"`) into a clean `MAJOR.MINOR.PATCH` string that `semver` can parse.
+fn coerce_semver(s: &str) -> String {
+    // Strip any build metadata suffix (anything after a non-numeric, non-dot char
+    // following the numeric part — e.g. "-r1", "+debian").
+    let numeric: String = s.chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    let parts: Vec<&str> = numeric.split('.').collect();
+    match parts.as_slice() {
+        []           => "0.0.0".into(),
+        [major]      => format!("{major}.0.0"),
+        [major, minor] => format!("{major}.{minor}.0"),
+        [major, minor, patch, ..] => format!("{major}.{minor}.{patch}"),
+    }
 }
 
 /// Second-pass filter: remove toolchains whose `requires_toolchain` ABI keys are

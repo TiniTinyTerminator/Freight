@@ -670,10 +670,13 @@ pub struct TargetConfig {
 // ── Compiler config ───────────────────────────────────────────────────────────
 
 /// Per-compiler-tool options declared under `[compiler.<name>]` in `freight.toml`.
-/// E.g. `[compiler.clang++] march = "native"` → forwarded to the template's
+/// E.g. `[compiler.clang++] lto_mode = "thin"` → forwarded to the template's
 /// `compiler_option` handlers when that tool is the active compiler.
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct CompilerToolOptions {
+    /// Semver requirement for the compiler version, e.g. `">=14.0"` or `">=14, <16"`.
+    #[serde(default)]
+    pub version: Option<String>,
     #[serde(flatten)]
     pub options: HashMap<String, String>,
 }

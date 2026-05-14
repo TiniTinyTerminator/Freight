@@ -575,33 +575,11 @@ any `-suffix`. Malformed strings fall back to lexicographic comparison.
 
 ### Examples from bundled templates
 
-**`nvcc.rhai`** — GPU target architecture and minimum version:
+**`nvcc.rhai`** — GPU target architecture:
 
 ```rhai
 compiler_option("sm_arch", |ctx| {
     add_flag("--gpu-architecture=" + ctx.value);
-});
-
-compiler_option("min_version", |ctx| {
-    if !version_gte(ctx.version, ctx.value) {
-        return "nvcc " + ctx.version + " is below required minimum " + ctx.value;
-    }
-});
-```
-
-**`clang++.rhai` / `g++.rhai`** — version constraints:
-
-```rhai
-compiler_option("min_version", |ctx| {
-    if !version_gte(ctx.version, ctx.value) {
-        return ctx.name + " " + ctx.version + " is below required minimum " + ctx.value;
-    }
-});
-
-compiler_option("max_version", |ctx| {
-    if !version_lte(ctx.version, ctx.value) {
-        return ctx.name + " " + ctx.version + " exceeds required maximum " + ctx.value;
-    }
 });
 ```
 
@@ -618,18 +596,21 @@ language_option("arch", |ctx| {
 
 ### Manifest syntax
 
+Compiler version constraints use semver range syntax (same as package
+dependencies) in the `version` field of `[compiler.<name>]`. Freight
+validates the constraint at build time and aborts with a clear error.
+
 ```toml
 # Compiler-specific options — dispatched to compiler_option() callbacks.
 [compiler.clang++]
-min_version = "14.0"
+version = ">=14.0"      # require clang++ 14 or newer
 
 [compiler.nvcc]
-min_version = "11.8"
-sm_arch     = "sm_89"
+version  = ">=11.8"     # require nvcc 11.8+
+sm_arch  = "sm_89"
 
 [compiler.g++]
-min_version = "12.0"
-max_version = "14.0"
+version = ">=12.0, <15" # pin to a specific g++ range
 
 # Language-specific options — dispatched to language_option() callbacks.
 # Only applied when that language's source files are actually present.

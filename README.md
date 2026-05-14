@@ -107,20 +107,23 @@ debug     = false
 [dependencies]
 # Path dependency — compiles a sibling freight project and links its archive
 myutils = { path = "../myutils" }
-# Version dependency — resolved via pkg-config → conan → vcpkg → system-lib stub
+# Version string — freight tries pkg-config → conan → vcpkg → system-lib stub automatically
 zlib    = "1.3.1"
 openssl = ">=3.0"
-# Well-known OS primitives: freight ships built-in stubs, so these just work cross-platform
-pthread = "0"    # → -lpthread on Linux/macOS via bundled stub; no-op on Windows
-ws2_32  = "0"    # → -lws2_32 on Windows; filtered out on Linux/macOS by the stub's supports expr
-# pkg-config dependency — queries pkg-config for cflags + libs
-glib    = { pkg-config = "glib-2.0 >= 2.56" }
-# Explicit system link — skips all resolvers, passes -l{name} directly
-mylib   = { system = "mylib" }
-# Pin a specific resolver
-libpng  = { version = "1.6", repo = "vcpkg" }
-# Architecture-filtered dependency
+# OS-filtered: freight ships built-in stubs for common platform libs
+pthread = { version = "0", os = "unix" }    # only linked on unix
+ws2_32  = { version = "0", os = "windows" } # only linked on Windows
+# Git dependency — cloned into .deps/; branch, tag, and rev are all accepted
+imgui   = { git = "https://github.com/ocornut/imgui", branch = "master" }
+# URL archive — downloaded and extracted; sha256 recommended for reproducibility
+json    = { url = "https://github.com/nlohmann/json/releases/download/v3.11.3/json.hpp", sha256 = "9bea4..." }
+# Architecture-filtered path dependency
 sse-opt = { path = "../sse-opt", arch = "x86_64" }
+
+# Advanced overrides — only needed when the defaults don't fit:
+#   pkg-config = "glib-2.0 >= 2.56"   explicit pkg-config query (pkg-config name differs from dep key)
+#   system = "mylib"                   skip all resolvers, pass -l{name} directly
+#   repo = "vcpkg"                     pin to a specific resolver (pkg-config / conan / vcpkg / system)
 
 # OS-conditional sources, defines, and includes
 [os.linux]
@@ -169,14 +172,14 @@ of which language is being compiled.
 language. Unknown keys are silently ignored, so these sections are forwards-compatible.
 
 ```toml
-# Enforce a minimum clang++ version across the project.
+# Require clang++ 14 or newer.
 [compiler.clang++]
-min_version = "14.0"
+version = ">=14.0"
 
-# Set the GPU compute architecture for CUDA sources.
+# Set the GPU compute architecture and require a specific nvcc range.
 [compiler.nvcc]
-sm_arch     = "sm_89"
-min_version = "11.8"
+sm_arch = "sm_89"
+version = ">=11.8, <13"
 ```
 
 Callbacks in the template receive a `ctx` object with `ctx.value`,

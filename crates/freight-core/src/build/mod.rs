@@ -1194,7 +1194,10 @@ fn inject_option_handler_flags(ctx: &mut ProjectContext) -> Result<(), FreightEr
             continue; // not detected — skip silently
         };
         let version = compiler.version.clone();
-        check_manifest_version_bounds(&tool_name, &version, &options)?;
+        let version_req = ctx.manifest.compiler.per_tool
+            .get(&tool_name)
+            .and_then(|o| o.version.as_deref());
+        check_manifest_version_bounds(&tool_name, &version, version_req)?;
         let flags = compiler.template.run_compiler_option_handlers(&options, &version, arch, os)?;
 
         // Only propagate flags if this compiler is the active backend for at least one
