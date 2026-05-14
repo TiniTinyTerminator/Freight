@@ -27,9 +27,7 @@ closest to the root wins; same-depth conflicts remain a hard error. Required bef
 dependency graphs with BLAS/LAPACK-style provider aliases are usable.
 
 ### B5 — Package lookup chain expansion ✓ done
-Version deps resolve via `pkg-config → conan → vcpkg`. `repo = "conan"|"vcpkg"|"pkg-config"`
-pins a specific resolver. System PM detection (apt/brew/dnf/pacman/zypper/winget) emits
-install hints on failure. `conan.rs` and `system_pm.rs` modules added.
+Version deps resolve via `pkg-config → conan → vcpkg → system-lib stub`. `repo = "system"|"conan"|"vcpkg"|"pkg-config"` pins a specific resolver. System PM detection (apt/brew/dnf/pacman/zypper/winget) emits install hints on failure. `conan.rs`, `system_pm.rs`, and `system_libs.rs` modules added. 24 built-in stubs in `toolchains/system-libs/` cover common OS primitives (pthread, ws2_32, libm, dl, rt, d3d11, …). Users can add stubs to `~/.freight/toolchains/system-libs/`.
 Remaining: internal system cache registry (index on first install; skip probing on rebuild).
 
 ### B6 — `freight bench`

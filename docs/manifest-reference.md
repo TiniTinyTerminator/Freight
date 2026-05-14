@@ -103,7 +103,7 @@ ensures that `main()` from one binary is not linked into another.
 Dependencies listed under `[dependencies]` are always compiled and linked. Those under
 `[dev-dependencies]` are only linked when running `freight test`.
 
-### Version dependency (system package, vcpkg fallback)
+### Version dependency (automatic resolver chain)
 
 ```toml
 zlib    = "1.3.1"       # require at least this version
@@ -114,18 +114,22 @@ libpng  = "*"           # any installed or fetched version
 zstd = { version = "1.5" }
 ```
 
-For version-only dependencies, Freight first checks whether a compatible system package is already
-available through `pkg-config` (for example, `zlib = "1.3.1"` checks `zlib >= 1.3.1`). If the
-system package is not found, Freight installs the same package name with `vcpkg install` into the
-project-local `.deps/vcpkg_installed/` tree and adds its `include/` directory and discovered
-libraries under `lib/` to the build.
+For version-only dependencies, Freight tries each resolver in order and uses the first that succeeds:
 
-`VCPKG_DEFAULT_TRIPLET` controls the triplet used for the fallback install; otherwise Freight chooses
-a host default such as `x64-linux`, `x64-windows`, `x64-osx`, or `arm64-osx`. Set the `VCPKG`
-environment variable to override the executable path if `vcpkg` is not on `PATH`. vcpkg port
-baselines decide the exact fetched version; the manifest version is used to validate system packages
-and document the required API version. A future `repo = "vcpkg"` selector can make this fallback
-explicit once multiple repositories are available.
+1. **pkg-config** — checks `pkg-config --modversion <name>` against the version constraint.
+2. **Conan** — runs `conan install <name>/<version>` into `.deps/conan/`.
+3. **vcpkg** — runs `vcpkg install <name>` into `.deps/vcpkg_installed/` using `VCPKG_DEFAULT_TRIPLET` (or a host default such as `x64-linux`).
+4. **System-lib stub** — matches the name against the bundled stubs in `toolchains/system-libs/` (see below). If a stub matches, freight injects `-l{link_name}` directly. No package manager required.
+
+`VCPKG_DEFAULT_TRIPLET` controls the vcpkg triplet; set `VCPKG` to override the vcpkg executable path.
+
+To pin a specific resolver explicitly, use the `repo` key:
+
+```toml
+pthread = { version = "0", repo = "system" }    # always use the system-lib stub / -lpthread
+zlib    = { version = "1.3", repo = "vcpkg" }   # skip pkg-config; go straight to vcpkg
+openssl = { version = "3.0", repo = "pkg-config" } # require pkg-config; error if not found
+```
 
 ### Path dependency
 
@@ -140,13 +144,23 @@ freight projects; those without are treated as foreign build systems (see below)
 ### System dependency
 
 ```toml
-openssl = { system = "ssl" }            # → -lssl
+# Explicit system link — passes -l{name} directly, no version resolution
+openssl = { system = "ssl" }
 pthread = { system = "pthread" }
+
+# Preferred: let the resolver chain handle it (pkg-config → vcpkg → stub → -l)
+pthread = "0"
 ```
 
-Passes `-l{name}` to the linker. No source build; assumes the library is installed on the system.
+For well-known OS libraries (pthread, ws2_32, libm, dl, rt, d3d11, …), Freight ships 24 built-in
+stubs in `toolchains/system-libs/`. A stub carries the correct `-l` name, header list, and a
+`supports` expression (e.g. `supports = "unix"`) so it is only applied on matching platforms.
+Users can add their own stubs to `~/.freight/toolchains/system-libs/`.
 
-### System + pkg-config
+Using a bare version (`pthread = "0"`) is the cleanest approach: pkg-config is tried first and the
+stub is used as a fallback, so the manifest works on every platform without explicit `os` filters.
+
+### pkg-config dependency
 
 ```toml
 # pkg-config only — error if pkg-config is not found

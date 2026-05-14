@@ -50,6 +50,11 @@ Feature branches follow the convention `feature/<name>` off `master`.
 ### Dependencies ✓ COMPLETE
 - [x] Path dependency resolution — compile dep, archive to `.a`, link into project
 - [x] System dependency linking — `{ system = "..." }` → `-l{name}` (or `{name}.lib` for MSVC)
+- [x] `LibType::System` — no build artifact; injects `-l{link}` flag only
+- [x] 24 system-lib stubs in `toolchains/system-libs/` — pthread, libm, dl, rt, ws2_32, kernel32, d3d11, d3d12, bcrypt, and more; filtered by `supports` expression
+- [x] `repo = "system"` dep key — bypasses pkg-config/vcpkg, resolves via stubs
+- [x] Full resolver chain: `pkg-config → conan → vcpkg → system-lib stub`; `repo` pins one step
+- [x] `supports.rs` — shared boolean platform-expression parser (`HostEnv`, `eval_supports()`) used by stubs and the `freight add` TUI
 - [x] Dependency graph with topological sort (Kahn's algorithm)
 - [x] Cycle detection with error
 - [x] `.deps/<name>/` folder convention for version-pinned deps
@@ -112,7 +117,13 @@ Feature branches follow the convention `feature/<name>` off `master`.
 - [x] `freight doc` dependency TUI plus `freight doc --format md|json|msgpack|all`
 - [x] `freight man [--out-dir DIR]` — man pages via clap_mangen
 - [x] `crates/freight-doc/` — standalone `freight-doc` binary
-- [x] `examples/doc-example/` — C, C++, Fortran sources with LaTeX math in comments
+- [x] `examples/doc-example/` — C, C++, Fortran sources with LaTeX math in comments; multi-lib project showcasing path deps in the TUI
+- [x] TUI DocView: colored rendering — item name (yellow/bold), signature (green), section labels (magenta/bold), table borders (dark gray), param names (cyan/bold)
+- [x] TUI DocView: box-drawing parameter table with separator row between each param, word-wrapped description column
+- [x] TUI DocView: brief shown between signature and parameters; body shown before param table
+- [x] TUI DocView: LaTeX math conversion (`$...$`, `$$...$$`) → Unicode (Greek, operators, super/subscripts, `\frac`)
+- [x] TUI DocView: structs/enums/typedefs show clean `kind name` instead of truncated first-line signature
+- [x] `doc/extract.rs`: signatures trimmed of leading whitespace at storage (handles indented declarations)
 
 ### Rhai Toolchain Scripts ✓ COMPLETE
 - [x] `toolchain/engine.rs` — embedded Rhai engine with registered API

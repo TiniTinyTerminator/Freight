@@ -41,6 +41,7 @@ freight/
 │   │       │   ├── types.rs
 │   │       │   ├── find.rs
 │   │       │   └── validate.rs
+│   │       ├── supports.rs     # shared `supports = "..."` expression parser + eval
 │   │       ├── toolchain/      # compiler detection + templates
 │   │       │   ├── mod.rs
 │   │       │   ├── template.rs
@@ -48,6 +49,7 @@ freight/
 │   │       │   ├── cache.rs    # GlobalConfig — ~/.freight/config.toml + local override
 │   │       │   ├── script.rs   # quick_kind pre-check, shared Rhai helpers
 │   │       │   ├── debugger.rs # DebuggerTemplate + detect_debuggers()
+│   │       │   ├── system_libs.rs # load_system_lib_stubs() — toolchains/system-libs/*.toml
 │   │       │   └── tool.rs     # ToolTemplate + DetectedTool (formatters + linters)
 │   │       ├── doc/            # documentation extraction and rendering
 │   │       │   ├── lib.rs      # OutputFormat enum + render() dispatch
@@ -73,7 +75,11 @@ freight/
 │           ├── position.rs     # text-based position mapping for diagnostics
 │           ├── completion.rs   # section-aware completions
 │           └── docs.rs         # hover docs keyed by dotted path
-├── toolchains/                 # compiler, debugger, formatter, and linter templates (.rhai)
+├── toolchains/                 # compiler, debugger, formatter, linter templates (.rhai) + system-lib stubs (.toml)
+│   ├── system-libs/            # freight.toml-compatible stubs for well-known OS libraries
+│   │   ├── pthread.toml        # Linux/macOS POSIX threads
+│   │   ├── ws2_32.toml         # Windows Winsock2
+│   │   └── …                   # 24 built-in stubs total (Linux, macOS, Windows)
 │   ├── gnu/
 │   │   ├── _gnu-base.rhai   # shared flags/toolset included by gnu compiler files
 │   │   ├── g++.rhai

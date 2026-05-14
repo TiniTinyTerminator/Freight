@@ -101,13 +101,18 @@ debug     = false
 [dependencies]
 # Path dependency — compiles a sibling freight project and links its archive
 myutils = { path = "../myutils" }
-# System dependency — links against a system-installed library
-openssl = { system = "openssl" }
+# Version dependency — resolved via pkg-config → conan → vcpkg → system-lib stub
+zlib    = "1.3.1"
+openssl = ">=3.0"
+# Well-known OS primitives: freight ships built-in stubs, so these just work cross-platform
+pthread = "0"    # → -lpthread on Linux/macOS via bundled stub; no-op on Windows
+ws2_32  = "0"    # → -lws2_32 on Windows; filtered out on Linux/macOS by the stub's supports expr
 # pkg-config dependency — queries pkg-config for cflags + libs
-zlib    = { pkg-config = "zlib" }
-# OS-filtered dependency — only linked on matching host OS
-pthread = { system = "pthread", os = "linux" }
-ws2_32  = { system = "ws2_32",  os = "windows" }
+glib    = { pkg-config = "glib-2.0 >= 2.56" }
+# Explicit system link — skips all resolvers, passes -l{name} directly
+mylib   = { system = "mylib" }
+# Pin a specific resolver
+libpng  = { version = "1.6", repo = "vcpkg" }
 # Architecture-filtered dependency
 sse-opt = { path = "../sse-opt", arch = "x86_64" }
 
@@ -263,7 +268,11 @@ freight run
 
 **List mode** — left panel lists every dependency (local, local-dev, global), colour-coded by scope. The right panel shows the selected dep's name, kind, version, source, on-disk path, and any doc files found.
 
-**DocView mode** — press `Enter` or click a row to open the dependency's API docs. Freight first tries to extract doc comments from the dep's source tree; if none are found it falls back to `README.md` or `target/doc/index.md`.
+**DocView mode** — press `Enter` or click a row to open the dependency's API docs. Freight first tries to extract doc comments from the dep's source tree; if none are found it falls back to `README.md` or `target/doc/index.md`. The rendered view includes:
+- **Signature** (green) below the item header, then **brief** description
+- **Parameter table** with box-drawing borders, a separator row between each parameter, and word-wrapped descriptions — parameter names are highlighted in cyan
+- **Returns**, **Note**, **Warning**, and other tags displayed with labelled sections
+- LaTeX math (`$...$`, `$$...$$`) converted to Unicode symbols (Greek letters, ∑ ∫ √ ≤ ≥ ×, super/subscripts)
 
 | Key | Action |
 |---|---|
