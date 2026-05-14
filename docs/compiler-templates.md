@@ -419,27 +419,34 @@ the existing flag maps and are not part of this system.
 // Reads from [compiler.<name>] in freight.toml.
 // Runs on every detected instance of this compiler, even when it is not the
 // active backend — the active backend applies the flags; others validate only.
-compiler_option("key", |ctx| {
+compiler_option("key", "default-value", |ctx| {
     // validate, add flags, or both
-    // return "" on success, or a non-empty error string to abort the build
-    ""
+    // ctx.value is the manifest value, or "default-value" when the option is omitted
+    // return a non-empty error string to abort the build; no return means success
+});
+
+// If there is no useful default, omit it and the handler runs only when set.
+compiler_option("key", |ctx| {
+    add_flag("--key=" + ctx.value);
 });
 
 // Reads from [language.<key>] in freight.toml.
 // Runs only when the compiler is the active backend for that language.
-language_option("key", |ctx| {
-    ""
+language_option("key", "default-value", |ctx| {
+    // no return means success
 });
 ```
 
 Unknown keys (no registered callback) are silently ignored — templates are
-forwards-compatible by default.
+forwards-compatible by default. Use the two-argument registration form
+`compiler_option("key", |ctx| { ... })` / `language_option("key", |ctx| { ... })`
+when an option has no useful default value.
 
 ### `ctx` fields
 
 | Field | Type | Description |
 |---|---|---|
-| `ctx.value` | string | Value from the manifest for this option |
+| `ctx.value` | string | Value from the manifest for this option, or the registration default when omitted |
 | `ctx.version` | string | Detected compiler version string |
 | `ctx.arch` | string | Effective target architecture (e.g. `"x86_64"`) |
 | `ctx.os` | string | Effective target OS (e.g. `"linux"`) |
@@ -452,7 +459,6 @@ Call the global `add_flag(s)` inside any callback to append compiler flags:
 ```rhai
 compiler_option("sm_arch", |ctx| {
     add_flag("--gpu-architecture=" + ctx.value);
-    ""
 });
 ```
 
@@ -480,14 +486,12 @@ any `-suffix`. Malformed strings fall back to lexicographic comparison.
 ```rhai
 compiler_option("sm_arch", |ctx| {
     add_flag("--gpu-architecture=" + ctx.value);
-    ""
 });
 
 compiler_option("min_version", |ctx| {
     if !version_gte(ctx.version, ctx.value) {
         return "nvcc " + ctx.version + " is below required minimum " + ctx.value;
     }
-    ""
 });
 ```
 
@@ -498,14 +502,12 @@ compiler_option("min_version", |ctx| {
     if !version_gte(ctx.version, ctx.value) {
         return ctx.name + " " + ctx.version + " is below required minimum " + ctx.value;
     }
-    ""
 });
 
 compiler_option("max_version", |ctx| {
     if !version_lte(ctx.version, ctx.value) {
         return ctx.name + " " + ctx.version + " exceeds required maximum " + ctx.value;
     }
-    ""
 });
 ```
 
@@ -517,7 +519,6 @@ language_option("arch", |ctx| {
         return "assembler requires arch '" + ctx.value +
                "' but the effective target is '" + ctx.arch + "'";
     }
-    ""
 });
 ```
 
