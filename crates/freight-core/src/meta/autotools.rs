@@ -1,12 +1,12 @@
 //! Autotools (configure/make) foreign build system integration.
 //!
-//! Enhancements over a plain `./configure && make && make install`:
-//! - `--host=<triple>` injected for cross-compilation when a target is set.
-//! - Parallel `make -j{N}` using all available CPUs.
+//! Adapted from autotools-rs. Key features retained:
+//! - `--host=<triple>` injected for cross-compilation
+//! - Parallel `make -j{N}` using all available CPUs
 //! - Fast-build: skips the configure step when `config.status` and `Makefile`
-//!   already exist and `configure` hasn't changed since the last configure run.
-//! - Emscripten support: uses `emconfigure`/`emmake` when the target is wasm/emscripten.
-//! - Always passes `--enable-static --disable-shared` for predictable lib output.
+//!   already exist and the `configure` script hasn't changed since then
+//! - Emscripten support: uses `emconfigure`/`emmake` for wasm/emscripten targets
+//! - Always passes `--enable-static --disable-shared`
 use std::path::Path;
 
 use crate::error::FreightError;
@@ -24,8 +24,11 @@ pub fn build_autotools(
     // Generate configure script if missing.
     if !dep_dir.join("configure").exists() {
         if dep_dir.join("autogen.sh").exists() {
-            let sh = if use_emscripten { "emconfigure" } else { "sh" };
-            run(sh, &["autogen.sh"], dep_dir, "autogen.sh")?;
+            if use_emscripten {
+                run("emconfigure", &["sh", "autogen.sh"], dep_dir, "autogen.sh")?;
+            } else {
+                run("sh", &["autogen.sh"], dep_dir, "autogen.sh")?;
+            }
         } else {
             run("autoreconf", &["-fi"], dep_dir, "autoreconf")?;
         }
@@ -34,59 +37,55 @@ pub fn build_autotools(
     let install_dir = build_dir.join("install");
     std::fs::create_dir_all(&install_dir)?;
 
-    // Configure step (skipped when already up-to-date).
+    // Configure step — skipped when already up-to-date.
     if !configure_up_to_date(dep_dir) {
         let configure = dep_dir.join("configure").to_string_lossy().into_owned();
-        let prefix = format!("--prefix={}", install_dir.display());
+        let prefix    = format!("--prefix={}", install_dir.display());
 
-        let mut configure_args: Vec<&str> = vec![&prefix, "--enable-static", "--disable-shared"];
-        let host_arg;
+        let mut args: Vec<String> = vec![
+            prefix,
+            "--enable-static".into(),
+            "--disable-shared".into(),
+        ];
         if let Some(triple) = target {
-            host_arg = format!("--host={triple}");
-            configure_args.push(&host_arg);
+            args.push(format!("--host={triple}"));
         }
 
-        let configure_exe = if use_emscripten { "emconfigure" } else { &configure as &str };
-        let actual_args: Vec<&str> = if use_emscripten {
-            let mut v = vec![&configure as &str];
-            v.extend_from_slice(&configure_args);
-            v
-        } else {
-            configure_args
-        };
+        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
 
-        run(configure_exe, &actual_args, dep_dir, "configure")?;
+        if use_emscripten {
+            let mut full: Vec<&str> = vec![&configure];
+            full.extend_from_slice(&arg_refs);
+            run("emconfigure", &full, dep_dir, "configure")?;
+        } else {
+            run(&configure, &arg_refs, dep_dir, "configure")?;
+        }
     }
 
     // Build step.
-    let jobs = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1);
+    let jobs     = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1);
     let jobs_str = jobs.to_string();
-    let make_exe = if use_emscripten { "emmake" } else { "make" };
 
     if use_emscripten {
-        run(make_exe, &["make", "-j", &jobs_str], dep_dir, "make")?;
-        run(make_exe, &["make", "install"], dep_dir, "make install")?;
+        run("emmake", &["make", "-j", &jobs_str], dep_dir, "make")?;
+        run("emmake", &["make", "install"],        dep_dir, "make install")?;
     } else {
-        run(make_exe, &["-j", &jobs_str], dep_dir, "make")?;
-        run(make_exe, &["install"], dep_dir, "make install")?;
+        run("make", &["-j", &jobs_str], dep_dir, "make")?;
+        run("make", &["install"],       dep_dir, "make install")?;
     }
 
     Ok(())
 }
 
-/// Returns `true` when configure output is already present and up-to-date,
-/// meaning both `config.status` and `Makefile` exist in `dep_dir` and the
-/// `configure` script hasn't been modified since `config.status` was written.
+/// Returns `true` when configure output is already present and up-to-date:
+/// both `config.status` and `Makefile` exist and `configure` is not newer
+/// than `config.status`.
 fn configure_up_to_date(dep_dir: &Path) -> bool {
     let config_status = dep_dir.join("config.status");
-    let makefile = dep_dir.join("Makefile");
-    if !config_status.exists() || !makefile.exists() {
-        return false;
-    }
-    let configure = dep_dir.join("configure");
-    if !configure.exists() {
+    let makefile      = dep_dir.join("Makefile");
+    let configure     = dep_dir.join("configure");
+
+    if !config_status.exists() || !makefile.exists() || !configure.exists() {
         return false;
     }
     let (Ok(c_meta), Ok(cs_meta)) = (

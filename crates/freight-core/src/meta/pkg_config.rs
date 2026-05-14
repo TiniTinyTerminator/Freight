@@ -1,8 +1,11 @@
 //! pkg-config / pkgconf integration: query cflags/libs and resolve include dirs.
 //!
-//! Supports pkgconf as a fallback when pkg-config is not found, cross-compilation
-//! env var lookup (PKG_CONFIG_PATH_<target>, TARGET_PKG_CONFIG_PATH, …), and
-//! static mode via PKG_CONFIG_ALL_STATIC.
+//! Adapted from pkg-config-rs. Key features retained:
+//! - `pkgconf` fallback when `pkg-config` is not on PATH
+//! - Cross-compilation env var lookup: `PKG_CONFIG_PATH_<target>`,
+//!   `PKG_CONFIG_PATH_<target_u>`, `TARGET_PKG_CONFIG_PATH`, `PKG_CONFIG_PATH`
+//! - `PKG_CONFIG_LIBDIR` and `PKG_CONFIG_SYSROOT_DIR` cross-compile passthrough
+//! - Static mode via `PKG_CONFIG_ALL_STATIC`
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Command;
@@ -28,11 +31,8 @@ pub fn pkg_config_query(query: &str) -> Result<PkgConfigResult, FreightError> {
 
 /// Like [`pkg_config_query`] but applies cross-compilation env var lookup for `target`.
 ///
-/// When `target` is set, the function checks `PKG_CONFIG_PATH_<target>`,
-/// `PKG_CONFIG_PATH_<target_underscored>`, `TARGET_PKG_CONFIG_PATH`, and
-/// `PKG_CONFIG_PATH` in order, and passes the first found as `PKG_CONFIG_PATH`
-/// to the subprocess.  The same lookup applies to `PKG_CONFIG_LIBDIR` and
-/// `PKG_CONFIG_SYSROOT_DIR`.
+/// When `target` is set, env vars are resolved with the priority order:
+/// `<VAR>_<target>`, `<VAR>_<target_underscored>`, `TARGET_<VAR>`, `<VAR>`.
 pub fn pkg_config_query_for_target(
     query: &str,
     target: Option<&str>,
@@ -83,10 +83,10 @@ pub fn pkg_config_query_with_path(
     Ok(PkgConfigResult { include_dirs, link_flags })
 }
 
-/// Run `pkg-config --modversion` and return the version string, or empty on failure.
+/// Run `pkg-config --modversion` for the package name extracted from `query`.
+/// Returns an empty string on any failure.
 pub fn pkg_config_version(query: &str) -> String {
     let pkg_name = query.split_whitespace().next().unwrap_or(query);
-    // Try pkg-config, then pkgconf.
     let result = Command::new("pkg-config")
         .args(["--modversion", pkg_name])
         .output()
@@ -106,13 +106,13 @@ pub fn pkg_config_version(query: &str) -> String {
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
-/// Look up a pkg-config env variable with cross-compilation target priority.
+/// Resolve a pkg-config env variable with cross-compilation target priority.
 ///
 /// Search order (first non-empty wins):
-/// 1. `{var_base}_{target}`          e.g. `PKG_CONFIG_PATH_aarch64-unknown-linux-gnu`
-/// 2. `{var_base}_{target_u}`        e.g. `PKG_CONFIG_PATH_aarch64_unknown_linux_gnu`
-/// 3. `TARGET_{var_base}`            e.g. `TARGET_PKG_CONFIG_PATH`
-/// 4. `{var_base}`                   e.g. `PKG_CONFIG_PATH`
+/// 1. `{var_base}_{target}`       e.g. `PKG_CONFIG_PATH_aarch64-unknown-linux-gnu`
+/// 2. `{var_base}_{target_u}`     e.g. `PKG_CONFIG_PATH_aarch64_unknown_linux_gnu`
+/// 3. `TARGET_{var_base}`         e.g. `TARGET_PKG_CONFIG_PATH`
+/// 4. `{var_base}`                e.g. `PKG_CONFIG_PATH`
 fn targeted_env_var(var_base: &str, target: Option<&str>) -> Option<OsString> {
     let Some(target) = target else {
         return std::env::var_os(var_base);
@@ -129,34 +129,35 @@ fn run_pkg_config(
     flag: &str,
     target: Option<&str>,
     is_static: bool,
-    override_pkg_config_path: Option<&str>,
+    override_path: Option<&str>,
 ) -> Result<String, FreightError> {
     let parts: Vec<&str> = query.split_whitespace().collect();
 
     let exe = targeted_env_var("PKG_CONFIG", target)
         .unwrap_or_else(|| OsString::from("pkg-config"));
 
-    let mut cmd = build_command(&exe, flag, &parts, is_static, target, override_pkg_config_path);
-
-    let out = cmd.output().or_else(|e| {
-        // If pkg-config wasn't found and no explicit override, try pkgconf.
-        if e.kind() == std::io::ErrorKind::NotFound
-            && targeted_env_var("PKG_CONFIG", target).is_none()
-        {
-            let mut fallback = build_command(
-                &OsString::from("pkgconf"),
-                flag,
-                &parts,
-                is_static,
-                target,
-                override_pkg_config_path,
-            );
-            fallback.output()
-        } else {
-            Err(e)
-        }
-    })
-    .map_err(|e| FreightError::CompilerNotFound(format!("pkg-config not found: {e}")))?;
+    let out = build_command(&exe, flag, &parts, is_static, target, override_path)
+        .output()
+        .or_else(|e| {
+            // Fallback to pkgconf when pkg-config binary is not found and no
+            // explicit PKG_CONFIG override is in the environment.
+            if e.kind() == std::io::ErrorKind::NotFound
+                && targeted_env_var("PKG_CONFIG", target).is_none()
+            {
+                build_command(
+                    &OsString::from("pkgconf"),
+                    flag,
+                    &parts,
+                    is_static,
+                    target,
+                    override_path,
+                )
+                .output()
+            } else {
+                Err(e)
+            }
+        })
+        .map_err(|e| FreightError::CompilerNotFound(format!("pkg-config not found: {e}")))?;
 
     if !out.status.success() {
         let stderr = String::from_utf8_lossy(&out.stderr);
@@ -173,7 +174,7 @@ fn build_command(
     parts: &[&str],
     is_static: bool,
     target: Option<&str>,
-    override_pkg_config_path: Option<&str>,
+    override_path: Option<&str>,
 ) -> Command {
     let mut cmd = Command::new(exe);
     if is_static {
@@ -181,8 +182,7 @@ fn build_command(
     }
     cmd.arg(flag).args(parts);
 
-    // Apply cross-compilation env vars.
-    if let Some(path) = override_pkg_config_path {
+    if let Some(path) = override_path {
         cmd.env("PKG_CONFIG_PATH", path);
     } else if let Some(path) = targeted_env_var("PKG_CONFIG_PATH", target) {
         cmd.env("PKG_CONFIG_PATH", path);
