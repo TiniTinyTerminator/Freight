@@ -737,7 +737,7 @@ fn build_item(
         (None, None) => (String::new(), String::new()),
     };
 
-    DocItem { name, kind, brief, body, tags, file: file.to_path_buf(), line, lang, signature }
+    DocItem { name, kind, brief, body, tags, file: file.to_path_buf(), line, lang, signature: signature.trim().to_string() }
 }
 
 /// Recognise a Doxygen/Javadoc tag at the start of a trimmed comment line.
