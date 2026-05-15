@@ -199,6 +199,34 @@ impl FreightRegistry {
         Ok(())
     }
 
+    /// Register a new user account. Returns `(user_id, token)`.
+    pub fn register_user(
+        &self,
+        username: &str,
+        password: &str,
+        email: Option<&str>,
+        token_name: Option<&str>,
+    ) -> Result<(i64, String), FreightError> {
+        let body = serde_json::json!({
+            "username":   username,
+            "password":   password,
+            "email":      email,
+            "token_name": token_name,
+        });
+        let json_bytes = serde_json::to_vec(&body)
+            .map_err(|e| FreightError::RegistryError(format!("serialize: {e}")))?;
+        let url = format!("{}/api/v1/users/register", self.base_url);
+        let resp = http_post(&url, None, "application/json", json_bytes)?;
+        let v: serde_json::Value = serde_json::from_str(&resp)
+            .map_err(|e| FreightError::RegistryError(format!("invalid JSON: {e}")))?;
+        let id = v["id"].as_i64()
+            .ok_or_else(|| FreightError::RegistryError("missing id in response".into()))?;
+        let token = v["token"].as_str()
+            .ok_or_else(|| FreightError::RegistryError("missing token in response".into()))?
+            .to_string();
+        Ok((id, token))
+    }
+
     /// Returns the source string for the lockfile: `"registry+<url>"`.
     pub fn source_string(&self) -> String {
         format!("registry+{}", self.base_url)
@@ -351,6 +379,52 @@ fn http_put(url: &str, token: Option<&str>, content_type: &str, body: Vec<u8>) -
     easy.url(url).map_err(|e| FreightError::RegistryError(format!("curl url: {e}")))?;
     easy.upload(true).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
     easy.in_filesize(body.len() as u64).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.fail_on_error(false).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.useragent(&format!("freight/{}", env!("CARGO_PKG_VERSION")))
+        .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+
+    let mut hdrs = List::new();
+    hdrs.append(&format!("Content-Type: {content_type}"))
+        .map_err(|e| FreightError::RegistryError(format!("curl header: {e}")))?;
+    if let Some(tok) = token {
+        hdrs.append(&format!("Authorization: Bearer {tok}"))
+            .map_err(|e| FreightError::RegistryError(format!("curl header: {e}")))?;
+    }
+    easy.http_headers(hdrs).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+
+    let mut body_cursor = std::io::Cursor::new(body);
+    {
+        let mut transfer = easy.transfer();
+        transfer.read_function(|buf| {
+            use std::io::Read;
+            Ok(body_cursor.read(buf).unwrap_or(0))
+        }).map_err(|e| FreightError::RegistryError(format!("curl read: {e}")))?;
+        transfer.write_function(|data| {
+            resp.extend_from_slice(data);
+            Ok(data.len())
+        }).map_err(|e| FreightError::RegistryError(format!("curl write: {e}")))?;
+        transfer.perform().map_err(|e| FreightError::RegistryError(format!("request: {e}")))?;
+    }
+
+    let code = easy.response_code()
+        .map_err(|e| FreightError::RegistryError(format!("curl code: {e}")))?;
+    let body_str = String::from_utf8_lossy(&resp).into_owned();
+    match code {
+        200 | 201 => Ok(body_str),
+        401 => Err(FreightError::RegistryError("authentication required — check your token".into())),
+        403 => Err(FreightError::RegistryError("permission denied".into())),
+        409 => Err(FreightError::RegistryError(format!("conflict: {body_str}"))),
+        _   => Err(FreightError::RegistryError(format!("HTTP {code}: {body_str}"))),
+    }
+}
+
+fn http_post(url: &str, token: Option<&str>, content_type: &str, body: Vec<u8>) -> Result<String, FreightError> {
+    let mut resp = Vec::new();
+    let mut easy = Easy::new();
+
+    easy.url(url).map_err(|e| FreightError::RegistryError(format!("curl url: {e}")))?;
+    easy.post(true).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.post_field_size(body.len() as u64).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
     easy.fail_on_error(false).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
     easy.useragent(&format!("freight/{}", env!("CARGO_PKG_VERSION")))
         .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;

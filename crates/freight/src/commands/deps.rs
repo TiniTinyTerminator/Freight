@@ -868,6 +868,98 @@ pub fn cmd_yank(version_arg: &str, undo: bool, repo: Option<&str>) {
     }
 }
 
+pub fn cmd_register(
+    registry_url: Option<&str>,
+    username_arg: Option<&str>,
+    email_arg: Option<&str>,
+    token_name_arg: Option<&str>,
+) {
+    let config = GlobalConfig::load();
+
+    let url = registry_url
+        .map(str::to_string)
+        .or_else(|| config.registries.first().map(|r| r.url.clone()))
+        .unwrap_or_else(|| DEFAULT_REGISTRY_URL.to_string());
+
+    let reg_name = config
+        .registries
+        .iter()
+        .find(|r| r.url == url)
+        .map(|r| r.name.clone())
+        .unwrap_or_else(|| "freight".to_string());
+
+    let username = match username_arg {
+        Some(u) => u.to_string(),
+        None => {
+            use std::io::{self, Write};
+            print!("Username: ");
+            io::stdout().flush().ok();
+            let mut u = String::new();
+            io::stdin().read_line(&mut u).ok();
+            u.trim().to_string()
+        }
+    };
+
+    if username.is_empty() {
+        print_error("username cannot be empty");
+        return;
+    }
+
+    let password = {
+        use std::io::{self, Write};
+        print!("Password: ");
+        io::stdout().flush().ok();
+        let mut p1 = String::new();
+        io::stdin().read_line(&mut p1).ok();
+        let p1 = p1.trim().to_string();
+
+        print!("Confirm password: ");
+        io::stdout().flush().ok();
+        let mut p2 = String::new();
+        io::stdin().read_line(&mut p2).ok();
+        let p2 = p2.trim().to_string();
+
+        if p1 != p2 {
+            print_error("passwords do not match");
+            return;
+        }
+        if p1.is_empty() {
+            print_error("password cannot be empty");
+            return;
+        }
+        p1
+    };
+
+    let cfg = freight_core::toolchain::cache::RegistryConfig {
+        name: reg_name.clone(),
+        url:  url.clone(),
+        token: None,
+    };
+    let registry = FreightRegistry::from_config(&cfg);
+
+    print_status("register", &format!("creating account `{username}` on {url}…"));
+
+    match registry.register_user(&username, &password, email_arg, token_name_arg) {
+        Ok((_, token)) => {
+            match GlobalConfig::save_credential(&url, &reg_name, &token) {
+                Ok(()) => {
+                    let creds_path = freight_home()
+                        .map(|h| h.join("credentials.toml").to_string_lossy().into_owned())
+                        .unwrap_or_else(|| "~/.freight/credentials.toml".into());
+                    print_success(&format!(
+                        "registered as `{username}` — token saved to {creds_path}"
+                    ));
+                }
+                Err(e) => {
+                    print_success(&format!("registered as `{username}`"));
+                    print_warning(&format!("could not save token automatically: {e}"));
+                }
+            }
+        }
+        Err(e) => print_error(&e.to_string()),
+    }
+}
+
 // ── Local helpers ────────────────────────────────────────────────────────────
 
 fn locate_project_dir() -> Option<std::path::PathBuf> {

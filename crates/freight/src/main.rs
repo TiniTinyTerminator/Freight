@@ -14,8 +14,8 @@ use crate::commands::check::cmd_check;
 use crate::commands::compile_commands::cmd_compile_commands;
 use crate::commands::debug::cmd_debug;
 use crate::commands::deps::{
-    cmd_add, cmd_add_interactive, cmd_fetch, cmd_info, cmd_login, cmd_publish, cmd_remove,
-    cmd_search, cmd_tree, cmd_update, cmd_yank,
+    cmd_add, cmd_add_interactive, cmd_fetch, cmd_info, cmd_login, cmd_publish, cmd_register,
+    cmd_remove, cmd_search, cmd_tree, cmd_update, cmd_yank,
 };
 use crate::commands::doc::cmd_doc;
 use crate::commands::fmt::cmd_fmt;
@@ -282,6 +282,21 @@ enum Commands {
         #[arg(long, value_name = "NAME")]
         repo: Option<String>,
     },
+    /// Register a new account on a registry
+    Register {
+        /// Registry base URL (default: first configured registry or https://freight.dev)
+        #[arg(long, value_name = "URL")]
+        registry: Option<String>,
+        /// Username for the new account (prompted interactively if omitted)
+        #[arg(long, value_name = "NAME")]
+        username: Option<String>,
+        /// Email address for the new account (optional)
+        #[arg(long, value_name = "EMAIL")]
+        email: Option<String>,
+        /// Name for the initial API token (default: init)
+        #[arg(long, value_name = "NAME")]
+        token_name: Option<String>,
+    },
     /// Yank a published version (prevents new installs)
     Yank {
         /// Package name and version to yank (e.g. mylib@1.0.0)
@@ -467,6 +482,9 @@ fn main() -> Result<()> {
             print_completion(shell, &cmd);
         }
         Commands::Login { registry, token } => cmd_login(registry.as_deref(), token.as_deref()),
+        Commands::Register { registry, username, email, token_name } => {
+            cmd_register(registry.as_deref(), username.as_deref(), email.as_deref(), token_name.as_deref());
+        }
         Commands::Publish { dry_run, repo } => cmd_publish(dry_run, repo.as_deref()),
         Commands::Yank { version, undo, repo } => cmd_yank(&version, undo, repo.as_deref()),
         Commands::Fmt { check } => cmd_fmt(check),
