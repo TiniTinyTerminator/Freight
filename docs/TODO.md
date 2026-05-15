@@ -37,6 +37,9 @@ Remaining: internal system cache registry (index on first install; skip probing 
 `bench` profile (release + debug, no strip), run binaries matching `bench_*` or in `benches/`,
 print a timing table. Optional Criterion integration via a flag.
 
+### B7 — Support multiple compiler versions
+The toolchain currently doesnt expect multiple versions of the same compiler. Since some systems dont support newer versions of compilers, older versions are required to be installed sometimes for compatibillity. The toolchains must thus show every version of a compiler that is available on the system, so the user can choose which one is needed.
+
 ---
 
 ## Small tasks
