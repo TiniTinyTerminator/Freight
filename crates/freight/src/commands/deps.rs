@@ -552,11 +552,15 @@ pub fn cmd_add(
 
 /// Interactive `freight add` (no package name given).
 /// TODO: freight registry interactive search TUI.
-pub fn cmd_add_interactive(_repo: Option<&str>, _dev: bool) {
-    print_warning(
-        "interactive registry search is not yet available — \
-         use `freight add <name>` to add by name or `freight search <query>` to search"
-    );
+pub fn cmd_add_interactive(repo: Option<&str>, dev: bool) {
+    match crate::tui::run_package_browser(repo) {
+        Ok(Some(selection)) => {
+            cmd_add(&format!("{}@{}", selection.name, selection.version),
+                None, None, None, None, None, false, repo, dev);
+        }
+        Ok(None) => {} // user cancelled
+        Err(e) => print_warning(&format!("TUI error: {e}")),
+    }
 }
 
 // ── freight remove ─────────────────────────────────────────────────────────────

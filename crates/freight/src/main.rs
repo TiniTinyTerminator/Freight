@@ -1,6 +1,7 @@
 mod commands;
 mod completion;
 mod output;
+mod tui;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser, Subcommand};
