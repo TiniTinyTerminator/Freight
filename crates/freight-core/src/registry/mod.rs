@@ -23,6 +23,8 @@ pub struct PackageVersion {
     pub checksum: Option<String>,
     /// Download URL for the source tarball.
     pub download_url: Option<String>,
+    /// Target triples for which prebuilt binary tarballs are available.
+    pub prebuilt_triples: Vec<String>,
 }
 
 /// Package metadata returned by a registry lookup.
@@ -53,3 +55,17 @@ pub trait PackageRepo: Send + Sync {
 /// Backward-compatibility alias. Prefer [`PackageRepo`].
 #[deprecated(since = "0.0.0", note = "use PackageRepo instead")]
 pub trait Registry: PackageRepo {}
+
+/// Return a normalised target triple for the current host, e.g.
+/// `"x86_64-linux-gnu"`, `"aarch64-apple-darwin"`, `"x86_64-windows-msvc"`.
+///
+/// Used to select prebuilt tarballs during `freight fetch`.
+pub fn host_triple() -> String {
+    let arch = std::env::consts::ARCH; // "x86_64" | "aarch64" | "arm" | …
+    match std::env::consts::OS {
+        "linux"   => format!("{arch}-linux-gnu"),
+        "macos"   => format!("{arch}-apple-darwin"),
+        "windows" => format!("{arch}-windows-msvc"),
+        other     => format!("{arch}-{other}"),
+    }
+}

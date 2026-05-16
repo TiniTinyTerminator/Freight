@@ -15,7 +15,7 @@ use crate::commands::compile_commands::cmd_compile_commands;
 use crate::commands::debug::cmd_debug;
 use crate::commands::deps::{
     cmd_add, cmd_add_interactive, cmd_fetch, cmd_info, cmd_login, cmd_outdated, cmd_publish,
-    cmd_register, cmd_remove, cmd_search, cmd_tree, cmd_update, cmd_yank,
+    cmd_publish_prebuilt, cmd_register, cmd_remove, cmd_search, cmd_tree, cmd_update, cmd_yank,
 };
 use crate::commands::doc::cmd_doc;
 use crate::commands::fmt::cmd_fmt;
@@ -192,7 +192,11 @@ enum Commands {
     /// Update dependencies within semver ranges
     Update { package: Option<String> },
     /// Download dependencies without building
-    Fetch,
+    Fetch {
+        /// Always download source tarballs, even if a prebuilt is available for the current triple
+        #[arg(long, short = 's')]
+        source: bool,
+    },
     /// Print the dependency tree
     Tree,
     /// Show outdated registry dependencies
@@ -287,6 +291,10 @@ enum Commands {
         /// Registry to publish to (default: first configured registry)
         #[arg(long, value_name = "NAME")]
         repo: Option<String>,
+        /// Upload a prebuilt binary tarball for the given triple instead of source.
+        /// Omit the triple to use the detected host triple (e.g. x86_64-linux-gnu).
+        #[arg(long, value_name = "TRIPLE")]
+        prebuilt: Option<Option<String>>,
     },
     /// Register a new account on a registry
     Register {
@@ -459,7 +467,7 @@ fn main() -> Result<()> {
         }
         Commands::Remove { package } => cmd_remove(&package),
         Commands::Update { package } => cmd_update(package.as_deref()),
-        Commands::Fetch => cmd_fetch(),
+        Commands::Fetch { source } => cmd_fetch(source),
         Commands::Tree => cmd_tree(),
         Commands::Outdated { repo } => cmd_outdated(repo.as_deref()),
         Commands::Info { package, repo } => cmd_info(package.as_deref(), repo.as_deref()),
@@ -492,7 +500,13 @@ fn main() -> Result<()> {
         Commands::Register { registry, username, email, token_name } => {
             cmd_register(registry.as_deref(), username.as_deref(), email.as_deref(), token_name.as_deref());
         }
-        Commands::Publish { dry_run, repo } => cmd_publish(dry_run, repo.as_deref()),
+        Commands::Publish { dry_run, repo, prebuilt } => {
+            if let Some(triple_opt) = prebuilt {
+                cmd_publish_prebuilt(triple_opt.as_deref(), repo.as_deref());
+            } else {
+                cmd_publish(dry_run, repo.as_deref());
+            }
+        }
         Commands::Yank { version, undo, repo } => cmd_yank(&version, undo, repo.as_deref()),
         Commands::Fmt { check } => cmd_fmt(check),
         Commands::Lint { fix } => cmd_lint(fix),

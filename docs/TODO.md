@@ -4,15 +4,13 @@
 
 ## Big tasks
 
-### B1 — Registry client integration
+### B1 — Registry client integration ✓ done
 The `freight-registry` server lives in a separate repository and is fully operational. Multiple-registry
 client support is done. All publisher/consumer CLI commands are wired to real HTTP calls:
 `freight search`, `freight info`, `freight login`, `freight publish`, `freight yank`, `freight register`.
-
-Remaining: implement `freight fetch` for registry version deps (download tarballs to `.deps/` and
-record `source = "registry+<url>"` + checksum in `freight.lock`), and add semver resolution +
-lockfile pinning to `freight add` so `version = "1.2"` deps work end-to-end.
-Blocks: registry-backed `version = "x.y"` resolution in `freight build`.
+`freight fetch` downloads tarballs for version deps to `.deps/<name>/`, records
+`source = "registry+<url>"` + checksum in `freight.lock`. `freight add` resolves latest
+version via registry `lookup()` and writes it to `freight.toml`. Channel support wired end-to-end.
 
 ### B2 — VS Code extension
 Activate on `freight.toml`, delegate to `freight lsp` for diagnostics, completions, and

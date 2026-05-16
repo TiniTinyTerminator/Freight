@@ -1,12 +1,15 @@
 //! HTTP client for the freight.dev package registry (and any compatible registry).
 //!
 //! API contract (all responses are JSON):
-//!   GET    /api/v1/packages/{name}                    → ApiPackage (or 404)
-//!   GET    /api/v1/search?q={query}                   → ApiSearchResult
-//!   GET    /api/v1/packages/{name}/{ver}/download      → tarball bytes
-//!   PUT    /api/v1/packages                           → publish (binary wire format)
-//!   DELETE /api/v1/packages/{name}/{ver}/yank         → yank
-//!   PUT    /api/v1/packages/{name}/{ver}/yank         → unyank
+//!   GET    /api/v1/packages/{name}                                → ApiPackage (or 404)
+//!   GET    /api/v1/search?q={query}                               → ApiSearchResult
+//!   GET    /api/v1/packages/{name}/{ver}/download                  → source tarball bytes
+//!   PUT    /api/v1/packages                                       → publish source (binary wire format)
+//!   DELETE /api/v1/packages/{name}/{ver}/yank                     → yank
+//!   PUT    /api/v1/packages/{name}/{ver}/yank                     → unyank
+//!   GET    /api/v1/packages/{name}/{ver}/prebuilts                 → list prebuilt triples
+//!   GET    /api/v1/packages/{name}/{ver}/prebuilt/{triple}/download → prebuilt tarball
+//!   PUT    /api/v1/packages/{name}/{ver}/prebuilt/{triple}         → upload prebuilt
 //!
 //! The default registry is `https://freight.dev`. Additional registries are
 //! configured via `[[registry]]` entries in the config file.
@@ -245,6 +248,118 @@ impl FreightRegistry {
     pub fn source_string(&self) -> String {
         format!("registry+{}", self.base_url)
     }
+
+    // ── Prebuilt API ──────────────────────────────────────────────────────────
+
+    /// List the target triples for which a prebuilt tarball is available.
+    pub fn list_prebuilt_triples(
+        &self,
+        name:    &str,
+        version: &str,
+        channel: Option<&str>,
+    ) -> Result<Vec<String>, FreightError> {
+        let url = match channel {
+            Some(ch) => format!(
+                "{}/api/v1/packages/{}/{}/prebuilts?channel={}",
+                self.base_url, name, version, url_encode(ch)
+            ),
+            None => format!("{}/api/v1/packages/{}/{}/prebuilts", self.base_url, name, version),
+        };
+        #[derive(Deserialize)]
+        struct ListResp { prebuilts: Vec<PrebuiltEntry> }
+        #[derive(Deserialize)]
+        struct PrebuiltEntry { triple: String }
+        match http_get_json::<ListResp>(&url, self.token.as_deref()) {
+            Ok(r)                                => Ok(r.prebuilts.into_iter().map(|e| e.triple).collect()),
+            Err(FreightError::RegistryNotFound(_)) => Ok(vec![]),
+            Err(e)                               => Err(e),
+        }
+    }
+
+    /// Download a prebuilt tarball for `triple` to `.deps/<name>/`.
+    ///
+    /// Returns the SHA-256 checksum of the downloaded tarball.
+    /// The prebuilt tarball is expected to contain `include/`, `lib/`, and
+    /// `lib/pkgconfig/` directories that are extracted into `.deps/<name>/`.
+    pub fn download_prebuilt(
+        &self,
+        name:    &str,
+        version: &str,
+        channel: Option<&str>,
+        triple:  &str,
+        project_dir: &Path,
+    ) -> Result<String, FreightError> {
+        let url = match channel {
+            Some(ch) => format!(
+                "{}/api/v1/packages/{}/{}/prebuilt/{}/download?channel={}",
+                self.base_url, name, version, triple, url_encode(ch)
+            ),
+            None => format!(
+                "{}/api/v1/packages/{}/{}/prebuilt/{}/download",
+                self.base_url, name, version, triple
+            ),
+        };
+        let (bytes, checksum_header) = http_get_bytes(&url, self.token.as_deref())?;
+
+        let deps_dir = project_dir.join(".deps").join(name);
+        std::fs::create_dir_all(&deps_dir)?;
+
+        let archive = project_dir.join(".deps").join(format!("{name}-{version}-{triple}.tar.gz"));
+        std::fs::write(&archive, &bytes)?;
+
+        let ok = std::process::Command::new("tar")
+            .args(["-xf", &archive.to_string_lossy(), "-C", &deps_dir.to_string_lossy(), "--strip-components=1"])
+            .status()
+            .map_err(|e| FreightError::RegistryError(format!("tar not found: {e}")))?
+            .success();
+        let _ = std::fs::remove_file(&archive);
+        if !ok {
+            return Err(FreightError::RegistryError(format!(
+                "extraction failed for prebuilt {name}@{version} ({triple})"
+            )));
+        }
+
+        let checksum = match checksum_header {
+            Some(h) => h,
+            None => {
+                use sha2::{Digest, Sha256};
+                Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect()
+            }
+        };
+
+        // Write sentinel so subsequent fetches are skipped.
+        let sentinel = deps_dir.join(".freight-fetched");
+        std::fs::write(&sentinel, &checksum)?;
+        Ok(checksum)
+    }
+
+    /// Upload a prebuilt tarball for `triple`.
+    pub fn upload_prebuilt(
+        &self,
+        name:    &str,
+        version: &str,
+        channel: Option<&str>,
+        triple:  &str,
+        tarball: &[u8],
+    ) -> Result<(), FreightError> {
+        let token = self.token.as_deref().ok_or_else(|| {
+            FreightError::RegistryError(
+                "no token configured for this registry — run `freight login`".into(),
+            )
+        })?;
+        let url = match channel {
+            Some(ch) => format!(
+                "{}/api/v1/packages/{}/{}/prebuilt/{}?channel={}",
+                self.base_url, name, version, triple, url_encode(ch)
+            ),
+            None => format!(
+                "{}/api/v1/packages/{}/{}/prebuilt/{}",
+                self.base_url, name, version, triple
+            ),
+        };
+        http_put(&url, Some(token), "application/gzip", tarball.to_vec())?;
+        Ok(())
+    }
 }
 
 // ── API response shapes ───────────────────────────────────────────────────────
@@ -266,6 +381,8 @@ struct ApiVersion {
     checksum: Option<String>,
     #[serde(default)]
     download_url: Option<String>,
+    #[serde(default)]
+    prebuilt_triples: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -283,6 +400,7 @@ impl From<ApiPackage> for PackageInfo {
                 version: v.version,
                 checksum: v.checksum,
                 download_url: v.download_url,
+                prebuilt_triples: v.prebuilt_triples,
             }).collect(),
         }
     }

@@ -25,6 +25,8 @@ walkdir       = "2"
 glob          = "0.3"
 regex         = "1"
 sha2          = "0.10"
+flate2        = "1"
+tar           = "0.4"
 curl          = { version = "0.4", features = ["static-curl"] }
 git2          = { version = "0.19", features = ["vendored-libgit2", "vendored-openssl"] }
 

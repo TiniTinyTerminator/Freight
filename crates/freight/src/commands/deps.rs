@@ -10,7 +10,7 @@ use freight_core::manifest::types::{Dependency, Manifest};
 use freight_core::manifest::{find_manifest_dir, load_manifest};
 use freight_core::registry::freight_registry::FreightRegistry;
 use freight_core::registry::repos::{repo_by_name, registries_in_order};
-use freight_core::registry::DEFAULT_REGISTRY_URL;
+use freight_core::registry::{host_triple, DEFAULT_REGISTRY_URL};
 use freight_core::toolchain::cache::{freight_home, GlobalConfig};
 
 use crate::output::{print_error, print_status, print_success, print_warning};
@@ -409,7 +409,7 @@ pub fn cmd_update(package: Option<&str>) {
 
 // ── freight fetch ──────────────────────────────────────────────────────────────
 
-pub fn cmd_fetch() {
+pub fn cmd_fetch(force_source: bool) {
     let project_dir = match locate_project_dir() {
         Some(d) => d,
         None => return,
@@ -505,25 +505,33 @@ pub fn cmd_fetch() {
     }
 
     // Download version deps from configured registries.
+    // Try prebuilt for the host triple first (unless --source was passed).
     let config = {
-        let cwd = std::env::current_dir().unwrap_or_default();
         let mut cfg = GlobalConfig::load();
         if let Some(local) = GlobalConfig::load_local(&project_dir) {
             cfg.apply_local(local);
         }
-        let _ = cwd; // suppress unused warning
         cfg
     };
+
+    if !force_source {
+        let triple = host_triple();
+        fetch_prebuilt_deps(&manifest, &project_dir, &config, &triple, &mut any_work, &mut all_ok);
+    }
+
     match fetch_registry_deps(&project_dir, &config) {
         Ok(outcomes) => {
             for o in outcomes {
+                // Skip deps that were already handled as prebuilts (sentinel exists).
+                let sentinel = project_dir.join(".deps").join(&o.name).join(".freight-fetched");
+                if sentinel.exists() { continue; }
                 any_work = true;
                 match o.action {
                     RegistryDepAction::AlreadyPresent => {
-                        print_status("ok", &format!("{} (registry, up to date)", o.name));
+                        print_status("ok", &format!("{} (source, up to date)", o.name));
                     }
                     RegistryDepAction::Downloaded => {
-                        print_success(&format!("fetched `{}@{}`", o.name, o.version));
+                        print_success(&format!("fetched `{}@{}` (source)", o.name, o.version));
                     }
                     RegistryDepAction::Unavailable => {
                         print_warning(&format!(
@@ -547,6 +555,185 @@ pub fn cmd_fetch() {
         println!();
         print_success("all dependencies ready");
     }
+}
+
+// ── Prebuilt helpers ───────────────────────────────────────────────────────────
+
+/// For every registry version dep, check if a prebuilt for `triple` is available
+/// and download it. Deps that are already fetched (sentinel present) are skipped.
+fn fetch_prebuilt_deps(
+    manifest:    &Manifest,
+    project_dir: &std::path::Path,
+    config:      &GlobalConfig,
+    triple:      &str,
+    any_work:    &mut bool,
+    all_ok:      &mut bool,
+) {
+    for (name, dep) in &manifest.dependencies {
+        let (version, repo_key, channel) = match dep {
+            Dependency::Simple(v) => (v.as_str(), None, None),
+            Dependency::Detailed(d)
+                if d.version.is_some()
+                    && d.path.is_none()
+                    && d.system.is_none()
+                    && d.git.is_none()
+                    && d.url.is_none() =>
+            {
+                (d.version.as_deref().unwrap(), d.repo.as_deref(), d.channel.as_deref())
+            }
+            _ => continue,
+        };
+
+        if version.is_empty() || version == "*" { continue; }
+
+        // Already fetched (source or prebuilt).
+        let sentinel = project_dir.join(".deps").join(name).join(".freight-fetched");
+        if sentinel.exists() { continue; }
+
+        let registry = if let Some(rkey) = repo_key {
+            match config.registries.iter().find(|r| r.name == rkey) {
+                Some(c) => FreightRegistry::from_config(c),
+                None    => continue,
+            }
+        } else {
+            match config.registries.first() {
+                Some(c) => FreightRegistry::from_config(c),
+                None    => FreightRegistry::default_registry(),
+            }
+        };
+
+        // Check if a prebuilt exists for this triple.
+        let triples = match registry.list_prebuilt_triples(name, version, channel) {
+            Ok(t)  => t,
+            Err(_) => continue, // registry unreachable, fall through to source
+        };
+
+        if !triples.contains(&triple.to_string()) { continue; }
+
+        *any_work = true;
+        print_status("prebuilt", &format!("downloading `{name}@{version}` ({triple})…"));
+        match registry.download_prebuilt(name, version, channel, triple, project_dir) {
+            Ok(_) => print_success(&format!("fetched `{name}@{version}` (prebuilt/{triple})")),
+            Err(e) => {
+                print_warning(&format!("`{name}`: prebuilt download failed ({e}), will fall back to source"));
+                *all_ok = false;
+            }
+        }
+    }
+}
+
+// ── freight publish --prebuilt ────────────────────────────────────────────────
+
+pub fn cmd_publish_prebuilt(triple: Option<&str>, repo: Option<&str>) {
+    let cwd = match std::env::current_dir() {
+        Ok(d) => d,
+        Err(e) => { print_error(&format!("cannot read cwd: {e}")); return; }
+    };
+    let project_dir = match find_manifest_dir(&cwd) {
+        Some(d) => d,
+        None => { print_error("no freight.toml found"); return; }
+    };
+    let manifest = match load_manifest(&project_dir) {
+        Ok(m) => m,
+        Err(e) => { print_error(&e.to_string()); return; }
+    };
+
+    let triple = triple.map(str::to_string).unwrap_or_else(host_triple);
+    let name    = &manifest.package.name;
+    let version = &manifest.package.version;
+
+    print_status("prebuilt", &format!("packaging `{name}@{version}` for {triple}…"));
+
+    // Build the prebuilt tarball in memory.
+    let tarball = match build_prebuilt_tarball(&project_dir, &manifest, &triple) {
+        Ok(t)  => t,
+        Err(e) => { print_error(&format!("packaging failed: {e}")); return; }
+    };
+
+    // Resolve the registry.
+    let config = {
+        let mut cfg = GlobalConfig::load();
+        if let Some(local) = GlobalConfig::load_local(&project_dir) {
+            cfg.apply_local(local);
+        }
+        cfg
+    };
+    let registry: FreightRegistry = if let Some(rname) = repo {
+        match config.registries.iter().find(|c| c.name == rname) {
+            Some(c) => FreightRegistry::from_config(c),
+            None    => { print_error(&format!("registry `{rname}` not found in config")); return; }
+        }
+    } else {
+        match config.registries.first() {
+            Some(c) => FreightRegistry::from_config(c),
+            None    => FreightRegistry::default_registry(),
+        }
+    };
+
+    let channel: Option<&str> = None; // channel for the prebuilt upload (defaults to "stable")
+    match registry.upload_prebuilt(name, version, channel, &triple, &tarball) {
+        Ok(()) => print_success(&format!(
+            "published prebuilt `{name}@{version}` for {triple}"
+        )),
+        Err(e) => print_error(&format!("upload failed: {e}")),
+    }
+}
+
+/// Pack `include/`, compiled libs from `target/release/`, and a generated `.pc`
+/// file into a gzip tarball and return the raw bytes.
+fn build_prebuilt_tarball(
+    project_dir: &std::path::Path,
+    manifest:    &Manifest,
+    _triple:     &str,
+) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+    let name    = &manifest.package.name;
+    let version = &manifest.package.version;
+    let desc    = &manifest.package.description;
+
+    let enc  = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    let mut ar = tar::Builder::new(enc);
+
+    // ── headers ───────────────────────────────────────────────────────────────
+    let include_dir = project_dir.join("include");
+    if include_dir.is_dir() {
+        ar.append_dir_all("include", &include_dir)?;
+    }
+
+    // ── compiled library ──────────────────────────────────────────────────────
+    let release_dir = project_dir.join("target").join("release");
+    for ext in &["a", "so", "dll", "dylib", "lib"] {
+        // Search for lib<name>.ext or <name>.ext
+        for stem in &[format!("lib{name}"), name.clone()] {
+            let candidate = release_dir.join(format!("{stem}.{ext}"));
+            if candidate.is_file() {
+                let dest = format!("lib/{stem}.{ext}");
+                ar.append_path_with_name(&candidate, &dest)?;
+            }
+        }
+    }
+
+    // ── pkg-config .pc file ───────────────────────────────────────────────────
+    let pc = format!(
+        "prefix=/usr/local\n\
+         libdir=${{prefix}}/lib\n\
+         includedir=${{prefix}}/include\n\
+         \n\
+         Name: {name}\n\
+         Description: {desc}\n\
+         Version: {version}\n\
+         Cflags: -I${{includedir}}\n\
+         Libs: -L${{libdir}} -l{name}\n",
+    );
+    let pc_bytes = pc.as_bytes();
+    let pc_path  = format!("lib/pkgconfig/{name}.pc");
+    let mut header = tar::Header::new_gnu();
+    header.set_size(pc_bytes.len() as u64);
+    header.set_mode(0o644);
+    header.set_cksum();
+    ar.append_data(&mut header, &pc_path, pc_bytes)?;
+
+    let gz = ar.into_inner()?.finish()?;
+    Ok(gz)
 }
 
 // ── freight outdated ──────────────────────────────────────────────────────────

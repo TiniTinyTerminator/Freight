@@ -17,6 +17,8 @@ rayon       = { workspace = true }
 serde_json  = { workspace = true }
 anyhow      = { workspace = true }
 semver      = { workspace = true }
+flate2      = { workspace = true }
+tar         = { workspace = true }
 notify      = { workspace = true }
 ratatui     = { workspace = true }
 crossterm   = { workspace = true }
