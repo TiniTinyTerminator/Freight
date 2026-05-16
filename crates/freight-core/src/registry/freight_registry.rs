@@ -59,8 +59,11 @@ impl PackageRepo for FreightRegistry {
         if self.name.is_empty() || self.name == "freight" { "" } else { &self.name }
     }
 
-    fn lookup(&self, name: &str) -> Result<Option<PackageInfo>, FreightError> {
-        let url = format!("{}/api/v1/packages/{}", self.base_url, name);
+    fn lookup(&self, name: &str, channel: Option<&str>) -> Result<Option<PackageInfo>, FreightError> {
+        let url = match channel {
+            Some(ch) => format!("{}/api/v1/packages/{}?channel={}", self.base_url, name, url_encode(ch)),
+            None     => format!("{}/api/v1/packages/{}", self.base_url, name),
+        };
         match http_get_json::<ApiPackage>(&url, self.token.as_deref()) {
             Ok(pkg)                              => Ok(Some(pkg.into())),
             Err(FreightError::RegistryNotFound(_)) => Ok(None),
@@ -86,6 +89,7 @@ impl FreightRegistry {
         &self,
         name: &str,
         version: &str,
+        channel: Option<&str>,
         project_dir: &Path,
     ) -> Result<String, FreightError> {
         let deps_dir = project_dir.join(".deps").join(name);
@@ -98,7 +102,10 @@ impl FreightRegistry {
                 .to_string());
         }
 
-        let url = format!("{}/api/v1/packages/{}/{}/download", self.base_url, name, version);
+        let url = match channel {
+            Some(ch) => format!("{}/api/v1/packages/{}/{}/download?channel={}", self.base_url, name, version, url_encode(ch)),
+            None     => format!("{}/api/v1/packages/{}/{}/download", self.base_url, name, version),
+        };
         let (bytes, checksum_header) = http_get_bytes(&url, self.token.as_deref())?;
 
         std::fs::create_dir_all(project_dir.join(".deps"))?;
@@ -148,6 +155,7 @@ impl FreightRegistry {
         &self,
         name: &str,
         version: &str,
+        channel: Option<&str>,
         description: Option<&str>,
         license: Option<&str>,
         tarball: &[u8],
@@ -161,6 +169,7 @@ impl FreightRegistry {
         let meta = serde_json::json!({
             "name": name,
             "vers": version,
+            "channel": channel,
             "description": description,
             "license": license,
         });

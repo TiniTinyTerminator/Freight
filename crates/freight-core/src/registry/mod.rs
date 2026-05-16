@@ -42,8 +42,9 @@ pub trait PackageRepo: Send + Sync {
     /// Empty string for the freight registry (the default).
     fn repo_key(&self) -> &str;
 
-    /// Look up a package by name. Returns `Ok(None)` when not found (404).
-    fn lookup(&self, name: &str) -> Result<Option<PackageInfo>, FreightError>;
+    /// Look up a package by name in the given channel (`None` = registry default).
+    /// Returns `Ok(None)` when not found (404).
+    fn lookup(&self, name: &str, channel: Option<&str>) -> Result<Option<PackageInfo>, FreightError>;
 
     /// Search for packages matching `query`.
     fn search(&self, query: &str) -> Result<Vec<PackageInfo>, FreightError>;

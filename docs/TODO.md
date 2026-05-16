@@ -121,9 +121,10 @@ C++20 named-module projects skip unity (modules have their own dependency orderi
 member and pass features to it. `freight run -p myapp` runs a member's binary.
 Remaining: workspace-level `[patch]` overrides, `freight workspace graph` visualisation.
 
-### S16 — `@registry/name` shorthand in `freight.toml` ✓ done
-Quoted TOML keys of the form `"@registry/name" = "1.0.0"` are expanded at parse time
-to `name = { version = "1.0.0", repo = "registry" }`. The `@registry/` prefix sets
-the `repo` field (which `freight fetch` uses to select the named registry). Manifest
-validation accepts any non-empty `repo` value (not just `"system"`); build-time
-resolution falls back to pkg-config for named-registry deps (same as unscoped deps).
+### S16 — Registry channel support ✓ done
+`channel` field added to `DetailedDep` in `freight.toml`. CLI syntax: `freight add experimental/ranges`
+parses `"experimental"` as the channel and `"ranges"` as the name, writing
+`ranges = { version = "...", channel = "experimental" }`. The `freight fetch` path
+passes `?channel=...` to the download URL; `freight add --repo` passes channel to
+registry lookup. Publish defaults to the `"stable"` channel (no `--channel` flag yet).
+The `@registry/name` shorthand was removed — `repo` and `channel` are always explicit fields.

@@ -141,11 +141,16 @@ pub fn cmd_add(
         None => { print_error("no freight.toml found"); return; }
     };
 
-    // Parse "name@version" or just "name"
-    let (dep_name, pinned_version) = if let Some(at) = package.find('@') {
-        (&package[..at], Some(&package[at + 1..]))
+    // Parse "channel/name@version", "channel/name", "name@version", or just "name".
+    let (channel_arg, name_and_ver) = if let Some(slash) = package.find('/') {
+        (Some(&package[..slash]), &package[slash + 1..])
     } else {
-        (package, None)
+        (None, package)
+    };
+    let (dep_name, pinned_version) = if let Some(at) = name_and_ver.find('@') {
+        (&name_and_ver[..at], Some(&name_and_ver[at + 1..]))
+    } else {
+        (name_and_ver, None)
     };
 
     if dep_name.is_empty() {
@@ -201,7 +206,7 @@ pub fn cmd_add(
                 pinned.to_string()
             } else {
                 print_status("registry", &format!("looking up `{dep_name}` via {rname}…"));
-                match repo_impl.lookup(dep_name) {
+                match repo_impl.lookup(dep_name, channel_arg) {
                     Ok(Some(info)) => {
                         print_status("resolved", &format!("`{dep_name}` → {}", info.latest));
                         info.latest
@@ -227,7 +232,7 @@ pub fn cmd_add(
             let mut found: Option<(String, String)> = None;
             for r in &all_repos {
                 let display = if r.repo_key().is_empty() { "freight.dev" } else { r.repo_key() };
-                match r.lookup(dep_name) {
+                match r.lookup(dep_name, channel_arg) {
                     Ok(Some(info)) => {
                         print_status("resolved", &format!("`{dep_name}` → {} (via {display})", info.latest));
                         found = Some((info.latest, r.repo_key().to_string()));
@@ -249,12 +254,13 @@ pub fn cmd_add(
             }
         };
 
-        if repo_key.is_empty() {
+        if repo_key.is_empty() && channel_arg.is_none() {
             Dependency::Simple(ver)
         } else {
             Dependency::Detailed(DetailedDep {
                 version: Some(ver),
-                repo: Some(repo_key),
+                repo: if repo_key.is_empty() { None } else { Some(repo_key) },
+                channel: channel_arg.map(str::to_string),
                 ..Default::default()
             })
         }
@@ -604,7 +610,7 @@ pub fn cmd_info(package: Option<&str>, repo: Option<&str>) {
 
         for r in &repos {
             let label = if r.repo_key().is_empty() { "freight.dev" } else { r.repo_key() };
-            match r.lookup(package) {
+            match r.lookup(package, None) {
                 Ok(Some(info)) => {
                     println!("{} {}", info.name.bold().bright_blue(), format!("(via {label})").bright_black());
                     if let Some(desc) = &info.description {
@@ -824,7 +830,7 @@ pub fn cmd_publish(dry_run: bool, repo: Option<&str>) {
 
     print_status("publishing", &format!("{name}@{version} ({} bytes)", tarball.len()));
 
-    match registry.publish_package(name, version, description, license, &tarball) {
+    match registry.publish_package(name, version, None, description, license, &tarball) {
         Ok(()) => print_success(&format!("published {name}@{version}")),
         Err(e) => print_error(&e.to_string()),
     }

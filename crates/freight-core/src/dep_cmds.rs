@@ -78,6 +78,9 @@ pub fn manifest_add_dep(
                 for s in &d.include { arr.push(s.as_str()); }
                 inline.insert("include", Value::Array(arr));
             }
+            if let Some(ch) = &d.channel {
+                inline.insert("channel", Value::from(ch.as_str()));
+            }
             table[name] = Item::Value(Value::InlineTable(inline));
         }
     }
@@ -260,8 +263,8 @@ pub fn fetch_registry_deps(
     let mut outcomes = Vec::new();
 
     for (name, dep) in &manifest.dependencies {
-        let (version, repo_name) = match dep {
-            Dependency::Simple(v) => (v.as_str(), None),
+        let (version, repo_name, channel) = match dep {
+            Dependency::Simple(v) => (v.as_str(), None, None),
             Dependency::Detailed(d)
                 if d.version.is_some()
                     && d.path.is_none()
@@ -269,7 +272,7 @@ pub fn fetch_registry_deps(
                     && d.git.is_none()
                     && d.url.is_none() =>
             {
-                (d.version.as_deref().unwrap(), d.repo.as_deref())
+                (d.version.as_deref().unwrap(), d.repo.as_deref(), d.channel.as_deref())
             }
             _ => continue,
         };
@@ -309,7 +312,7 @@ pub fn fetch_registry_deps(
             }
         };
 
-        match registry.download_tarball(name, version, project_dir) {
+        match registry.download_tarball(name, version, channel, project_dir) {
             Ok(checksum) => {
                 let source = registry.source_string();
                 let _ = LockFile::upsert_registry_dep(project_dir, name, version, &source, &checksum);
