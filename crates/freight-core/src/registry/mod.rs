@@ -25,6 +25,8 @@ pub struct PackageVersion {
     pub download_url: Option<String>,
     /// Target triples for which prebuilt binary tarballs are available.
     pub prebuilt_triples: Vec<String>,
+    /// Dependencies declared in freight.toml: name → version constraint.
+    pub dependencies: std::collections::HashMap<String, String>,
 }
 
 /// Package metadata returned by a registry lookup.

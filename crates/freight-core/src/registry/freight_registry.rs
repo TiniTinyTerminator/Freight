@@ -383,6 +383,8 @@ struct ApiVersion {
     download_url: Option<String>,
     #[serde(default)]
     prebuilt_triples: Vec<String>,
+    #[serde(default)]
+    dependencies: std::collections::HashMap<String, String>,
 }
 
 #[derive(Deserialize)]
@@ -401,6 +403,7 @@ impl From<ApiPackage> for PackageInfo {
                 checksum: v.checksum,
                 download_url: v.download_url,
                 prebuilt_triples: v.prebuilt_triples,
+                dependencies: v.dependencies,
             }).collect(),
         }
     }

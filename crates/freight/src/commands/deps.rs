@@ -1250,8 +1250,21 @@ pub fn cmd_info(package: Option<&str>, repo: Option<&str>) {
                     println!("  {}", "─".repeat(30).bright_black());
                     for v in &info.versions {
                         let yanked = if v.checksum.is_none() { "" } else { "" };
-                        // The versions vec comes from ApiPackage; yanked flag not exposed yet.
                         println!("  {:<16}  {yanked}", v.version.bright_blue());
+                    }
+
+                    // Show dependencies from the latest version.
+                    if let Some(latest) = info.versions.first() {
+                        if !latest.dependencies.is_empty() {
+                            println!();
+                            println!("  {}", "dependencies".bold());
+                            println!("  {}", "─".repeat(30).bright_black());
+                            let mut deps: Vec<_> = latest.dependencies.iter().collect();
+                            deps.sort_by_key(|(k, _)| k.as_str());
+                            for (name, ver) in deps {
+                                println!("  {:<24}  {}", name.bright_blue(), ver.bright_black());
+                            }
+                        }
                     }
                     return;
                 }
