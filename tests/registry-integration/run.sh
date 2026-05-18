@@ -28,6 +28,15 @@
 
 set -euo pipefail
 
+# ── PATH augmentation ──────────────────────────────────────────────────────────
+# Prepend well-known non-standard tool locations so that command -v and freight's
+# own find_tool() both pick them up without requiring the caller to set PATH.
+
+for _extra_bin in /opt/cuda/bin /usr/local/cuda/bin; do
+    [[ -d "$_extra_bin" ]] && export PATH="$_extra_bin:$PATH"
+done
+unset _extra_bin
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PROJECT_DIR="$SCRIPT_DIR/project"
