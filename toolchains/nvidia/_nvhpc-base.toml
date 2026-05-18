@@ -1,0 +1,42 @@
+kind          = "compiler"
+family        = "nvidia"
+version_arg   = "--version"
+version_regex = '(\d+\.\d+)'
+passthrough        = false
+passthrough_prefix = ""
+supported_archs = ["x86_64", "aarch64"]
+supported_os    = ["linux"]
+
+[toolset]
+ar = "ar"
+
+[optimization]
+"2" = "-O2"
+"0" = "-O0"
+"1" = "-O1"
+"3" = "-O3"
+"s" = "-O2"
+"z" = "-O2"
+
+dbg = "-g"
+lto = ""
+cpu_ext = "-m{name}"
+
+[warnings]
+normal = ""
+none   = ""
+all    = "-Minform=warn"
+error  = "-Minform=warn -Werror"
+
+[structure]
+include_dir  = "-I{path}"
+define       = "-D{name}"
+define_value = "-D{name}={value}"
+output       = "-o {path}"
+compile_only = "-c"
+dep_file     = "-MMD -MF {path}"
+target       = ""
+sysroot      = ""
+
+[modules]
+style = "none"

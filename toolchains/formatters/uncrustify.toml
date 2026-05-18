@@ -1,0 +1,14 @@
+kind          = "formatter"
+name          = "uncrustify"
+family        = "uncrustify"
+binary        = "uncrustify"
+version_arg   = "--version"
+version_regex = 'Uncrustify-(\d+\.\d+\.\d+)'
+extensions    = [".cpp", ".cc", ".cxx", ".c++", ".c", ".h", ".hpp", ".hxx", ".cs", ".java"]
+
+[run]
+fix   = "--no-backup --replace"
+check = "--check"
+
+[settings]
+config = "-c {value}"

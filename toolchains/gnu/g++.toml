@@ -1,0 +1,23 @@
+base     = ["_gnu-base", "../languages/_cpp"]
+name     = "g++"
+alias    = "gcc"
+homepage = "https://gcc.gnu.org/"
+detect   = ["g++", "g++-14", "g++-13", "g++-12", "g++-11", "g++-10"]
+
+[toolset]
+cc  = "$(binary.replace('g++', 'gcc').replace('g++-', 'gcc-'))"
+cxx = "$(binary)"
+ld  = "$(binary)"
+
+[modules]
+style         = "gcc"
+enable_flag   = "-fmodules-ts"
+compile_miu   = "-fmodule-output={pcm_path}"
+import_module = "-fmodule-file={name}={pcm_path}"
+header_unit   = "-fmodule-header"
+
+[pch]
+compile     = "-x c++-header"
+use         = "-include {header_path}"
+extension   = ".gch"
+clangd_flag = "-include {header_path}"

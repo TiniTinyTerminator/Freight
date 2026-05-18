@@ -1,0 +1,15 @@
+kind          = "formatter"
+name          = "fprettify"
+family        = "fprettify"
+binary        = "fprettify"
+version_arg   = "--version"
+version_regex = 'fprettify (\d+\.\d+\.\d+)'
+extensions    = [".f90", ".f95", ".f03", ".f08", ".F90", ".F95", ".f"]
+
+[run]
+fix   = "-i"
+check = "--check"
+
+[settings]
+indent = "--indent {value}"
+config = "-c {value}"

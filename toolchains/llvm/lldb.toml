@@ -1,0 +1,17 @@
+kind          = "debugger"
+name          = "lldb"
+binary        = "lldb"
+version_arg   = "--version"
+version_regex = '\b(\d+\.\d+\.\d+)\b'
+
+[launch]
+separator = "--"
+
+[dap]
+binaries    = ["lldb-dap", "lldb-vscode"]
+vscode_type = "lldb"
+mi_mode     = "lldb"
+
+[settings]
+no_use_colors = "--no-use-colors"
+batch         = "--batch"

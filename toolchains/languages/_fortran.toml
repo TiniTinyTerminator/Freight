@@ -1,0 +1,14 @@
+extensions = [".f90", ".f95", ".f03", ".f08", ".f", ".F90"]
+stdlib = {}
+
+[language.std]
+"f2018" = "-std=f2018"
+"f95"   = "-std=f95"
+"f2003" = "-std=f2003"
+"f2008" = "-std=f2008"
+
+[linking.fortran]
+abi        = "fortran"
+compatible = ["c"]
+linker     = ""
+extensions = [".f90", ".f95", ".f03", ".f08", ".f", ".F90"]

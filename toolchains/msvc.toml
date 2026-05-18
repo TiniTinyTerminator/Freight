@@ -1,0 +1,75 @@
+name          = "msvc"
+kind          = "compiler"
+family        = ""
+sanitizer_options = ["address"]
+homepage      = "https://visualstudio.microsoft.com/"
+binary        = "cl.exe"
+version_arg   = ""
+version_regex = 'Version (\d+\.\d+\.\d+\.\d+)'
+extensions    = [".cpp", ".cc", ".cxx", ".c++", ".c"]
+passthrough        = false
+passthrough_prefix = ""
+supported_os  = ["windows"]
+lto      = "/GL"
+lto_link = "/LTCG"
+sanitize = "/fsanitize={values}"
+cpu_ext  = ""
+
+[toolset]
+cc    = "cl.exe"
+cxx   = "cl.exe"
+ld    = "link.exe"
+ar    = "lib.exe"
+strip = ""
+
+[optimization]
+"2" = "/O2"
+"0" = "/Od"
+"1" = "/O1"
+"3" = "/Ox"
+"s" = "/O1 /Os"
+"z" = "/O1 /Os"
+
+dbg = "/Zi /FS"
+
+[warnings]
+normal = "/W3"
+none   = "/W0"
+all    = "/W4"
+error  = "/W4 /WX"
+
+[structure]
+include_dir   = "/I{path}"
+define        = "/D{name}"
+define_value  = "/D{name}={value}"
+output_obj    = "/Fo{path}"
+output_bin    = "/Fe{path}"
+compile_only  = "/c"
+dep_file      = "/showIncludes"
+dep_file_mode = "stdout"
+system_lib    = "{name}.lib"
+target        = ""
+sysroot       = ""
+
+[language.std]
+"c++17" = "/std:c++17"
+"c++20" = "/std:c++20"
+"c++23" = "/std:c++latest"
+"c17"   = "/std:c17"
+"c11"   = "/std:c11"
+
+[modules]
+style = "none"
+
+[linking.c]
+abi             = "c"
+compatible      = []
+compile_binary  = "cl.exe"
+linker          = ""
+extensions      = [".c"]
+
+[linking.cpp]
+abi        = "c++"
+compatible = ["c"]
+linker     = ""
+extensions = [".cpp", ".cc", ".cxx", ".c++"]

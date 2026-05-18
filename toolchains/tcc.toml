@@ -1,0 +1,58 @@
+name          = "tcc"
+kind          = "compiler"
+family        = ""
+sanitizer_options = []
+homepage      = "https://bellard.org/tcc/"
+binary        = "tcc"
+version_arg   = "-v"
+version_regex = 'version (\d+\.\d+\.\d+)'
+extensions    = [".c"]
+passthrough        = false
+passthrough_prefix = ""
+lto = ""
+
+[toolset]
+cc = "tcc"
+ld = "tcc"
+ar = "tcc"
+
+[optimization]
+"0" = ""
+"1" = ""
+"2" = ""
+"3" = ""
+"s" = ""
+"z" = ""
+
+dbg = "-g"
+
+[warnings]
+normal = "-Wall"
+none   = ""
+all    = "-Wall"
+error  = "-Wall -Werror"
+
+[structure]
+include_dir  = "-I{path}"
+define       = "-D{name}"
+define_value = "-D{name}={value}"
+output       = "-o {path}"
+compile_only = "-c"
+dep_file     = ""
+target       = ""
+sysroot      = ""
+
+[modules]
+style = "none"
+
+[language.std]
+"c11" = "-std=c11"
+"c99" = "-std=c99"
+"c17" = "-std=c17"
+
+[linking.c]
+abi             = "c"
+compatible      = []
+compile_binary  = "tcc"
+linker          = ""
+extensions      = [".c"]

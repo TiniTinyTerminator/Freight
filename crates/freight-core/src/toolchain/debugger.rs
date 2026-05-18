@@ -13,6 +13,7 @@ use rhai::{Array, Dynamic, Engine, Map, Scope};
 
 use super::detect::templates_dir;
 use super::script::quick_kind;
+use super::toml_loader::quick_kind_toml;
 use crate::error::FreightError;
 use crate::manifest::types::{DebuggerConfig, DebuggerInstanceConfig};
 
@@ -147,21 +148,40 @@ pub fn load_debugger_templates() -> Vec<DebuggerTemplate> {
 
 pub fn load_debugger_templates_from(dir: &Path) -> Vec<DebuggerTemplate> {
     let mut templates = Vec::new();
+    let mut toml_stems: std::collections::HashSet<std::path::PathBuf> = Default::default();
 
+    // First pass: TOML debugger templates.
     for entry in walkdir::WalkDir::new(dir)
         .follow_links(false)
         .into_iter()
         .flatten()
     {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("rhai") {
-            continue;
-        }
+        if path.extension().and_then(|e| e.to_str()) != Some("toml") { continue; }
         if path.file_name().and_then(|n| n.to_str())
-            .map(|n| n.starts_with('_')).unwrap_or(false)
-        {
-            continue;
+            .map(|n| n.starts_with('_')).unwrap_or(false) { continue; }
+        let Ok(src) = std::fs::read_to_string(path) else { continue };
+        if quick_kind_toml(&src) != "debugger" { continue; }
+        match load_debugger_toml(&src, path.parent()) {
+            Ok(t) => {
+                toml_stems.insert(path.with_extension(""));
+                templates.push(t);
+            }
+            Err(e) => eprintln!("warn: skipping debugger {:?}: {e}", path.file_name().unwrap_or_default()),
         }
+    }
+
+    // Second pass: Rhai debugger templates without a TOML equivalent.
+    for entry in walkdir::WalkDir::new(dir)
+        .follow_links(false)
+        .into_iter()
+        .flatten()
+    {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rhai") { continue; }
+        if path.file_name().and_then(|n| n.to_str())
+            .map(|n| n.starts_with('_')).unwrap_or(false) { continue; }
+        if toml_stems.contains(&path.with_extension("")) { continue; }
         let Ok(src) = std::fs::read_to_string(path) else { continue };
         if quick_kind(&src) != "debugger" { continue; }
         match eval_debugger_rhai(&src, path.parent()) {
@@ -172,6 +192,10 @@ pub fn load_debugger_templates_from(dir: &Path) -> Vec<DebuggerTemplate> {
 
     templates.sort_by(|a, b| a.name.cmp(&b.name));
     templates
+}
+
+fn load_debugger_toml(src: &str, dir: Option<&Path>) -> Result<DebuggerTemplate, FreightError> {
+    super::toml_loader::load_debugger_template_toml(src, dir)
 }
 
 /// Probe PATH for each debugger template binary and return detected debuggers.

@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use rhai::{Array, Dynamic, Engine, Expression, FnPtr, ImmutableString, Map, Scope, AST};
 
@@ -9,7 +10,7 @@ use crate::error::FreightError;
 // ── Handler result type ───────────────────────────────────────────────────────
 
 /// Everything produced by evaluating a toolchain Rhai script.
-pub(super) struct EvalResult {
+pub(crate) struct EvalResult {
     pub def: ToolchainDef,
     pub engine: Engine,
     pub ast: AST,
@@ -18,15 +19,20 @@ pub(super) struct EvalResult {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct OptionHandler {
+pub(crate) struct OptionHandler {
     pub default_value: Option<String>,
     pub callback: FnPtr,
+    /// Optional per-handler Rhai engine (used by TOML-backed handlers).
+    /// When `Some`, `run_handlers` uses this engine instead of the shared one.
+    pub engine: Option<Arc<Engine>>,
+    /// Optional per-handler Rhai AST (used by TOML-backed handlers).
+    pub ast: AST,
 }
 
 // ── Builder structs ───────────────────────────────────────────────────────────
 
 #[derive(Debug, Default)]
-pub(super) struct ToolchainDef {
+pub(crate) struct ToolchainDef {
     pub name: String,
     pub binary: String,
     pub version_arg: String,
@@ -78,7 +84,7 @@ pub(super) struct ToolchainDef {
 }
 
 #[derive(Debug, Default)]
-pub(super) struct LinkingParams {
+pub(crate) struct LinkingParams {
     pub abi: String,
     pub compatible: Vec<String>,
     pub extensions: Vec<String>,
@@ -154,11 +160,18 @@ impl Drop for Guard {
 /// `env` — read-only host environment: `env["ONEAPI_ROOT"]` → string or `()`.
 #[derive(Clone)] struct EnvMap;
 
+/// Push a flag to the pending-flags thread-local.
+/// Exposed for the TOML loader's Rhai handlers, which share the same accumulator.
+#[allow(non_snake_case)]
+pub(crate) fn PENDING_FLAGS_PUSH(flag: String) {
+    PENDING_FLAGS.with(|f| f.borrow_mut().push(flag));
+}
+
 // ── Script evaluation ─────────────────────────────────────────────────────────
 
 /// Fast text scan that returns the value of the top-level `kind = "..."` assignment
 /// without a full Rhai eval. Returns `"compiler"` when no explicit kind is set.
-pub(super) fn quick_kind(src: &str) -> String {
+pub(crate) fn quick_kind(src: &str) -> String {
     for line in src.lines() {
         let t = line.trim();
         if t.starts_with("//") { continue; }
@@ -173,7 +186,7 @@ pub(super) fn quick_kind(src: &str) -> String {
 
 /// Evaluate a Rhai toolchain script. When `dir` is provided, `include()` directives
 /// inside the script resolve relative to that directory.
-pub(super) fn eval_script(src: &str, dir: Option<&Path>) -> Result<EvalResult, FreightError> {
+pub(crate) fn eval_script(src: &str, dir: Option<&Path>) -> Result<EvalResult, FreightError> {
     let engine = make_engine(dir.map(|d| d.to_path_buf()));
 
     let ast = engine
@@ -336,7 +349,7 @@ pub(super) fn eval_script(src: &str, dir: Option<&Path>) -> Result<EvalResult, F
 /// Flags injected via the global `add_flag()` function are collected and returned.
 ///
 /// Returns `Err(FreightError::OptionError)` if any handler returns a non-empty string.
-pub(super) fn run_handlers(
+pub(crate) fn run_handlers(
     engine: &Engine,
     ast: &AST,
     handlers: &HashMap<String, OptionHandler>,
@@ -364,7 +377,14 @@ pub(super) fn run_handlers(
         ctx.insert("name".into(),    rhai::Dynamic::from(name.to_string()));
 
         PENDING_FLAGS.with(|f| f.borrow_mut().clear());
-        let result = handler.callback.call::<rhai::Dynamic>(engine, ast, (rhai::Dynamic::from(ctx),));
+        // Use per-handler engine/ast when available (TOML-backed handlers),
+        // otherwise fall back to the shared Rhai engine/ast.
+        let (eff_engine, eff_ast): (&Engine, &AST) = if let Some(ref e) = handler.engine {
+            (e.as_ref(), &handler.ast)
+        } else {
+            (engine, ast)
+        };
+        let result = handler.callback.call::<rhai::Dynamic>(eff_engine, eff_ast, (rhai::Dynamic::from(ctx),));
         let collected: Vec<String> = PENDING_FLAGS.with(|f| f.borrow().clone());
         all_flags.extend(collected);
 
@@ -531,22 +551,22 @@ fn make_engine(base_dir: Option<PathBuf>) -> Engine {
     // stored in thread-locals during eval, then moved into CompilerTemplate.
     e.register_fn("compiler_option", |name: String, handler: FnPtr| {
         COLLECTED_COMP_OPTS.with(|c| {
-            c.borrow_mut().insert(name, OptionHandler { default_value: None, callback: handler });
+            c.borrow_mut().insert(name, OptionHandler { default_value: None, callback: handler, engine: None, ast: AST::empty() });
         });
     });
     e.register_fn("compiler_option", |name: String, default_value: String, handler: FnPtr| {
         COLLECTED_COMP_OPTS.with(|c| {
-            c.borrow_mut().insert(name, OptionHandler { default_value: Some(default_value), callback: handler });
+            c.borrow_mut().insert(name, OptionHandler { default_value: Some(default_value), callback: handler, engine: None, ast: AST::empty() });
         });
     });
     e.register_fn("language_option", |name: String, handler: FnPtr| {
         COLLECTED_LANG_OPTS.with(|c| {
-            c.borrow_mut().insert(name, OptionHandler { default_value: None, callback: handler });
+            c.borrow_mut().insert(name, OptionHandler { default_value: None, callback: handler, engine: None, ast: AST::empty() });
         });
     });
     e.register_fn("language_option", |name: String, default_value: String, handler: FnPtr| {
         COLLECTED_LANG_OPTS.with(|c| {
-            c.borrow_mut().insert(name, OptionHandler { default_value: Some(default_value), callback: handler });
+            c.borrow_mut().insert(name, OptionHandler { default_value: Some(default_value), callback: handler, engine: None, ast: AST::empty() });
         });
     });
 

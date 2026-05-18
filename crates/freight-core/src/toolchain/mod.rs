@@ -4,6 +4,7 @@ pub mod detect;
 mod script;
 pub mod system_libs;
 pub mod template;
+pub mod toml_loader;
 pub mod tool;
 
 pub use cache::{GlobalConfig, ToolchainCache, freight_home};

@@ -12,6 +12,7 @@ use rhai::{Array, Dynamic, Engine, Map, Scope};
 
 use super::detect::templates_dir;
 use super::script::quick_kind;
+use super::toml_loader::{load_tool_toml, quick_kind_toml};
 use crate::error::FreightError;
 use crate::manifest::types::{FormatterConfig, LinterConfig};
 
@@ -90,7 +91,30 @@ pub fn load_linter_templates() -> Vec<ToolTemplate> {
 
 pub fn load_tool_templates_from(dir: &Path, kind: &str) -> Vec<ToolTemplate> {
     let mut templates = Vec::new();
+    let mut toml_stems: std::collections::HashSet<std::path::PathBuf> = Default::default();
 
+    // First pass: TOML templates.
+    for entry in walkdir::WalkDir::new(dir)
+        .follow_links(false)
+        .into_iter()
+        .flatten()
+    {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("toml") { continue; }
+        if path.file_name().and_then(|n| n.to_str())
+            .map(|n| n.starts_with('_')).unwrap_or(false) { continue; }
+        let Ok(src) = std::fs::read_to_string(path) else { continue };
+        if quick_kind_toml(&src) != kind { continue; }
+        match load_tool_toml(&src, path.parent()) {
+            Ok(t) => {
+                toml_stems.insert(path.with_extension(""));
+                templates.push(t);
+            }
+            Err(e) => eprintln!("warn: skipping {} {:?}: {e}", kind, path.file_name().unwrap_or_default()),
+        }
+    }
+
+    // Second pass: Rhai templates without a TOML equivalent.
     for entry in walkdir::WalkDir::new(dir)
         .follow_links(false)
         .into_iter()
@@ -100,6 +124,7 @@ pub fn load_tool_templates_from(dir: &Path, kind: &str) -> Vec<ToolTemplate> {
         if path.extension().and_then(|e| e.to_str()) != Some("rhai") { continue; }
         if path.file_name().and_then(|n| n.to_str())
             .map(|n| n.starts_with('_')).unwrap_or(false) { continue; }
+        if toml_stems.contains(&path.with_extension("")) { continue; }
         let Ok(src) = std::fs::read_to_string(path) else { continue };
         if quick_kind(&src) != kind { continue; }
         match eval_tool_rhai(&src, path.parent()) {

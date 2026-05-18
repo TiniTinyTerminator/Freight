@@ -595,9 +595,19 @@ impl CompilerTemplate {
     }
 
     fn from_eval_result(r: script::EvalResult) -> Result<Self, FreightError> {
+        Self::from_eval_result_pub(r)
+    }
+
+    /// Crate-internal version of `from_eval_result`, used by the TOML loader.
+    pub(crate) fn from_eval_result_pub(r: script::EvalResult) -> Result<Self, FreightError> {
         let script::EvalResult { def, engine, ast, compiler_option_handlers, language_option_handlers } = r;
-        let has_handlers = !compiler_option_handlers.is_empty() || !language_option_handlers.is_empty();
-        let (handler_engine, handler_ast) = if has_handlers {
+        // For TOML handlers: each handler has its own engine/ast embedded in OptionHandler.
+        // The top-level handler_engine/handler_ast need not be set in that case.
+        // However, we still set them for Rhai-backed handlers.
+        let has_rhai_handlers = compiler_option_handlers.values().any(|h| h.engine.is_none())
+            || language_option_handlers.values().any(|h| h.engine.is_none());
+        let has_any_handlers = !compiler_option_handlers.is_empty() || !language_option_handlers.is_empty();
+        let (handler_engine, handler_ast) = if has_rhai_handlers && has_any_handlers {
             (Some(Arc::new(engine)), Some(ast))
         } else {
             (None, None)

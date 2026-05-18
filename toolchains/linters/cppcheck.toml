@@ -1,0 +1,21 @@
+kind          = "linter"
+name          = "cppcheck"
+family        = "cppcheck"
+binary        = "cppcheck"
+version_arg   = "--version"
+version_regex = 'Cppcheck (\d+\.\d+)'
+extensions    = [".cpp", ".cc", ".cxx", ".c++", ".cppm", ".c"]
+
+[run]
+check = "--error-exitcode=1"
+fix   = "--error-exitcode=1"
+
+[settings]
+enable   = "--enable={value}"
+std      = "--std={value}"
+suppress = "--suppress={value}"
+jobs     = "-j {value}"
+
+[values]
+enable = ["all", "warning", "style", "performance", "portability", "information"]
+std    = ["c89", "c99", "c11", "c17", "c++03", "c++11", "c++14", "c++17", "c++20"]

@@ -1,0 +1,62 @@
+name          = "nvcc"
+kind          = "compiler"
+family        = ""
+sanitizer_options = []
+homepage      = "https://developer.nvidia.com/cuda-toolkit"
+binary        = "nvcc"
+version_arg   = "--version"
+version_regex = 'release (\d+\.\d+)'
+extensions    = [".cu", ".cuh"]
+passthrough        = true
+passthrough_prefix = "-Xcompiler"
+supported_archs    = ["x86_64", "aarch64"]
+supported_os       = ["linux", "windows"]
+required_tools     = ["ptxas", "fatbinary"]
+requires_toolchain = ["cpp"]
+always_flags       = ["--expt-relaxed-constexpr", "--extended-lambda"]
+lto = ""
+
+[toolset]
+ld = "nvcc"
+
+[optimization]
+"2" = "-O2"
+"0" = "-O0"
+"1" = "-O1"
+"3" = "-O3"
+"s" = "-O2"
+"z" = "-O2"
+
+dbg = "-g -G"
+
+[warnings]
+normal = "-Wall"
+none   = ""
+all    = "-Wall -Wextra"
+error  = "-Wall -Wextra -Werror"
+
+[structure]
+include_dir  = "-I{path}"
+define       = "-D{name}"
+define_value = "-D{name}={value}"
+output       = "-o {path}"
+compile_only = "-c"
+dep_file     = "-MD -MF {path}"
+target       = ""
+sysroot      = ""
+
+[language.std]
+"c++17" = "-std=c++17"
+"c++20" = "-std=c++20"
+
+[modules]
+style = "none"
+
+[linking.cuda]
+abi        = "cuda"
+compatible = ["c++", "c", "fortran"]
+linker     = "c++"
+extensions = [".cu", ".cuh"]
+
+[compiler.sm_arch]
+value = "--gpu-architecture=$(value)"

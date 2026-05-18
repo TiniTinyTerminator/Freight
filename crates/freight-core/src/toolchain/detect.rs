@@ -7,6 +7,7 @@ use semver;
 use super::cache::{freight_home, ToolchainCache};
 use super::script::quick_kind;
 use super::template::{from_rhai_file_cached, CompilerTemplate};
+use super::toml_loader::{load_toml_toolchain, quick_kind_toml};
 use crate::error::FreightError;
 
 /// A compiler found on this machine.
@@ -100,24 +101,55 @@ pub fn group_into_toolchains(detected: Vec<DetectedCompiler>) -> ToolchainGroups
     ToolchainGroups { toolchains, guests }
 }
 
-/// Load every `.rhai` file from `templates_dir` and return parsed templates.
+/// Load every compiler template from `templates_dir`.
+///
+/// For each non-underscore file, tries `.toml` first, then falls back to `.rhai`.
+/// When a `.toml` and `.rhai` file share the same stem, only the `.toml` is loaded
+/// (TOML takes priority).
 pub fn load_templates(templates_dir: &Path) -> Vec<CompilerTemplate> {
     let mut templates = Vec::new();
+    // Track stems already loaded from TOML to avoid double-loading the .rhai sibling.
+    let mut toml_stems: std::collections::HashSet<std::path::PathBuf> = Default::default();
+
+    // First pass: load all .toml compiler templates.
     for entry in walkdir::WalkDir::new(templates_dir)
         .follow_links(false)
         .into_iter()
         .flatten()
     {
         let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("rhai") {
-            continue;
-        }
-        // Files starting with '_' are shared includes, not standalone templates.
+        if path.extension().and_then(|e| e.to_str()) != Some("toml") { continue; }
         if path.file_name().and_then(|n| n.to_str())
-            .map(|n| n.starts_with('_')).unwrap_or(false)
-        {
-            continue;
+            .map(|n| n.starts_with('_')).unwrap_or(false) { continue; }
+        let Ok(src) = std::fs::read_to_string(path) else { continue };
+        if quick_kind_toml(&src) != "compiler" { continue; }
+        let dir = path.parent();
+        match load_toml_toolchain(&src, dir) {
+            Ok(result) => {
+                match CompilerTemplate::from_eval_result_pub(result) {
+                    Ok(t) => {
+                        toml_stems.insert(path.with_extension(""));
+                        templates.push(t);
+                    }
+                    Err(e) => eprintln!("warn: skipping {:?}: {e}", path.file_name().unwrap_or_default()),
+                }
+            }
+            Err(e) => eprintln!("warn: skipping {:?}: {e}", path.file_name().unwrap_or_default()),
         }
+    }
+
+    // Second pass: load .rhai compiler templates that don't have a .toml equivalent.
+    for entry in walkdir::WalkDir::new(templates_dir)
+        .follow_links(false)
+        .into_iter()
+        .flatten()
+    {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("rhai") { continue; }
+        if path.file_name().and_then(|n| n.to_str())
+            .map(|n| n.starts_with('_')).unwrap_or(false) { continue; }
+        // Skip if a TOML with the same stem was already loaded.
+        if toml_stems.contains(&path.with_extension("")) { continue; }
         let Ok(src) = std::fs::read_to_string(path) else { continue };
         if quick_kind(&src) != "compiler" { continue; }
         match from_rhai_file_cached(path, &src) {
@@ -125,6 +157,7 @@ pub fn load_templates(templates_dir: &Path) -> Vec<CompilerTemplate> {
             Err(e) => eprintln!("warn: skipping {:?}: {e}", path.file_name().unwrap_or_default()),
         }
     }
+
     templates
 }
 

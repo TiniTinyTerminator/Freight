@@ -1,0 +1,25 @@
+base       = ["_llvm-base", "../languages/_c"]
+name       = "clang"
+homepage   = "https://clang.llvm.org/"
+detect     = ["clang", "clang-18", "clang-17", "clang-16", "clang-15", "clang-14"]
+extensions = [".c", ".s", ".S"]
+sanitizer_options = ["address", "undefined", "thread", "memory", "leak", "hwaddress", "dataflow", "cfi", "safestack"]
+
+[toolset]
+cc  = "$(binary)"
+cxx = "$(binary.replace('clang', 'clang++'))"
+ld  = "$(binary.replace('clang', 'clang++'))"
+
+[linking.c]
+abi             = "c"
+compatible      = ["fortran", "asm"]
+compile_binary  = "$(binary)"
+linker          = ""
+extensions      = [".c", ".s", ".S"]
+
+[linking.objc]
+abi             = "objc"
+compatible      = ["c"]
+compile_binary  = "$(binary)"
+linker          = ""
+extensions      = [".m"]

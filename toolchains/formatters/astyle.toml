@@ -1,0 +1,18 @@
+kind          = "formatter"
+name          = "astyle"
+family        = "astyle"
+binary        = "astyle"
+version_arg   = "--version"
+version_regex = 'Artistic Style Version (\d+\.\d+)'
+extensions    = [".cpp", ".cc", ".cxx", ".c++", ".c", ".h", ".hpp", ".hxx", ".cs", ".java"]
+
+[run]
+fix   = "--suffix=none"
+check = "--dry-run --suffix=none"
+
+[settings]
+style  = "--style={value}"
+indent = "--indent=spaces={value}"
+
+[values]
+style = ["allman", "java", "kr", "stroustrup", "google", "mozilla", "otbs", "vtk", "ratliff", "lisp"]

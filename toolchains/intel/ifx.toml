@@ -1,0 +1,45 @@
+base          = "_intel-base"
+name          = "ifx"
+homepage      = "https://www.intel.com/content/www/us/en/developer/tools/oneapi/fortran-compiler.html"
+binary        = "ifx"
+version_regex = '(\d+\.\d+\.\d+)'
+extensions    = [".f90", ".f95", ".f03", ".f08", ".f", ".F90"]
+sanitizer_options = ["address", "undefined"]
+
+lto = "-ipo"
+
+[toolset]
+ld    = "ifx"
+ar    = "ar"
+strip = "strip"
+
+[optimization]
+"2" = "-O2"
+"0" = "-O0"
+"1" = "-O1"
+"3" = "-O3"
+"s" = "-O2"
+"z" = "-O2"
+
+[warnings]
+normal = ""
+none   = "-warn none"
+all    = "-warn all"
+error  = "-warn all -warn errors"
+
+[structure]
+dep_file = "-cpp -MMD -MF {path}"
+target   = ""
+sysroot  = ""
+
+[language.std]
+"f2018" = "-std=f2018"
+"f95"   = "-std=f95"
+"f2003" = "-std=f2003"
+"f2008" = "-std=f2008"
+
+[linking.fortran]
+abi        = "fortran"
+compatible = ["c"]
+linker     = ""
+extensions = [".f90", ".f95", ".f03", ".f08", ".f", ".F90"]

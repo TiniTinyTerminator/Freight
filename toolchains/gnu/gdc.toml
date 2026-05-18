@@ -1,0 +1,29 @@
+base     = "_gnu-base"
+name     = "gdc"
+homepage = "https://gcc.gnu.org/"
+binary   = "gdc"
+extensions         = [".d"]
+sanitizer_options  = ["address", "undefined", "thread", "leak"]
+
+[toolset]
+ld = "gdc"
+
+[warnings]
+normal = ""
+none   = ""
+all    = "-Wall"
+error  = "-Wall -Werror"
+
+[structure]
+include_dir  = "-I{path}"
+define       = "-fversion={name}"
+define_value = "-fversion={name}"
+
+[modules]
+style = "none"
+
+[linking.d]
+abi        = "d"
+compatible = ["c"]
+linker     = ""
+extensions = [".d"]

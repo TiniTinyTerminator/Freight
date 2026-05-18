@@ -1,0 +1,58 @@
+name          = "dmd"
+kind          = "compiler"
+family        = ""
+sanitizer_options = []
+homepage      = "https://dlang.org/dmd.html"
+binary        = "dmd"
+version_arg   = "--version"
+version_regex = 'v(\d+\.\d+\.\d+)'
+extensions    = [".d"]
+passthrough        = false
+passthrough_prefix = ""
+lto = ""
+
+[toolset]
+ld    = "dmd"
+ar    = "ar"
+strip = "strip"
+
+[optimization]
+"1" = "-O"
+"0" = ""
+"2" = "-O"
+"3" = "-O -release"
+"s" = "-O -release"
+"z" = "-O -release"
+
+dbg = "-g"
+
+[warnings]
+normal = ""
+none   = ""
+all    = "-wi"
+error  = "-w"
+
+[structure]
+include_dir   = "-I{path}"
+define        = "-version={name}"
+define_value  = "-version={name}"
+output        = "-of{path}"
+compile_only  = "-c"
+dep_file      = ""
+dep_file_mode = "none"
+system_lib    = "-L-l{name}"
+target        = ""
+sysroot       = ""
+
+[modules]
+style = "none"
+
+[linking.d]
+abi        = "d"
+compatible = ["c"]
+linker     = ""
+extensions = [".d"]
+
+[compiler.dip1000]
+"false" = ""
+"true"  = "-preview=dip1000"

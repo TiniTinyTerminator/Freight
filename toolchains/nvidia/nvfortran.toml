@@ -1,0 +1,24 @@
+base       = "_nvhpc-base"
+name       = "nvfortran"
+homepage   = "https://developer.nvidia.com/hpc-sdk"
+binary     = "nvfortran"
+extensions = [".f90", ".f95", ".f", ".F90"]
+sanitizer_options = ["address"]
+
+[toolset]
+ld = "nvfortran"
+
+[stdlib]
+none = ""
+
+[language.std]
+"f2003" = "-Mstandard"
+"f2008" = "-Mstandard"
+"f2018" = "-Mstandard"
+
+[linking.fortran]
+abi             = "fortran"
+compatible      = ["c"]
+compile_binary  = "nvfortran"
+linker          = ""
+extensions      = [".f90", ".f95", ".f", ".F90"]

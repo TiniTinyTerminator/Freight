@@ -1,0 +1,17 @@
+base          = "_asm-base"
+name          = "nasm"
+homepage      = "https://www.nasm.us/"
+binary        = "nasm"
+version_regex = 'NASM version (\d+\.\d+(?:\.\d+)?)'
+supported_archs = ["x86", "x86_64"]
+
+[toolset]
+as = "nasm"
+
+dbg = "-g -F dwarf"
+
+[warnings]
+normal = ""
+none   = ""
+all    = "-w+all"
+error  = "-w+all -w+error"

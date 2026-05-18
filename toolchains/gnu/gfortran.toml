@@ -1,0 +1,13 @@
+base     = ["_gnu-base", "../languages/_fortran"]
+name     = "gfortran"
+homepage = "https://gcc.gnu.org/fortran/"
+binary   = "gfortran"
+sanitizer_options = ["address", "undefined"]
+sanitize = "-fsanitize={values}"
+cpu_ext  = ""
+
+[toolset]
+ld = "gfortran"
+
+[structure]
+dep_file = "-cpp -MMD -MF {path}"

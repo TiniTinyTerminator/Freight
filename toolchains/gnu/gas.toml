@@ -1,0 +1,53 @@
+name               = "gas"
+kind               = "compiler"
+family             = ""
+sanitizer_options  = []
+homepage           = "https://www.gnu.org/software/binutils/"
+binary             = "as"
+version_arg        = "--version"
+version_regex      = 'GNU assembler (?:\([^)]+\) )?(\d+\.\d+(?:\.\d+)?)'
+extensions         = [".s", ".S"]
+passthrough        = false
+passthrough_prefix = ""
+requires_toolchain = ["c"]
+
+always_flags = []
+
+[optimization]
+"0" = ""
+"1" = ""
+"2" = ""
+"3" = ""
+"s" = ""
+"z" = ""
+
+[warnings]
+normal = ""
+none   = "--no-warn"
+all    = "--warn"
+error  = "--warn --fatal-warnings"
+
+dbg = "--gdwarf-2"
+lto = ""
+
+[structure]
+include_dir  = "-I{path}"
+define       = "--defsym {name}=1"
+define_value = "--defsym {name}={value}"
+output       = "-o {path}"
+compile_only = ""
+dep_file     = ""
+target       = ""
+sysroot      = ""
+
+[arch_flags]
+"x86.linux"      = "--32"
+
+[modules]
+style = "none"
+
+[linking.gas]
+abi        = "c"
+compatible = ["c", "cpp"]
+linker     = ""
+extensions = [".s", ".S"]

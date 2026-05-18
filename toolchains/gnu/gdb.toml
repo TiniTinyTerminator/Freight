@@ -1,0 +1,18 @@
+kind          = "debugger"
+name          = "gdb"
+binary        = "gdb"
+version_arg   = "--version"
+version_regex = 'GNU gdb[^\d]+(\d+\.\d+)'
+
+[launch]
+separator = "--args"
+
+[dap]
+binaries    = []
+vscode_type = "cppdbg"
+mi_mode     = "gdb"
+
+[settings]
+tui   = "--tui"
+quiet = "-q"
+batch = "--batch"

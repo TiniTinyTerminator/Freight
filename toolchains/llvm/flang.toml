@@ -1,0 +1,26 @@
+base     = ["_llvm-base", "../languages/_fortran"]
+name     = "flang"
+homepage = "https://flang.llvm.org/"
+detect   = ["flang", "flang-new"]
+version_regex = 'flang(?:-new)? version (\d+\.\d+\.\d+)'
+sanitizer_options = ["address", "undefined"]
+
+[toolset]
+ld = "$(binary)"
+
+[optimization]
+"2" = "-O2"
+"0" = "-O0"
+"1" = "-O1"
+"3" = "-O3"
+"s" = "-O2"
+"z" = "-O2"
+
+[warnings]
+normal = "-Wall"
+none   = ""
+all    = "-Wall -Wextra"
+error  = "-Wall -Wextra -Werror"
+
+[modules]
+style = "none"

@@ -1,0 +1,17 @@
+base          = "_asm-base"
+name          = "yasm"
+homepage      = "https://yasm.tortall.net/"
+binary        = "yasm"
+version_regex = 'yasm (\d+\.\d+\.\d+)'
+supported_archs = ["x86", "x86_64"]
+
+[toolset]
+as = "yasm"
+
+dbg = "-g dwarf2"
+
+[warnings]
+normal = ""
+none   = ""
+all    = "-w+all"
+error  = "-w+all -Werror"

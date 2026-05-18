@@ -1185,6 +1185,7 @@ dependencies = [
  "curl",
  "git2",
  "glob",
+ "indexmap",
  "owo-colors",
  "rayon",
  "regex",

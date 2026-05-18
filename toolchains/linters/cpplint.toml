@@ -1,0 +1,16 @@
+kind          = "linter"
+name          = "cpplint"
+family        = "cpplint"
+binary        = "cpplint"
+version_arg   = "--version"
+version_regex = 'cpplint (\d+\.\d+\.\d+)'
+extensions    = [".cpp", ".cc", ".cxx", ".c++", ".c", ".h", ".hpp", ".hxx"]
+
+[run]
+check = ""
+fix   = ""
+
+[settings]
+filter     = "--filter={value}"
+linelength = "--linelength={value}"
+root       = "--root={value}"

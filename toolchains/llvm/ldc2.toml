@@ -1,0 +1,43 @@
+base       = "_llvm-base"
+name       = "ldc2"
+homepage   = "https://github.com/ldc-developers/ldc"
+binary     = "ldc2"
+version_regex = '\b(\d+\.\d+\.\d+)\b'
+extensions = [".d"]
+sanitizer_options = ["address", "thread", "memory", "undefined"]
+lto      = "-flto=full"
+sanitize = "-fsanitize={values}"
+
+[toolset]
+ld = "ldc2"
+
+[warnings]
+normal = ""
+none   = ""
+all    = "-wi"
+error  = "-w"
+
+[structure]
+include_dir   = "-I{path}"
+define        = "-d-version={name}"
+define_value  = "-d-version={name}"
+output        = "-of={path}"
+compile_only  = "-c"
+dep_file      = ""
+dep_file_mode = "none"
+system_lib    = "-L-l{name}"
+target        = "-mtriple={triple}"
+sysroot       = ""
+
+[modules]
+style = "none"
+
+[linking.d]
+abi        = "d"
+compatible = ["c"]
+linker     = ""
+extensions = [".d"]
+
+[compiler.dip1000]
+"false" = ""
+"true"  = "-preview=dip1000"

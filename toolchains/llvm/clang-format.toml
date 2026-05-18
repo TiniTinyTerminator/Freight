@@ -1,0 +1,18 @@
+kind          = "formatter"
+name          = "clang-format"
+family        = "llvm"
+binary        = "clang-format"
+version_arg   = "--version"
+version_regex = 'clang-format version (\d+\.\d+\.\d+)'
+extensions    = [".cpp", ".cc", ".cxx", ".c++", ".cppm", ".c", ".h", ".hpp", ".hxx", ".cu", ".hip"]
+
+[run]
+fix   = "-i"
+check = "--dry-run --Werror"
+
+[settings]
+style  = "--style={value}"
+config = "--style=file:{value}"
+
+[values]
+style = ["Google", "LLVM", "Mozilla", "WebKit", "Chromium", "Microsoft", "GNU", "file"]

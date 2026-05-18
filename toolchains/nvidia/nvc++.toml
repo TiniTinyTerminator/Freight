@@ -1,0 +1,21 @@
+base       = "_nvhpc-base"
+name       = "nvc++"
+homepage   = "https://developer.nvidia.com/hpc-sdk"
+binary     = "nvc++"
+extensions = [".cpp", ".cc", ".cxx", ".c++"]
+sanitizer_options = ["address"]
+
+[toolset]
+cc  = "nvc"
+cxx = "nvc++"
+ld  = "nvc++"
+
+[language.std]
+"c++17" = "-std=c++17"
+"c++20" = "-std=c++20"
+
+[linking.cpp]
+abi        = "c++"
+compatible = ["c", "fortran"]
+linker     = ""
+extensions = [".cpp", ".cc", ".cxx", ".c++"]
