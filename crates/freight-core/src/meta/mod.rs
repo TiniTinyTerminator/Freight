@@ -191,6 +191,15 @@ fn resolve_version_dep(
     // Suppress unused warning; version may be used by future resolvers.
     let _ = version;
 
+    // If a freight source package was fetched from the registry for this dep,
+    // it will be compiled through the dep-build pipeline (resolve_dep_graph /
+    // build_deps).  Skip foreign resolution entirely so we don't double-handle
+    // it or accidentally pick up a system-installed version instead.
+    let dep_dir = project_dir.join(".deps").join(name);
+    if dep_dir.join(".freight-fetched").exists() && dep_dir.join("freight.toml").exists() {
+        return Ok(None);
+    }
+
     match repo {
         Some("system") => {
             let stubs = load_system_lib_stubs();

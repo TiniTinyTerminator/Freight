@@ -227,7 +227,14 @@ fn direct_compilable_deps(
 fn compilable_dep_dir(root_dir: &Path, declaring_dir: &Path, name: &str, dep: &Dependency) -> Option<PathBuf> {
     match dep {
         Dependency::Simple(_) => {
-            // Version dep → resolved by foreign package lookup (pkg-config → system stubs → registry).
+            // Version dep: if the registry-fetched package is itself a freight project
+            // (has freight.toml), compile it through the normal dep pipeline instead of
+            // treating it as a foreign library.
+            let dep_dir = root_dir.join(".deps").join(name);
+            if dep_dir.join(".freight-fetched").exists() && dep_dir.join("freight.toml").exists() {
+                return Some(dep_dir);
+            }
+            // Otherwise resolved by foreign lookup (pkg-config → system stubs → .deps cache).
             None
         }
         Dependency::Detailed(d) => {
@@ -238,6 +245,13 @@ fn compilable_dep_dir(root_dir: &Path, declaring_dir: &Path, name: &str, dep: &D
             } else if let Some(p) = &d.path {
                 // Path dep → relative to the manifest that declares it
                 declaring_dir.join(p)
+            } else if d.version.is_some() {
+                // Version dep: same freight-package check as Simple deps above.
+                let dep_dir = root_dir.join(".deps").join(name);
+                if dep_dir.join(".freight-fetched").exists() && dep_dir.join("freight.toml").exists() {
+                    return Some(dep_dir);
+                }
+                return None;
             } else {
                 return None;
             };

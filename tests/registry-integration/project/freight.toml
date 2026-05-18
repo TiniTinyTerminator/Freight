@@ -2,13 +2,16 @@
 name    = "registry-test"
 version = "0.1.0"
 
+[language.cpp]
+std = "c++17"
+
 [[bin]]
 name = "registry-test"
-src  = "src/main.c"
+src  = "src/main.cpp"
 
 [dependencies]
-libvec = "1.0.0"
-libstr = "1.0.0"
+nlohmann-json = "3.11.3"
+sqlite3       = "3.45.1"
 
 [profile.dev]
 opt-level = 0

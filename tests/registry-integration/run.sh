@@ -1,23 +1,26 @@
 #!/usr/bin/env bash
 # Integration test: freight fetch + freight build against a local vcpkg-style registry.
 #
+# Downloads real libraries from the internet:
+#   nlohmann/json 3.11.3  — header-only JSON  (github.com/nlohmann/json)
+#   SQLite        3.45.1  — compiled C library (sqlite.org)
+#
 # What this tests:
 #   1. registry server responds correctly to /api/v1/packages/* requests
-#   2. `freight fetch` downloads libvec and libstr from the registry
+#   2. `freight fetch` downloads packages from the registry
 #   3. `freight build` compiles the project and links against the fetched libraries
 #   4. The resulting binary runs and produces the expected output
 #
 # Prerequisites:
-#   - gcc (or set CC= to another C compiler)
-#   - python3
-#   - cargo (to build freight)
-#   - ~/.freight/config.toml has a [[registries]] entry with url = "http://localhost:7878"
-#     (the default config created during `freight` install already sets this up)
+#   - gcc, g++ (or set CC=/CXX=), python3, curl or wget, unzip, cargo
+#   - ~/.freight/config.toml must contain a [[registries]] entry pointing at
+#     http://localhost:7878  (the default config already has this)
 #
 # Usage:
-#   ./tests/registry-integration/run.sh [--keep]
+#   ./tests/registry-integration/run.sh [--keep] [--no-download]
 #
-#   --keep   leave .deps/ and target/ in place after the test (useful for inspection)
+#   --keep          leave .deps/ and target/ after the test (for inspection)
+#   --no-download   skip setup-packages.sh; reuse existing tarballs
 
 set -euo pipefail
 
@@ -27,9 +30,13 @@ PROJECT_DIR="$SCRIPT_DIR/project"
 REGISTRY_PORT=7878
 SERVER_PID=""
 KEEP=false
+NO_DOWNLOAD=false
 
 for arg in "$@"; do
-    [[ "$arg" == "--keep" ]] && KEEP=true
+    case "$arg" in
+        --keep)        KEEP=true ;;
+        --no-download) NO_DOWNLOAD=true ;;
+    esac
 done
 
 # ── Colours ────────────────────────────────────────────────────────────────────
@@ -60,21 +67,27 @@ FREIGHT="$REPO_ROOT/target/debug/freight"
 [[ -x "$FREIGHT" ]] || fail "freight binary not found at $FREIGHT"
 pass "freight built: $FREIGHT"
 
-# ── Step 2: Build and package test libraries ───────────────────────────────────
+# ── Step 2: Download and package real libraries ────────────────────────────────
 
-step "Building package tarballs"
-bash "$SCRIPT_DIR/setup-packages.sh"
-[[ -f "$SCRIPT_DIR/registry/data/packages/libvec/1.0.0.tar.gz" ]] \
-    || fail "libvec tarball not created"
-[[ -f "$SCRIPT_DIR/registry/data/packages/libstr/1.0.0.tar.gz" ]] \
-    || fail "libstr tarball not created"
-pass "tarballs created"
+if $NO_DOWNLOAD; then
+    step "Skipping download (--no-download)"
+    [[ -f "$SCRIPT_DIR/registry/data/packages/nlohmann-json/3.11.3.tar.gz" ]] \
+        || fail "tarballs not found — run without --no-download first"
+else
+    step "Downloading and packaging real libraries (internet required)"
+    bash "$SCRIPT_DIR/setup-packages.sh"
+fi
+
+[[ -f "$SCRIPT_DIR/registry/data/packages/nlohmann-json/3.11.3.tar.gz" ]] \
+    || fail "nlohmann-json tarball not created"
+[[ -f "$SCRIPT_DIR/registry/data/packages/sqlite3/3.45.1.tar.gz" ]] \
+    || fail "sqlite3 tarball not created"
+pass "tarballs ready"
 
 # ── Step 3: Start the registry server ─────────────────────────────────────────
 
 step "Starting registry server on port $REGISTRY_PORT"
 
-# Check the port is free
 if ss -tlnp 2>/dev/null | grep -q ":${REGISTRY_PORT} " || \
    netstat -tlnp 2>/dev/null | grep -q ":${REGISTRY_PORT} "; then
     fail "port $REGISTRY_PORT is already in use — stop the existing server first"
@@ -83,15 +96,12 @@ fi
 REGISTRY_PORT=$REGISTRY_PORT python3 "$SCRIPT_DIR/registry/server.py" &
 SERVER_PID=$!
 
-# Wait for the server to start accepting connections
 for i in $(seq 1 20); do
     if curl -sf "http://127.0.0.1:$REGISTRY_PORT/api/v1/search?q=" >/dev/null 2>&1; then
         break
     fi
     sleep 0.2
-    if [[ $i -eq 20 ]]; then
-        fail "registry server did not start within 4 seconds"
-    fi
+    if [[ $i -eq 20 ]]; then fail "registry server did not start within 4 seconds"; fi
 done
 pass "server started (pid $SERVER_PID)"
 
@@ -99,46 +109,51 @@ pass "server started (pid $SERVER_PID)"
 
 step "Verifying registry API"
 
-# Metadata endpoint
-LIBVEC_META=$(curl -sf "http://127.0.0.1:$REGISTRY_PORT/api/v1/packages/libvec")
-echo "$LIBVEC_META" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['latest']=='1.0.0', d" \
-    || fail "libvec metadata returned unexpected data: $LIBVEC_META"
+JSON_META=$(curl -sf "http://127.0.0.1:$REGISTRY_PORT/api/v1/packages/nlohmann-json")
+echo "$JSON_META" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+assert d['latest'] == '3.11.3', f'expected 3.11.3, got {d}'
+" || fail "nlohmann-json metadata wrong: $JSON_META"
 
-LIBSTR_META=$(curl -sf "http://127.0.0.1:$REGISTRY_PORT/api/v1/packages/libstr")
-echo "$LIBSTR_META" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['latest']=='1.0.0', d" \
-    || fail "libstr metadata returned unexpected data"
+SQLITE_META=$(curl -sf "http://127.0.0.1:$REGISTRY_PORT/api/v1/packages/sqlite3")
+echo "$SQLITE_META" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+assert d['latest'] == '3.45.1', f'expected 3.45.1, got {d}'
+" || fail "sqlite3 metadata wrong: $SQLITE_META"
 
-# 404 for unknown package
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$REGISTRY_PORT/api/v1/packages/nonexistent")
-[[ "$HTTP_CODE" == "404" ]] || fail "expected 404 for unknown package, got $HTTP_CODE"
+HTTP_404=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$REGISTRY_PORT/api/v1/packages/does-not-exist")
+[[ "$HTTP_404" == "404" ]] || fail "expected 404 for unknown package, got $HTTP_404"
 
-pass "registry API responds correctly"
+pass "registry API correct"
 
 # ── Step 5: freight fetch ──────────────────────────────────────────────────────
 
 step "Running freight fetch"
-
-# Ensure a clean state
 rm -rf "$PROJECT_DIR/.deps"
-
 cd "$PROJECT_DIR"
 "$FREIGHT" fetch 2>&1 | tee /tmp/freight-fetch.log
 
-[[ -d "$PROJECT_DIR/.deps/libvec" ]] || fail ".deps/libvec not created by freight fetch"
-[[ -d "$PROJECT_DIR/.deps/libstr" ]] || fail ".deps/libstr not created by freight fetch"
-[[ -f "$PROJECT_DIR/.deps/libvec/.freight-fetched" ]] || fail ".freight-fetched sentinel missing for libvec"
-[[ -f "$PROJECT_DIR/.deps/libstr/.freight-fetched" ]] || fail ".freight-fetched sentinel missing for libstr"
-[[ -f "$PROJECT_DIR/.deps/libvec/include/vec.h" ]] || fail "vec.h not extracted"
-[[ -f "$PROJECT_DIR/.deps/libstr/include/str.h" ]] || fail "str.h not extracted"
-[[ -f "$PROJECT_DIR/.deps/libvec/lib/libvec.a" ]] || fail "libvec.a not extracted"
-[[ -f "$PROJECT_DIR/.deps/libstr/lib/libstr.a" ]] || fail "libstr.a not extracted"
-pass "freight fetch downloaded and extracted both packages"
+[[ -f "$PROJECT_DIR/.deps/nlohmann-json/.freight-fetched" ]] \
+    || fail "sentinel missing for nlohmann-json"
+[[ -f "$PROJECT_DIR/.deps/sqlite3/.freight-fetched" ]] \
+    || fail "sentinel missing for sqlite3"
+[[ -f "$PROJECT_DIR/.deps/nlohmann-json/include/nlohmann/json.hpp" ]] \
+    || fail "json.hpp not extracted"
+[[ -f "$PROJECT_DIR/.deps/sqlite3/include/sqlite3.h" ]] \
+    || fail "sqlite3.h not extracted"
+[[ -f "$PROJECT_DIR/.deps/sqlite3/freight.toml" ]] \
+    || fail "sqlite3/freight.toml not extracted (expected a freight source package)"
+[[ -f "$PROJECT_DIR/.deps/sqlite3/src/sqlite3.c" ]] \
+    || fail "sqlite3/src/sqlite3.c not extracted"
+pass "freight fetch: both source packages downloaded and extracted"
 
-# ── Step 6: freight fetch is idempotent ───────────────────────────────────────
+# ── Step 6: Idempotency ────────────────────────────────────────────────────────
 
-step "Verifying fetch is idempotent (cached)"
+step "Verifying fetch is idempotent"
 "$FREIGHT" fetch 2>&1 | tee /tmp/freight-fetch2.log
-grep -q "cached\|up to date\|ok" /tmp/freight-fetch2.log \
+grep -qE "cached|up to date|ok" /tmp/freight-fetch2.log \
     || fail "second fetch did not report packages as cached"
 pass "idempotent fetch OK"
 
@@ -149,24 +164,28 @@ step "Running freight build"
 
 BINARY="$PROJECT_DIR/target/dev/registry-test"
 [[ -x "$BINARY" ]] || fail "binary not produced at $BINARY"
-pass "freight build produced binary"
 
-# ── Step 8: Run the binary ─────────────────────────────────────────────────────
+# sqlite3 must have been compiled by freight (not linked from a pre-built archive)
+[[ -f "$PROJECT_DIR/.deps/sqlite3/target/dev/libsqlite3.a" ]] \
+    || fail "freight did not compile sqlite3 — libsqlite3.a not found in .deps/sqlite3/target/"
+
+pass "freight build produced binary (sqlite3 compiled by freight)"
+
+# ── Step 8: Run and verify output ─────────────────────────────────────────────
 
 step "Running binary and checking output"
 OUTPUT=$("$BINARY")
 echo "$OUTPUT"
 
-check_output() {
-    echo "$OUTPUT" | grep -qF "$1" || fail "output missing: $1"
-}
+check() { echo "$OUTPUT" | grep -qF "$1" || fail "output missing: $1"; }
 
-check_output "vec3_add:   (5.0, 7.0, 9.0)"
-check_output "vec3_dot:   32.0"
-check_output "count 's':  4"
-check_output "repeat:     ababab"
-check_output "reverse:    olleh"
-check_output "PASS"
+check "json.project: freight"
+check "json.stars:   42"
+check "json.tags[0]: build"
+check "sqlite nlohmann-json: 3.11.3"
+check "sqlite sqlite3: 3.45.1"
+check "sqlite.count: 2"
+check "PASS"
 
 pass "all output checks passed"
 
@@ -174,4 +193,4 @@ pass "all output checks passed"
 
 echo ""
 echo -e "${GREEN}All registry integration tests passed.${NC}"
-if $KEEP; then echo "(--keep: leaving .deps/ and target/ in place)"; fi
+if $KEEP; then echo "(--keep: .deps/ and target/ left in place)"; fi

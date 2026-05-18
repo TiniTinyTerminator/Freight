@@ -8,6 +8,7 @@ examples/**/.deps/
 examples/**/freight.lock
 examples/**/compile_commands.json
 # Registry integration test generated artifacts
+tests/registry-integration/registry/data/
 tests/registry-integration/project/.deps/
 tests/registry-integration/project/target/
 tests/registry-integration/project/freight.lock
