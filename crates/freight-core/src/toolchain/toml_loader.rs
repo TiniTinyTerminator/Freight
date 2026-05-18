@@ -162,8 +162,7 @@ pub fn eval_expr(s: &str, ctx: &EvalCtx<'_>) -> String {
 /// Find the position of the `)` that closes the opening `(` (already consumed).
 fn find_close_paren(s: &str) -> Option<usize> {
     let mut depth = 1usize;
-    let mut chars = s.char_indices();
-    while let Some((i, c)) = chars.next() {
+    for (i, c) in s.char_indices() {
         match c {
             '(' => depth += 1,
             ')' => {
@@ -186,7 +185,7 @@ fn eval_ternary(expr: &str, ctx: &EvalCtx<'_>) -> String {
     // Find `?` not inside quotes or parens.
     if let Some((cond_part, rest)) = split_outer(expr, '?') {
         let cond = eval_or(cond_part.trim(), ctx);
-        let is_true = cond != "false" && cond != "" && cond != "0";
+        let is_true = cond != "false" && !cond.is_empty() && cond != "0";
         if let Some((true_part, false_part)) = split_outer(rest.trim(), ':') {
             if is_true {
                 return eval_ternary(true_part.trim(), ctx);
@@ -200,22 +199,12 @@ fn eval_ternary(expr: &str, ctx: &EvalCtx<'_>) -> String {
 
 /// `a || b`.
 fn eval_or(expr: &str, ctx: &EvalCtx<'_>) -> String {
-    if let Some((left, right)) = split_outer(expr, '|').and_then(|(l, r)| {
-        r.strip_prefix('|').map(|r2| (l, r2))
-    }) {
-        let lv = eval_and(left.trim(), ctx);
-        if lv != "false" && !lv.is_empty() {
-            return lv;
-        }
-        return eval_and(right.trim(), ctx);
-    }
-    // Also handle "||" as a two-char operator.
     if let Some(pos) = find_op_pos(expr, "||") {
-        let lv = eval_and(&expr[..pos].trim(), ctx);
+        let lv = eval_and(expr[..pos].trim(), ctx);
         if lv != "false" && !lv.is_empty() {
             return lv;
         }
-        return eval_and(&expr[pos+2..].trim(), ctx);
+        return eval_and(expr[pos+2..].trim(), ctx);
     }
     eval_and(expr, ctx)
 }
@@ -223,11 +212,11 @@ fn eval_or(expr: &str, ctx: &EvalCtx<'_>) -> String {
 /// `a && b`.
 fn eval_and(expr: &str, ctx: &EvalCtx<'_>) -> String {
     if let Some(pos) = find_op_pos(expr, "&&") {
-        let lv = eval_compare(&expr[..pos].trim(), ctx);
+        let lv = eval_compare(expr[..pos].trim(), ctx);
         if lv == "false" || lv.is_empty() {
             return "false".to_string();
         }
-        return eval_compare(&expr[pos+2..].trim(), ctx);
+        return eval_compare(expr[pos+2..].trim(), ctx);
     }
     eval_compare(expr, ctx)
 }
@@ -236,8 +225,8 @@ fn eval_and(expr: &str, ctx: &EvalCtx<'_>) -> String {
 fn eval_compare(expr: &str, ctx: &EvalCtx<'_>) -> String {
     for op in &[">=", "<=", "!=", "==", ">", "<"] {
         if let Some(pos) = find_op_pos(expr, op) {
-            let lhs = eval_add(&expr[..pos].trim(), ctx);
-            let rhs = eval_add(&expr[pos+op.len()..].trim(), ctx);
+            let lhs = eval_add(expr[..pos].trim(), ctx);
+            let rhs = eval_add(expr[pos+op.len()..].trim(), ctx);
             let result = compare_values(&lhs, &rhs, op);
             return if result { "true".to_string() } else { "false".to_string() };
         }
@@ -294,18 +283,11 @@ fn version_cmp(a: &str, b: &str) -> std::cmp::Ordering {
 /// `a + b` (string concatenation).
 fn eval_add(expr: &str, ctx: &EvalCtx<'_>) -> String {
     if let Some(pos) = find_op_pos(expr, "+") {
-        let lhs = eval_method(&expr[..pos].trim(), ctx);
-        let rhs = eval_add(&expr[pos+1..].trim(), ctx);
+        let lhs = eval_atom(expr[..pos].trim(), ctx);
+        let rhs = eval_add(expr[pos+1..].trim(), ctx);
         return format!("{lhs}{rhs}");
     }
-    eval_method(expr, ctx)
-}
-
-/// `.replace('from', 'to')` method calls.
-fn eval_method(expr: &str, ctx: &EvalCtx<'_>) -> String {
-    let base = eval_atom(expr, ctx);
-    // Already fully resolved since eval_atom handles methods inline.
-    base
+    eval_atom(expr, ctx)
 }
 
 /// Atoms: variables, string literals, method calls, `!expr`.
@@ -323,10 +305,9 @@ fn eval_atom(expr: &str, ctx: &EvalCtx<'_>) -> String {
     }
 
     // Parenthesized sub-expression: (...)
-    if expr.starts_with('(') {
-        if let Some(end) = find_close_paren(&expr[1..]) {
-            let inner = &expr[1..1+end];
-            return eval_inner(inner, ctx);
+    if let Some(inner_and_rest) = expr.strip_prefix('(') {
+        if let Some(end) = find_close_paren(inner_and_rest) {
+            return eval_inner(&inner_and_rest[..end], ctx);
         }
     }
 
@@ -364,7 +345,7 @@ fn eval_atom(expr: &str, ctx: &EvalCtx<'_>) -> String {
 
 /// Split `expr` into `(base, [method_calls])` where method_calls are `.replace(...)` etc.
 /// Returns (base, vec_of_method_strings).
-fn split_methods<'a>(expr: &'a str) -> (&'a str, Vec<&'a str>) {
+fn split_methods(expr: &str) -> (&str, Vec<&str>) {
     // Find the first '.' that is followed by a known method name.
     let mut methods = Vec::new();
     let mut base_end = expr.len();
@@ -693,10 +674,6 @@ fn find_binary(name: &str) -> Option<String> {
     None
 }
 
-fn eval_string(s: &str, ctx: &EvalCtx<'_>) -> String {
-    eval_expr(s, ctx)
-}
-
 fn eval_opt_string(s: Option<&str>, ctx: &EvalCtx<'_>) -> String {
     s.map(|v| eval_expr(v, ctx)).unwrap_or_default()
 }
@@ -705,11 +682,12 @@ fn eval_map(m: Option<&IndexMap<String, String>>, ctx: &EvalCtx<'_>) -> HashMap<
     match m {
         None => HashMap::new(),
         Some(im) => im.iter()
-            .map(|(k, v)| (k.clone(), eval_string(v, ctx)))
+            .map(|(k, v)| (k.clone(), eval_expr(v, ctx)))
             .collect(),
     }
 }
 
+#[allow(clippy::field_reassign_with_default)]
 fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWithMaps, FreightError> {
     // Extract compiler/language maps before consuming `tc`.
     let toml_compiler = tc.compiler.clone().unwrap_or_default();
@@ -751,7 +729,7 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
     // always_flags — evaluate and filter empty strings.
     def.always_flags = tc.always_flags.as_deref().unwrap_or(&[])
         .iter()
-        .map(|f| eval_string(f, ctx))
+        .map(|f| eval_expr(f, ctx))
         .filter(|f| !f.is_empty())
         .collect();
 
@@ -763,7 +741,7 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
 
     // Structure.
     let s = tc.structure.as_ref();
-    let gs = |field: Option<&String>| field.map(|v| eval_string(v, ctx)).unwrap_or_default();
+    let gs = |field: Option<&String>| field.map(|v| eval_expr(v, ctx)).unwrap_or_default();
     def.structure.insert("include_dir".into(),  gs(s.and_then(|s| s.include_dir.as_ref())));
     def.structure.insert("define".into(),       gs(s.and_then(|s| s.define.as_ref())));
     def.structure.insert("define_value".into(), gs(s.and_then(|s| s.define_value.as_ref())));
@@ -783,7 +761,7 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
         def.module_style = style;
         for (k, v) in modules {
             if k != "style" {
-                def.module_params.insert(k.clone(), eval_string(v, ctx));
+                def.module_params.insert(k.clone(), eval_expr(v, ctx));
             }
         }
     }
@@ -791,7 +769,7 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
     // PCH.
     if let Some(pch) = &tc.pch {
         for (k, v) in pch {
-            def.pch.insert(k.clone(), eval_string(v, ctx));
+            def.pch.insert(k.clone(), eval_expr(v, ctx));
         }
     }
 
@@ -799,7 +777,7 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
     if let Some(linking) = &tc.linking {
         for (lang, lp) in linking {
             let cb = lp.compile_binary.as_deref()
-                .map(|s| eval_string(s, ctx))
+                .map(|s| eval_expr(s, ctx))
                 .filter(|s| !s.is_empty());
             def.linking.push((lang.clone(), LinkingParams {
                 abi:            lp.abi.clone(),
@@ -936,7 +914,7 @@ fn make_map_handler(
                     "    if v == \"{escaped_k}\" {{ flag = {escaped_flag_expr}; }}\n"
                 ));
             } else {
-                let evaluated = eval_string(v, ctx);
+                let evaluated = eval_expr(v, ctx);
                 let escaped_v = evaluated.replace('\\', "\\\\").replace('"', "\\\"");
                 script.push_str(&format!(
                     "    if v == \"{escaped_k}\" {{ flag = \"{escaped_v}\"; }}\n"
@@ -960,10 +938,10 @@ fn make_map_handler(
     });
 
     // Version comparison helpers (same as in script.rs).
-    engine.register_fn("version_gte", |a: String, b: String| version_cmp_local(&a, &b) != std::cmp::Ordering::Less);
-    engine.register_fn("version_lte", |a: String, b: String| version_cmp_local(&a, &b) != std::cmp::Ordering::Greater);
-    engine.register_fn("version_gt",  |a: String, b: String| version_cmp_local(&a, &b) == std::cmp::Ordering::Greater);
-    engine.register_fn("version_lt",  |a: String, b: String| version_cmp_local(&a, &b) == std::cmp::Ordering::Less);
+    engine.register_fn("version_gte", |a: String, b: String| version_cmp(&a, &b) != std::cmp::Ordering::Less);
+    engine.register_fn("version_lte", |a: String, b: String| version_cmp(&a, &b) != std::cmp::Ordering::Greater);
+    engine.register_fn("version_gt",  |a: String, b: String| version_cmp(&a, &b) == std::cmp::Ordering::Greater);
+    engine.register_fn("version_lt",  |a: String, b: String| version_cmp(&a, &b) == std::cmp::Ordering::Less);
 
     let ast = engine.compile(&script).ok()?;
     let fn_ptr = rhai::FnPtr::new("handler").ok()?;
@@ -1125,7 +1103,7 @@ pub fn load_debugger_template_toml(src: &str, dir: Option<&Path>) -> Result<Debu
     let dap_mi_mode = merged.dap.as_ref().map(|d| d.mi_mode.clone()).unwrap_or_default();
 
     let settings: HashMap<String, String> = merged.settings.as_ref()
-        .map(|m| m.iter().map(|(k, v)| (k.clone(), eval_string(v, &ctx))).collect())
+        .map(|m| m.iter().map(|(k, v)| (k.clone(), eval_expr(v, &ctx))).collect())
         .unwrap_or_default();
 
     Ok(DebuggerTemplate {
@@ -1172,7 +1150,7 @@ pub fn load_tool_toml(src: &str, dir: Option<&Path>) -> Result<ToolTemplate, Fre
     let extensions = merged.extensions.clone().unwrap_or_default();
 
     let run: HashMap<String, String> = merged.run.as_ref()
-        .map(|m| m.iter().map(|(k, v)| (k.clone(), eval_string(v, &ctx))).collect())
+        .map(|m| m.iter().map(|(k, v)| (k.clone(), eval_expr(v, &ctx))).collect())
         .unwrap_or_default();
 
     let settings: HashMap<String, String> = merged.settings.as_ref()
@@ -1197,27 +1175,6 @@ pub fn load_tool_toml(src: &str, dir: Option<&Path>) -> Result<ToolTemplate, Fre
     })
 }
 
-/// Local version comparison for use in the handler engine registration.
-fn version_cmp_local(a: &str, b: &str) -> std::cmp::Ordering {
-    let parse = |s: &str| -> Vec<u64> {
-        s.split('-').next().unwrap_or(s)
-         .split('.')
-         .filter_map(|c| c.parse().ok())
-         .collect()
-    };
-    let av = parse(a);
-    let bv = parse(b);
-    let len = av.len().max(bv.len());
-    for i in 0..len {
-        let ai = av.get(i).copied().unwrap_or(0);
-        let bi = bv.get(i).copied().unwrap_or(0);
-        match ai.cmp(&bi) {
-            std::cmp::Ordering::Equal => continue,
-            ord => return ord,
-        }
-    }
-    std::cmp::Ordering::Equal
-}
 
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
@@ -1373,5 +1330,418 @@ extensions = [".c"]
         assert_eq!(opt.get("s").map(String::as_str), Some("-Os"));
         // warnings preserved from base
         assert!(merged.warnings.is_some());
+    }
+
+    // ── expression evaluator — extended coverage ───────────────────────────
+
+    #[test]
+    fn eval_expr_string_concat() {
+        let ctx = EvalCtx { binary: "clang++", ..Default::default() };
+        let result = eval_expr("$('a' + 'b' + 'c')", &ctx);
+        assert_eq!(result, "abc");
+    }
+
+    #[test]
+    fn eval_expr_concat_with_variable() {
+        let ctx = EvalCtx { arch: "x86_64", ..Default::default() };
+        let result = eval_expr("$('-m' + arch)", &ctx);
+        assert_eq!(result, "-mx86_64");
+    }
+
+    #[test]
+    fn eval_expr_negation() {
+        let ctx = EvalCtx { arch: "x86_64", ..Default::default() };
+        assert_eq!(eval_expr("$(!(arch == 'x86_64'))", &ctx), "false");
+        let ctx2 = EvalCtx { arch: "aarch64", ..Default::default() };
+        assert_eq!(eval_expr("$(!(arch == 'x86_64'))", &ctx2), "true");
+    }
+
+    #[test]
+    fn eval_expr_logical_and() {
+        let ctx = EvalCtx { arch: "x86_64", os: "linux", ..Default::default() };
+        let r = eval_expr("$(arch == 'x86_64' && os == 'linux' ? '-m64' : '')", &ctx);
+        assert_eq!(r, "-m64");
+        let ctx2 = EvalCtx { arch: "x86_64", os: "windows", ..Default::default() };
+        let r2 = eval_expr("$(arch == 'x86_64' && os == 'linux' ? '-m64' : '')", &ctx2);
+        assert_eq!(r2, "");
+    }
+
+    #[test]
+    fn eval_expr_logical_or() {
+        let ctx = EvalCtx { arch: "x86", ..Default::default() };
+        let r = eval_expr("$(arch == 'x86_64' || arch == 'x86' ? 'yes' : 'no')", &ctx);
+        assert_eq!(r, "yes");
+        let ctx2 = EvalCtx { arch: "aarch64", ..Default::default() };
+        let r2 = eval_expr("$(arch == 'x86_64' || arch == 'x86' ? 'yes' : 'no')", &ctx2);
+        assert_eq!(r2, "no");
+    }
+
+    #[test]
+    fn eval_expr_not_equal() {
+        let ctx = EvalCtx { arch: "aarch64", ..Default::default() };
+        let r = eval_expr("$(arch != 'x86_64' ? '-marm' : '')", &ctx);
+        assert_eq!(r, "-marm");
+    }
+
+    #[test]
+    fn eval_expr_multiple_expansions() {
+        let ctx = EvalCtx { arch: "x86_64", os: "linux", ..Default::default() };
+        let r = eval_expr("$(arch)-$(os)", &ctx);
+        assert_eq!(r, "x86_64-linux");
+    }
+
+    #[test]
+    fn eval_expr_version_less_than() {
+        let ctx = EvalCtx { version: "3.5.0", ..Default::default() };
+        assert_eq!(eval_expr("$(version < '3.9' ? 'old' : 'new')", &ctx), "old");
+        let ctx2 = EvalCtx { version: "10.0.0", ..Default::default() };
+        assert_eq!(eval_expr("$(version < '3.9' ? 'old' : 'new')", &ctx2), "new");
+    }
+
+    #[test]
+    fn eval_expr_paren_grouping() {
+        let ctx = EvalCtx { arch: "x86_64", os: "linux", ..Default::default() };
+        // (a || b) && c
+        let r = eval_expr("$((arch == 'x86_64' || arch == 'x86') && os == 'linux' ? 'yes' : 'no')", &ctx);
+        assert_eq!(r, "yes");
+    }
+
+    // ── TOML loading ──────────────────────────────────────────────────────
+
+    #[test]
+    fn load_toml_always_flags_filters_empty() {
+        let src = r#"
+name = "testcc"
+binary = "testcc"
+extensions = [".c"]
+always_flags = ["$(arch == 'x86_64' ? '-m64' : arch == 'x86' ? '-m32' : '')"]
+"#;
+        let result = load_toml_toolchain(src, None).unwrap();
+        // On x86_64 hosts this should have -m64; on aarch64 the empty string is filtered.
+        for f in &result.def.always_flags {
+            assert!(!f.is_empty(), "empty string should be filtered from always_flags");
+        }
+    }
+
+    #[test]
+    fn load_toml_compiler_option_map() {
+        let src = r#"
+name = "testcc"
+binary = "testcc"
+extensions = [".c"]
+
+[compiler.lto_mode]
+thin = "-flto=thin"
+full = "-flto=full"
+"#;
+        let result = load_toml_toolchain(src, None).unwrap();
+        assert!(result.compiler_option_handlers.contains_key("lto_mode"),
+            "lto_mode handler should be registered");
+    }
+
+    #[test]
+    fn load_toml_language_std_sets_default() {
+        let src = r#"
+name = "testcc"
+binary = "testcc"
+extensions = [".cpp"]
+
+[language.std]
+"c++17" = "-std=c++17"
+"c++20" = "-std=c++20"
+"c++23" = "-std=c++23"
+"#;
+        let result = load_toml_toolchain(src, None).unwrap();
+        assert_eq!(result.def.standards.get("c++17").map(String::as_str), Some("-std=c++17"));
+        assert_eq!(result.def.defaults.get("std").map(String::as_str), Some("c++17"),
+            "first key in [language.std] should become the default");
+    }
+
+    #[test]
+    fn load_toml_optimization_first_is_default() {
+        let src = r#"
+name = "testcc"
+binary = "testcc"
+extensions = [".c"]
+
+[optimization]
+"2" = "-O2"
+"0" = "-O0"
+"3" = "-O3"
+"#;
+        let result = load_toml_toolchain(src, None).unwrap();
+        assert_eq!(result.def.defaults.get("opt_level").map(String::as_str), Some("2"),
+            "first key in [optimization] should be the default");
+    }
+
+    #[test]
+    fn load_toml_stdlib_explicit_empty() {
+        let src = r#"
+name = "testcc"
+binary = "testcc"
+extensions = [".f90"]
+stdlib = {}
+"#;
+        let result = load_toml_toolchain(src, None).unwrap();
+        assert!(result.def.flags_stdlib.is_empty(), "explicit empty stdlib = {{}} should produce no stdlib flags");
+    }
+
+    #[test]
+    fn load_toml_structure_fields() {
+        let src = r#"
+name = "msvctest"
+binary = "cl.exe"
+extensions = [".cpp"]
+
+[structure]
+include_dir   = "/I{path}"
+define        = "/D{name}"
+define_value  = "/D{name}={value}"
+output_obj    = "/Fo{path}"
+output_bin    = "/Fe{path}"
+compile_only  = "/c"
+dep_file      = "/showIncludes"
+dep_file_mode = "stdout"
+"#;
+        let result = load_toml_toolchain(src, None).unwrap();
+        assert_eq!(result.def.structure.get("include_dir").map(String::as_str), Some("/I{path}"));
+        assert_eq!(result.def.structure.get("dep_file_mode").map(String::as_str), Some("stdout"));
+        assert_eq!(result.def.structure.get("output_obj").map(String::as_str), Some("/Fo{path}"));
+    }
+
+    #[test]
+    fn load_toml_linking_fields() {
+        let src = r#"
+name = "testcc"
+binary = "testcc"
+extensions = [".cpp"]
+
+[linking.cpp]
+abi        = "c++"
+compatible = ["c", "fortran"]
+linker     = ""
+extensions = [".cpp", ".cc"]
+"#;
+        let result = load_toml_toolchain(src, None).unwrap();
+        let cpp_link = result.def.linking.iter().find(|(k, _)| k == "cpp");
+        assert!(cpp_link.is_some(), "linking.cpp should be present");
+        let (_, lp) = cpp_link.unwrap();
+        assert_eq!(lp.abi, "c++");
+        assert!(lp.compatible.contains(&"c".to_string()));
+    }
+
+    #[test]
+    fn load_debugger_toml_gdb() {
+        let src = r#"
+kind          = "debugger"
+name          = "gdb"
+binary        = "gdb"
+version_arg   = "--version"
+version_regex = 'GNU gdb[^\d]+(\d+\.\d+)'
+
+[launch]
+separator = "--args"
+
+[dap]
+binaries    = []
+vscode_type = "cppdbg"
+mi_mode     = "gdb"
+
+[settings]
+tui   = "--tui"
+quiet = "-q"
+"#;
+        let result = load_debugger_template_toml(src, None).unwrap();
+        assert_eq!(result.name, "gdb");
+        assert_eq!(result.launch.separator, "--args");
+        assert_eq!(result.dap.vscode_type, "cppdbg");
+        assert_eq!(result.settings.get("tui").map(String::as_str), Some("--tui"));
+    }
+
+    #[test]
+    fn load_tool_toml_formatter() {
+        let src = r#"
+kind          = "formatter"
+name          = "clang-format"
+family        = "llvm"
+binary        = "clang-format"
+version_arg   = "--version"
+version_regex = 'clang-format version (\d+\.\d+\.\d+)'
+extensions    = [".cpp", ".c", ".h"]
+
+[run]
+fix   = "-i"
+check = "--dry-run --Werror"
+
+[settings]
+style  = "--style={value}"
+config = "--style=file:{value}"
+
+[values]
+style = ["Google", "LLVM", "Mozilla"]
+"#;
+        let result = load_tool_toml(src, None).unwrap();
+        assert_eq!(result.name, "clang-format");
+        assert_eq!(result.kind, "formatter");
+        assert_eq!(result.run.get("fix").map(String::as_str), Some("-i"));
+        assert_eq!(result.run.get("check").map(String::as_str), Some("--dry-run --Werror"));
+        assert!(result.values.get("style").map(|v| v.contains(&"Google".to_string())).unwrap_or(false));
+    }
+
+    #[test]
+    fn load_tool_toml_linter() {
+        let src = r#"
+kind          = "linter"
+name          = "cppcheck"
+binary        = "cppcheck"
+version_arg   = "--version"
+version_regex = 'Cppcheck (\d+\.\d+)'
+extensions    = [".cpp", ".c"]
+
+[run]
+check = "--error-exitcode=1"
+fix   = "--error-exitcode=1"
+
+[settings]
+enable = "--enable={value}"
+"#;
+        let result = load_tool_toml(src, None).unwrap();
+        assert_eq!(result.name, "cppcheck");
+        assert_eq!(result.kind, "linter");
+        assert_eq!(result.run.get("check").map(String::as_str), Some("--error-exitcode=1"));
+    }
+
+    // ── Real TOML file loading ────────────────────────────────────────────
+
+    fn toolchains_dir() -> std::path::PathBuf {
+        // From the crate root, toolchains/ is two levels up (crates/freight-core → repo root).
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../toolchains")
+    }
+
+    fn load_real(rel: &str) -> EvalResult {
+        let path = toolchains_dir().join(rel);
+        let src = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
+        let dir = path.parent();
+        load_toml_toolchain(&src, dir).unwrap_or_else(|e| panic!("load failed for {rel}: {e}"))
+    }
+
+    #[test]
+    fn real_clangpp_loads() {
+        let r = load_real("llvm/clang++.toml");
+        assert_eq!(r.def.name, "clang++");
+        assert_eq!(r.def.family, "llvm");
+        // Standards from _cpp.toml base
+        assert!(r.def.standards.contains_key("c++17"));
+        assert!(r.def.standards.contains_key("c++20"));
+        // C++ extensions from base
+        assert!(r.def.extensions.iter().any(|e| e == ".cpp"));
+        // lto_mode compiler option
+        assert!(r.compiler_option_handlers.contains_key("lto_mode"));
+        // Toolset
+        assert!(r.def.toolset.contains_key("ar"));
+    }
+
+    #[test]
+    fn real_gcc_loads() {
+        let r = load_real("gnu/gcc.toml");
+        assert_eq!(r.def.name, "gcc");
+        assert_eq!(r.def.family, "gnu");
+        assert!(!r.def.flags_warnings.is_empty());
+        assert!(r.def.extensions.iter().any(|e| e == ".c"));
+        // linking.c from the file
+        assert!(r.def.linking.iter().any(|(k, _)| k == "c"));
+    }
+
+    #[test]
+    fn real_gfortran_loads() {
+        let r = load_real("gnu/gfortran.toml");
+        assert_eq!(r.def.name, "gfortran");
+        // Fortran extensions from _fortran.toml base
+        assert!(r.def.extensions.iter().any(|e| e == ".f90"));
+        // Fortran standards
+        assert!(r.def.standards.contains_key("f2018"));
+        // dep_file override from gfortran.toml
+        assert!(r.def.structure.get("dep_file").map(|s| s.contains("-cpp")).unwrap_or(false));
+    }
+
+    #[test]
+    fn real_nvcc_loads() {
+        let r = load_real("nvidia/nvcc.toml");
+        assert_eq!(r.def.name, "nvcc");
+        assert!(r.def.always_flags.contains(&"--expt-relaxed-constexpr".to_string()));
+        assert!(r.def.always_flags.contains(&"--extended-lambda".to_string()));
+        assert!(r.compiler_option_handlers.contains_key("sm_arch"));
+        assert!(r.def.requires_toolchain.contains(&"cpp".to_string()));
+        assert_eq!(r.def.required_tools, vec!["ptxas", "fatbinary"]);
+    }
+
+    #[test]
+    fn real_msvc_loads() {
+        let r = load_real("msvc.toml");
+        assert_eq!(r.def.name, "msvc");
+        assert_eq!(r.def.binary, "cl.exe");
+        assert_eq!(r.def.flags_lto, "/GL");
+        assert_eq!(r.def.flags_lto_link, "/LTCG");
+        assert_eq!(r.def.structure.get("dep_file_mode").map(String::as_str), Some("stdout"));
+        assert_eq!(r.def.structure.get("output_obj").map(String::as_str), Some("/Fo{path}"));
+    }
+
+    #[test]
+    fn real_nasm_loads() {
+        let r = load_real("asm/nasm.toml");
+        assert_eq!(r.def.name, "nasm");
+        // arch_flags from _asm-base.toml
+        assert!(r.def.arch_flags.contains_key("x86_64.linux"));
+        assert_eq!(r.def.arch_flags.get("x86_64.linux").map(String::as_str), Some("-f elf64"));
+    }
+
+    #[test]
+    fn real_tcc_loads() {
+        let r = load_real("tcc.toml");
+        assert_eq!(r.def.name, "tcc");
+        assert!(r.def.flags_lto.is_empty());
+        assert!(r.def.linking.iter().any(|(k, _)| k == "c"));
+    }
+
+    #[test]
+    fn real_dmd_loads() {
+        let r = load_real("dmd.toml");
+        assert_eq!(r.def.name, "dmd");
+        assert!(r.compiler_option_handlers.contains_key("dip1000"));
+    }
+
+    #[test]
+    fn real_clang_format_loads() {
+        let path = toolchains_dir().join("llvm/clang-format.toml");
+        let src = std::fs::read_to_string(&path).unwrap();
+        let dir = path.parent();
+        let r = load_tool_toml(&src, dir).unwrap();
+        assert_eq!(r.name, "clang-format");
+        assert_eq!(r.kind, "formatter");
+        assert!(r.values.get("style").map(|v| !v.is_empty()).unwrap_or(false));
+    }
+
+    #[test]
+    fn real_gdb_loads() {
+        let path = toolchains_dir().join("gnu/gdb.toml");
+        let src = std::fs::read_to_string(&path).unwrap();
+        let dir = path.parent();
+        let r = load_debugger_template_toml(&src, dir).unwrap();
+        assert_eq!(r.name, "gdb");
+        assert_eq!(r.launch.separator, "--args");
+        assert_eq!(r.dap.mi_mode, "gdb");
+    }
+
+    #[test]
+    fn real_lldb_loads() {
+        let path = toolchains_dir().join("llvm/lldb.toml");
+        let src = std::fs::read_to_string(&path).unwrap();
+        let dir = path.parent();
+        let r = load_debugger_template_toml(&src, dir).unwrap();
+        assert_eq!(r.name, "lldb");
+        assert_eq!(r.launch.separator, "--");
+        assert!(r.dap.binaries.contains(&"lldb-dap".to_string()));
     }
 }
