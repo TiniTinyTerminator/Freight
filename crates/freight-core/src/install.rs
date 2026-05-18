@@ -117,28 +117,31 @@ pub fn install_project(project_dir: &Path, opts: &InstallOptions) -> Result<Inst
     if let Some(lib) = &manifest.lib {
         fs::create_dir_all(&lib_dir)?;
 
-        match lib.lib_type {
-            LibType::Static => {
-                let fname = format!("lib{}.a", manifest.package.name);
-                let src   = project_dir.join("target").join(profile).join(&fname);
-                if src.exists() {
-                    let dst = lib_dir.join(&fname);
-                    copy_file(&src, &dst)?;
-                    set_mode(&dst, 0o644)?;
-                    items.push(InstalledItem { dst, kind: InstalledKind::StaticLib });
+        // Prebuilt libs (link is set) have no built artifact to install.
+        if lib.link.is_none() {
+            match lib.lib_type {
+                LibType::Static => {
+                    let fname = format!("lib{}.a", manifest.package.name);
+                    let src   = project_dir.join("target").join(profile).join(&fname);
+                    if src.exists() {
+                        let dst = lib_dir.join(&fname);
+                        copy_file(&src, &dst)?;
+                        set_mode(&dst, 0o644)?;
+                        items.push(InstalledItem { dst, kind: InstalledKind::StaticLib });
+                    }
                 }
+                LibType::Shared => {
+                    install_shared_lib(
+                        project_dir, profile,
+                        &manifest.package.name,
+                        &manifest.package.version,
+                        &lib_dir, &opts.prefix,
+                        &target_os,
+                        &mut items,
+                    )?;
+                }
+                LibType::Header => {}
             }
-            LibType::Shared => {
-                install_shared_lib(
-                    project_dir, profile,
-                    &manifest.package.name,
-                    &manifest.package.version,
-                    &lib_dir, &opts.prefix,
-                    &target_os,
-                    &mut items,
-                )?;
-            }
-            LibType::HeaderOnly | LibType::System => {}
         }
 
         // ── Public headers ────────────────────────────────────────────────────

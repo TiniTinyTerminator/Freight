@@ -44,11 +44,11 @@ struct RawExtensions {
 #[derive(Debug, Deserialize)]
 struct RawFlags {
     opt: HashMap<String, String>,
-    debug: HashMap<String, String>,
+    debug: String,
     warnings: HashMap<String, String>,
-    lto: HashMap<String, String>,
+    lto: String,
     #[serde(default)]
-    lto_link: HashMap<String, String>,
+    lto_link: String,
     sanitize: String,
     /// Template for per-CPU-extension flags, e.g. `"-m{name}"` → `-mavx2`.
     /// Empty string means the compiler does not support such flags.
@@ -471,12 +471,14 @@ pub struct CompilerTemplate {
     pub(super) language_option_handlers: HashMap<String, OptionHandler>,
 
     flags_opt: HashMap<String, String>,
-    flags_debug: HashMap<String, String>,
+    /// Flag emitted when `debug = true`. Empty = no debug info supported.
+    flags_debug: String,
     flags_warnings: HashMap<String, String>,
-    flags_lto: HashMap<String, String>,
-    /// Separate LTO flags for the link step (MSVC `/LTCG` vs compile-step `/GL`).
+    /// Flag emitted when `lto = true`. Empty = LTO unsupported.
+    flags_lto: String,
+    /// Separate LTO flag for the link step (e.g. MSVC `/LTCG` vs compile-step `/GL`).
     /// When empty, `flags_lto` is used for both compile and link.
-    flags_lto_link: HashMap<String, String>,
+    flags_lto_link: String,
     flags_sanitize: String,
     /// Template for CPU-extension flags, e.g. `"-m{name}"`. Empty = unsupported.
     flags_cpu_extension: String,
@@ -689,13 +691,7 @@ impl CompilerTemplate {
             })
         }).collect();
 
-        // load() flags for compile roles go into always_flags for now
-        let mut always_flags = def.always_flags;
-        for role in &["cc", "cxx"] {
-            if let Some(flags) = def.load_flags.get(*role) {
-                always_flags.extend_from_slice(flags);
-            }
-        }
+        let always_flags = def.always_flags;
 
         let get_pch = |k: &str| def.pch.get(k).cloned().unwrap_or_default();
         let pch = PchConfig {
@@ -760,9 +756,8 @@ impl CompilerTemplate {
         }
 
         // Debug
-        let debug_key = if settings.debug { "true" } else { "false" };
-        if let Some(f) = self.flags_debug.get(debug_key) {
-            push_flag_str(&mut flags, f);
+        if settings.debug && !self.flags_debug.is_empty() {
+            push_flag_str(&mut flags, &self.flags_debug);
         }
 
         // Warnings
@@ -771,9 +766,8 @@ impl CompilerTemplate {
         }
 
         // LTO
-        let lto_key = if settings.lto { "true" } else { "false" };
-        if let Some(f) = self.flags_lto.get(lto_key) {
-            push_flag_str(&mut flags, f);
+        if settings.lto && !self.flags_lto.is_empty() {
+            push_flag_str(&mut flags, &self.flags_lto);
         }
 
         // Sanitizers
@@ -1082,19 +1076,13 @@ impl CompilerTemplate {
             push_flag_str(&mut flags, f);
         }
 
-        let debug_key = if settings.debug { "true" } else { "false" };
-        if let Some(f) = self.flags_debug.get(debug_key) {
-            push_flag_str(&mut flags, f);
+        if settings.debug && !self.flags_debug.is_empty() {
+            push_flag_str(&mut flags, &self.flags_debug);
         }
 
-        let lto_key = if settings.lto { "true" } else { "false" };
-        let lto_f = if !self.flags_lto_link.is_empty() {
-            self.flags_lto_link.get(lto_key)
-        } else {
-            self.flags_lto.get(lto_key)
-        };
-        if let Some(f) = lto_f {
-            push_flag_str(&mut flags, f);
+        let lto_f = if !self.flags_lto_link.is_empty() { &self.flags_lto_link } else { &self.flags_lto };
+        if settings.lto && !lto_f.is_empty() {
+            push_flag_str(&mut flags, lto_f);
         }
 
         for f in &self.always_flags {

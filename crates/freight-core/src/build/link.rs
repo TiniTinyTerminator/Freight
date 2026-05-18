@@ -4,7 +4,7 @@ use std::process::Command;
 
 use crate::error::FreightError;
 use crate::event::{BuildEvent, Progress};
-use crate::manifest::types::{Dependency, LibType, Manifest};
+use crate::manifest::types::{Backend, Dependency, LibType, Manifest};
 use crate::toolchain::template::BuildSettings;
 use crate::toolchain::{CompilerTemplate, DetectedCompiler};
 use crate::vendor::parse_triple;
@@ -30,6 +30,7 @@ pub struct LinkResult {
 pub fn link_targets(
     project_dir: &Path,
     manifest: &Manifest,
+    backend: &Backend,
     profile: &str,
     objects: &[PathBuf],
     detected: &[DetectedCompiler],
@@ -43,7 +44,7 @@ pub fn link_targets(
 
     for bin in &manifest.bins {
         let out = project_dir.join("target").join(profile).join(executable_name(&bin.name, &target_os));
-        let linker = select_linker(manifest, detected, templates)
+        let linker = select_linker(manifest, backend, detected, templates)
             .ok_or_else(|| FreightError::CompilerNotFound("no suitable linker found".into()))?;
 
         // Exclude other bins' entry-point objects so each binary only has one main().
@@ -65,29 +66,32 @@ pub fn link_targets(
     }
 
     if let Some(lib) = &manifest.lib {
-        match lib.lib_type {
-            LibType::Static => {
-                let out = project_dir.join("target").join(profile)
-                    .join(format!("lib{}.a", manifest.package.name));
-                let linker = select_linker(manifest, detected, templates)
-                    .ok_or_else(|| FreightError::CompilerNotFound("no suitable linker found".into()))?;
-                progress(BuildEvent::Archiving { name: format!("lib{}.a", manifest.package.name) });
-                link_static(&out, objects, linker.template.ar_binary())?;
-                outputs.push(out);
-            }
-            LibType::Shared => {
-                let lib_name = shared_lib_name(&manifest.package.name, &target_os);
-                let out = project_dir.join("target").join(profile).join(&lib_name);
-                let linker = select_linker(manifest, detected, templates)
-                    .ok_or_else(|| FreightError::CompilerNotFound("no suitable linker found".into()))?;
-                progress(BuildEvent::Linking { name: lib_name.clone() });
-                link_shared(objects, &out, linker, manifest, profile, dep_libs, extra_link_flags)?;
-                if link_settings(manifest, profile).strip {
-                    strip_output(&out, linker)?;
+        // Prebuilt libs (link is set) have no objects to archive or link.
+        if lib.link.is_none() {
+            match lib.lib_type {
+                LibType::Static => {
+                    let out = project_dir.join("target").join(profile)
+                        .join(format!("lib{}.a", manifest.package.name));
+                    let linker = select_linker(manifest, backend, detected, templates)
+                        .ok_or_else(|| FreightError::CompilerNotFound("no suitable linker found".into()))?;
+                    progress(BuildEvent::Archiving { name: format!("lib{}.a", manifest.package.name) });
+                    link_static(&out, objects, linker.template.ar_binary())?;
+                    outputs.push(out);
                 }
-                outputs.push(out);
+                LibType::Shared => {
+                    let lib_name = shared_lib_name(&manifest.package.name, &target_os);
+                    let out = project_dir.join("target").join(profile).join(&lib_name);
+                    let linker = select_linker(manifest, backend, detected, templates)
+                        .ok_or_else(|| FreightError::CompilerNotFound("no suitable linker found".into()))?;
+                    progress(BuildEvent::Linking { name: lib_name.clone() });
+                    link_shared(objects, &out, linker, manifest, profile, dep_libs, extra_link_flags)?;
+                    if link_settings(manifest, profile).strip {
+                        strip_output(&out, linker)?;
+                    }
+                    outputs.push(out);
+                }
+                LibType::Header => {}
             }
-            LibType::HeaderOnly | LibType::System => {}
         }
     }
 
@@ -99,13 +103,14 @@ pub fn link_test_binary(
     objects: &[PathBuf],
     out: &Path,
     manifest: &Manifest,
+    backend: &Backend,
     profile: &str,
     detected: &[DetectedCompiler],
     templates: &[CompilerTemplate],
     dep_libs: &[PathBuf],
     extra_link_flags: &[String],
 ) -> Result<(), FreightError> {
-    let linker = select_linker(manifest, detected, templates)
+    let linker = select_linker(manifest, backend, detected, templates)
         .ok_or_else(|| FreightError::CompilerNotFound("no suitable linker found".into()))?;
     link_executable(objects, out, linker, manifest, profile, dep_libs, extra_link_flags)
 }
@@ -121,10 +126,12 @@ pub fn link_static_lib(objects: &[PathBuf], out: &Path, ar_bin: &str) -> Result<
 /// Priority order:
 /// 1. If any language template declares a non-empty `linker` ABI (e.g. CUDA→`"c++"`),
 ///    use the detected compiler that produces that ABI.
-/// 2. Among active languages, prefer the most link-capable one.
-/// 3. Fall back to the first detected compiler.
+/// 2. When `backend` is non-auto, prefer linkers from that family (e.g. `g++` for `gnu`).
+/// 3. Among active languages, prefer the most link-capable one.
+/// 4. Fall back to the first detected compiler.
 pub fn select_linker<'a>(
     manifest: &Manifest,
+    backend: &Backend,
     detected: &'a [DetectedCompiler],
     templates: &[CompilerTemplate],
 ) -> Option<&'a DetectedCompiler> {
@@ -142,6 +149,19 @@ pub fn select_linker<'a>(
     const PRIORITY: &[&str] = &[
         "cpp", "objcpp", "cuda", "hip", "sycl", "objc", "c", "fortran", "ada", "d", "opencl", "ispc",
     ];
+
+    // Non-auto backend: prefer a linker from the requested family first.
+    if !backend.is_auto() {
+        let family = backend.name();
+        for &lang in PRIORITY {
+            if manifest.language.contains_key(lang) {
+                let found = detected.iter()
+                    .find(|d| d.template.linking.contains_key(lang) && d.template.family == family);
+                if found.is_some() { return found; }
+            }
+        }
+    }
+
     for &lang in PRIORITY {
         if manifest.language.contains_key(lang) {
             let found = detected.iter()
@@ -342,7 +362,7 @@ mod tests {
         let ts = templates();
         let detected = fake_detected(&ts);
         let m = manifest("cpp");
-        let linker = select_linker(&m, &detected, &ts).unwrap();
+        let linker = select_linker(&m, &Backend::default(), &detected, &ts).unwrap();
         assert!(linker.template.linking.contains_key("cpp"));
     }
 
@@ -351,7 +371,7 @@ mod tests {
         let ts = templates();
         let detected = fake_detected(&ts);
         let m = manifest("cuda");
-        let linker = select_linker(&m, &detected, &ts).unwrap();
+        let linker = select_linker(&m, &Backend::default(), &detected, &ts).unwrap();
         assert!(linker.template.linking.values().any(|l| l.abi == "c++"),
             "CUDA should use C++ linker, got: {}", linker.template.name);
     }
@@ -361,7 +381,7 @@ mod tests {
         let ts = templates();
         let detected = fake_detected(&ts);
         let m = manifest("hip");
-        let linker = select_linker(&m, &detected, &ts).unwrap();
+        let linker = select_linker(&m, &Backend::default(), &detected, &ts).unwrap();
         assert!(linker.template.linking.values().any(|l| l.abi == "c++"));
     }
 
@@ -370,7 +390,7 @@ mod tests {
         let ts = templates();
         let detected = fake_detected(&ts);
         let m = manifest("c");
-        let linker = select_linker(&m, &detected, &ts).unwrap();
+        let linker = select_linker(&m, &Backend::default(), &detected, &ts).unwrap();
         assert!(!linker.template.name.is_empty());
     }
 
@@ -391,7 +411,7 @@ name = "p"
 src  = "src/main.cpp"
 "#;
         let m = crate::manifest::load_manifest_str(manifest_src).unwrap();
-        let linker = select_linker(&m, &detected, &ts).unwrap();
+        let linker = select_linker(&m, &Backend::default(), &detected, &ts).unwrap();
         // cpp has higher PRIORITY than c → linker must handle cpp
         assert!(
             linker.template.linking.contains_key("cpp"),

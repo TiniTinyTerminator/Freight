@@ -356,7 +356,7 @@ pub fn build_project_at(project_dir: &Path, profile: &str, features: &[String], 
     let compile_result = build_sources(project_dir, manifest, effective_backend, profile, &all_sources, &include_dirs, detected, &compile_defines, &extra_flags, progress)?;
 
     let link_result = link_targets(
-        project_dir, manifest, profile,
+        project_dir, manifest, effective_backend, profile,
         &compile_result.objects, detected, templates,
         &all_libs, &all_raw_link_flags, progress,
     )?;
@@ -650,7 +650,7 @@ pub fn test_project_at(project_dir: &Path, profile: &str, filter: Option<&str>, 
             .chain(lib_objects.iter().cloned())
             .collect();
         link_test_binary(
-            &all_objs, &test_bin, manifest, profile,
+            &all_objs, &test_bin, manifest, effective_backend, profile,
             detected, templates, &all_libs, &all_raw_link_flags,
         )?;
 
@@ -831,7 +831,7 @@ pub fn bench_project_at(
             .chain(lib_objects.iter().cloned())
             .collect();
         link_test_binary(
-            &all_objs, &bench_bin, manifest, profile,
+            &all_objs, &bench_bin, manifest, effective_backend, profile,
             detected, templates, &all_libs, &all_raw_link_flags,
         )?;
 
@@ -1047,7 +1047,7 @@ fn build_resolved_deps(
 
         if !lib_out.exists() || compile_result.compiled > 0 {
             progress(BuildEvent::Archiving { name: format!("lib{}.a", dep.name) });
-            let ar = select_linker(&dep.manifest, detected, templates)
+            let ar = select_linker(&dep.manifest, backend, detected, templates)
                 .map(|l| l.template.ar_binary().to_owned())
                 .unwrap_or_else(|| "ar".to_owned());
             link_static_lib(&compile_result.objects, &lib_out, &ar)?;

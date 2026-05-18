@@ -34,10 +34,10 @@ pub(super) struct ToolchainDef {
     pub extensions: Vec<String>,
     pub standards: HashMap<String, String>,
     pub flags_opt:      HashMap<String, String>,
-    pub flags_debug:    HashMap<String, String>,
+    pub flags_debug:    String,
     pub flags_warnings: HashMap<String, String>,
-    pub flags_lto:      HashMap<String, String>,
-    pub flags_lto_link: HashMap<String, String>,
+    pub flags_lto:      String,
+    pub flags_lto_link: String,
     pub flags_stdlib:   HashMap<String, String>,
     pub sanitize:       String,
     pub cpu_ext:        String,
@@ -188,7 +188,7 @@ pub(super) fn eval_script(src: &str, dir: Option<&Path>) -> Result<EvalResult, F
     // ── Plain variables — identity & constraints ───────────────────────────
     for key in &[
         "name", "homepage", "binary", "version_arg", "version_regex",
-        "passthrough_prefix", "min_version", "family", "kind",
+        "passthrough_prefix", "min_version", "family", "kind", "alias",
     ] {
         scope.push(*key, String::new());
     }
@@ -215,8 +215,12 @@ pub(super) fn eval_script(src: &str, dir: Option<&Path>) -> Result<EvalResult, F
     }
 
     // ── Per-category flag maps (plain Rhai Map — native indexer-set works) ─
-    for cat in &["opt", "dbg", "warnings", "lto", "lto_link", "stdlib", "defaults"] {
+    for cat in &["opt", "warnings", "stdlib", "defaults"] {
         scope.push(*cat, Map::new());
+    }
+    // Boolean flag strings: the "true" flag only — false is always no flag.
+    for key in &["dbg", "lto", "lto_link"] {
+        scope.push(*key, String::new());
     }
     // sanitize and cpu_ext are single template strings, grouped near sanitizers.
     scope.push("sanitize", String::new());
@@ -283,10 +287,10 @@ pub(super) fn eval_script(src: &str, dir: Option<&Path>) -> Result<EvalResult, F
             .collect::<HashMap<String, String>>()
     }; }
     def.flags_opt      = flag_map!("opt");
-    def.flags_debug    = flag_map!("dbg");
+    def.flags_debug    = str!("dbg");
     def.flags_warnings = flag_map!("warnings");
-    def.flags_lto      = flag_map!("lto");
-    def.flags_lto_link = flag_map!("lto_link");
+    def.flags_lto      = str!("lto");
+    def.flags_lto_link = str!("lto_link");
     def.flags_stdlib   = flag_map!("stdlib");
     def.defaults       = flag_map!("defaults");
     def.kind           = str!("kind");

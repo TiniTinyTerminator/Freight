@@ -83,6 +83,7 @@ pub fn compile_sources(
     progress: &Progress,
 ) -> Result<CompileResult, FreightError> {
     let pf = primary_family(backend, detected);
+    let lf = linker_family(manifest, backend, detected);
     let progress = progress.clone();
 
     let results: Result<Vec<(PathBuf, bool)>, FreightError> = sources
@@ -100,7 +101,20 @@ pub fn compile_sources(
             let compiler = select_compiler(&src.lang_key, backend, detected, pf)
                 .ok_or_else(|| FreightError::NoCompilerForLang(src.lang_key.clone()))?;
 
-            let settings = settings_for_lang(manifest, profile, &src.lang_key, include_dirs, project_dir, feature_defines);
+            let mut settings = settings_for_lang(manifest, profile, &src.lang_key, include_dirs, project_dir, feature_defines);
+
+            // Suppress LTO when this compiler's family differs from the linker's family.
+            // Mixing GNU (gfortran/gcc) GIMPLE LTO IR with LLVM (clang++) LTO bitcode is
+            // incompatible. The object still gets -O3; only cross-TU LTO is lost.
+            if settings.lto {
+                let cf = compiler.template.family.as_str();
+                if let Some(linker_f) = lf {
+                    if !cf.is_empty() && cf != linker_f {
+                        settings.lto = false;
+                    }
+                }
+            }
+
             let compile_bin = resolve_compile_binary(compiler, &src.lang_key);
 
             fs::create_dir_all(obj.parent().expect("obj path always has a parent"))?;
@@ -309,6 +323,42 @@ pub fn primary_family<'a>(backend: &Backend, detected: &'a [DetectedCompiler]) -
         }
     }
     None
+}
+
+/// Return the family of the compiler that will drive the final link step.
+///
+/// Mirrors `link::select_linker`'s priority ordering (including backend preference)
+/// but operates only on `detected` (no `templates` slice) for use inside `compile_sources`.
+fn linker_family<'a>(manifest: &Manifest, backend: &Backend, detected: &'a [DetectedCompiler]) -> Option<&'a str> {
+    const PRIORITY: &[&str] = &[
+        "cpp", "objcpp", "cuda", "hip", "sycl", "objc", "c",
+        "fortran", "ada", "d", "opencl", "ispc",
+    ];
+    // Non-auto backend: prefer linkers from the requested family (same as select_linker).
+    if !backend.is_auto() {
+        let family = backend.name();
+        for &lang in PRIORITY {
+            if manifest.language.contains_key(lang) {
+                if let Some(d) = detected.iter()
+                    .find(|d| d.template.linking.contains_key(lang) && d.template.family == family)
+                {
+                    return Some(&d.template.family);
+                }
+            }
+        }
+    }
+    for &lang in PRIORITY {
+        if manifest.language.contains_key(lang) {
+            if let Some(d) = detected.iter().find(|d| d.template.linking.contains_key(lang)) {
+                if !d.template.family.is_empty() {
+                    return Some(&d.template.family);
+                }
+            }
+        }
+    }
+    detected.first().and_then(|d| {
+        (!d.template.family.is_empty()).then_some(d.template.family.as_str())
+    })
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -2,41 +2,41 @@
   {
     "directory": "/home/max/Freight/examples/hello-cpp",
     "file": "src/main.cpp",
-    "command": "/usr/bin/clang++ -O0 -g -Wall -Wextra -Wpedantic -std=c++20 -Iinc -c src/main.cpp -o target/dev/objs/src/main.o",
+    "command": "/usr/bin/clang++ -O3 -Wall -Wextra -Wpedantic -flto -std=c++20 -Iinc -c src/main.cpp -o target/release/objs/src/main.o",
     "arguments": [
       "/usr/bin/clang++",
-      "-O0",
-      "-g",
+      "-O3",
       "-Wall",
       "-Wextra",
       "-Wpedantic",
+      "-flto",
       "-std=c++20",
       "-Iinc",
       "-c",
       "src/main.cpp",
       "-o",
-      "target/dev/objs/src/main.o"
+      "target/release/objs/src/main.o"
     ],
-    "output": "target/dev/objs/src/main.o"
+    "output": "target/release/objs/src/main.o"
   },
   {
     "directory": "/home/max/Freight/examples/hello-cpp",
     "file": "src/stats.cpp",
-    "command": "/usr/bin/clang++ -O0 -g -Wall -Wextra -Wpedantic -std=c++20 -Iinc -c src/stats.cpp -o target/dev/objs/src/stats.o",
+    "command": "/usr/bin/clang++ -O3 -Wall -Wextra -Wpedantic -flto -std=c++20 -Iinc -c src/stats.cpp -o target/release/objs/src/stats.o",
     "arguments": [
       "/usr/bin/clang++",
-      "-O0",
-      "-g",
+      "-O3",
       "-Wall",
       "-Wextra",
       "-Wpedantic",
+      "-flto",
       "-std=c++20",
       "-Iinc",
       "-c",
       "src/stats.cpp",
       "-o",
-      "target/dev/objs/src/stats.o"
+      "target/release/objs/src/stats.o"
     ],
-    "output": "target/dev/objs/src/stats.o"
+    "output": "target/release/objs/src/stats.o"
   }
 ]

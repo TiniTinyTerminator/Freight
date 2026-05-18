@@ -33,16 +33,14 @@ opt["3"] = "-O3";
 opt["s"] = "-Os";
 opt["z"] = "-Oz";
 
-dbg["true"]  = "-g";
-dbg["false"] = "";
+dbg = "-g";
 
 warnings["none"]    = "";
 warnings["default"] = "-Wall";
 warnings["all"]     = "-Wall -Wextra -Wpedantic";
 warnings["error"]   = "-Wall -Wextra -Wpedantic -Werror";
 
-lto["true"]  = "-flto";
-lto["false"] = "";
+lto = "-flto";
 
 sanitize = "-fsanitize={values}";
 cpu_ext  = "-m{name}";
@@ -64,11 +62,7 @@ sysroot      = "--sysroot={path}";
 // ── Architecture flags ────────────────────────────────────────────────────────
 
 if arch == "x86_64" || arch == "x64" {
-    load_flags["cc"]  += ["-m64"];
-    load_flags["cxx"] += ["-m64"];
-    load_flags["ld"]  += ["-m64"];
+    always_flags += ["-m64"];
 } else if arch == "i386" || arch == "x86" {
-    load_flags["cc"]  += ["-m32"];
-    load_flags["cxx"] += ["-m32"];
-    load_flags["ld"]  += ["-m32"];
+    always_flags += ["-m32"];
 }

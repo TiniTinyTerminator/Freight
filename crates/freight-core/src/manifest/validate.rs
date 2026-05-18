@@ -3,7 +3,7 @@ use std::path::Path;
 
 use semver::Version;
 
-use super::types::{known_arch_keys, known_platform_keys, Dependency, DetailedDep, Manifest, Profile};
+use super::types::{known_arch_keys, known_platform_keys, Dependency, DetailedDep, LibType, Manifest, Profile};
 use crate::toolchain::CompilerTemplate;
 
 const VALID_WARNINGS: &[&str] = &["none", "default", "all", "error"];
@@ -328,8 +328,15 @@ fn validate_targets(m: &Manifest, errors: &mut Vec<ValidationError>) {
     }
 
     if let Some(lib) = &m.lib {
-        if lib.srcs.is_empty() {
+        let prebuilt = lib.link.is_some() || lib.lib_type == LibType::Header;
+        if !prebuilt && lib.srcs.is_empty() {
             errors.push(ValidationError::new("[lib]", "srcs must not be empty"));
+        }
+        if lib.link.is_some() && !lib.srcs.is_empty() {
+            errors.push(ValidationError::new(
+                "[lib]",
+                "link and srcs are mutually exclusive: prebuilt libraries have no source files",
+            ));
         }
     }
 }
