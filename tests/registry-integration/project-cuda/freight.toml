@@ -1,0 +1,22 @@
+[package]
+name    = "registry-test-cuda"
+version = "0.1.0"
+
+# nvcc compiles .cu files; g++/clang++ remains the primary toolchain for .cpp
+# and for linking.  No GPU device code is present, so no cudart linking needed.
+[language.cuda]
+
+[language.cpp]
+std = "c++17"
+
+[[bin]]
+name = "registry-test-cuda"
+src  = "src/main.cu"
+
+[dependencies]
+nlohmann-json = "3.11.3"
+sqlite3       = "3.45.1"
+
+[profile.dev]
+opt-level = 0
+debug     = true
