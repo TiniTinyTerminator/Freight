@@ -121,6 +121,8 @@ pub fn load_templates(templates_dir: &Path) -> Vec<CompilerTemplate> {
         if path.extension().and_then(|e| e.to_str()) != Some("toml") { continue; }
         if path.file_name().and_then(|n| n.to_str())
             .map(|n| n.starts_with('_')).unwrap_or(false) { continue; }
+        // Skip system-lib stubs — they are not compiler templates.
+        if path.components().any(|c| c.as_os_str() == "system-libs") { continue; }
         let Ok(src) = std::fs::read_to_string(path) else { continue };
         if quick_kind_toml(&src) != "compiler" { continue; }
         let dir = path.parent();

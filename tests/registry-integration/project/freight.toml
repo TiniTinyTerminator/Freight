@@ -1,0 +1,15 @@
+[package]
+name    = "registry-test"
+version = "0.1.0"
+
+[[bin]]
+name = "registry-test"
+src  = "src/main.c"
+
+[dependencies]
+libvec = "1.0.0"
+libstr = "1.0.0"
+
+[profile.dev]
+opt-level = 0
+debug     = true
