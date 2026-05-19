@@ -1,25 +1,75 @@
-base       = ["_llvm-base", "../languages/_c"]
-name       = "clang"
-homepage   = "https://clang.llvm.org/"
-detect     = ["clang", "clang-18", "clang-17", "clang-16", "clang-15", "clang-14"]
-extensions = [".c", ".s", ".S"]
-sanitizer_options = ["address", "undefined", "thread", "memory", "leak", "hwaddress", "dataflow", "cfi", "safestack"]
+name          = "clang"
+kind          = "compiler"
+family        = "llvm"
+homepage      = "https://clang.llvm.org/"
+version_arg   = "--version"
+version_regex = '\b(\d+\.\d+\.\d+)\b'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address", "undefined", "thread", "memory", "leak", "hwaddress", "dataflow", "cfi", "safestack"]
+
+detect       = ["clang"]
+always_flags = []
+
+dbg      = "-g"
+lto      = "-flto"
+sanitize = "-fsanitize={values}"
+cpu_ext  = "-m{name}"
 
 [toolset]
-cc  = "$(binary)"
-cxx = "$(binary.replace('clang', 'clang++'))"
-ld  = "$(binary.replace('clang', 'clang++'))"
+cc    = "$(binary)"
+cxx   = "$(binary.replace('clang', 'clang++'))"
+ld    = "$(binary.replace('clang', 'clang++'))"
+ar    = "ar"
+strip = "strip"
+
+[structure]
+include_dir  = "-I{path}"
+define       = "-D{name}"
+define_value = "-D{name}={value}"
+output       = "-o {path}"
+compile_only = "-c"
+dep_file     = "-MMD -MF {path}"
+target       = "--target={triple}"
+sysroot      = "--sysroot={path}"
+
+[optimization]
+"0" = "-O0"
+"1" = "-O1"
+"2" = "-O2"
+"3" = "-O3"
+"s" = "-Os"
+"z" = "-Oz"
+
+[warnings]
+normal = "-Wall"
+none   = ""
+all    = "-Wall -Wextra -Wpedantic"
+error  = "-Wall -Wextra -Wpedantic -Werror"
+
+[stdlib]
+none = "-nostdlib"
+
+extensions = [".c", ".s", ".S"]
+
+[language.std]
+"c11" = "-std=c11"
+"c17" = "-std=c17"
+"c23" = "-std=c23"
+
+[modules]
+style = "none"
 
 [linking.c]
-abi             = "c"
-compatible      = ["fortran", "asm"]
-compile_binary  = "$(binary)"
-linker          = ""
-extensions      = [".c", ".s", ".S"]
+abi            = "c"
+compatible     = ["fortran", "asm"]
+compile_binary = "$(binary)"
+linker         = ""
+extensions     = [".c", ".s", ".S"]
 
 [linking.objc]
-abi             = "objc"
-compatible      = ["c"]
-compile_binary  = "$(binary)"
-linker          = ""
-extensions      = [".m"]
+abi            = "objc"
+compatible     = ["c"]
+compile_binary = "$(binary)"
+linker         = ""
+extensions     = [".m"]

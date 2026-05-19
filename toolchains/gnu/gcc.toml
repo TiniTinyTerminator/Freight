@@ -1,17 +1,69 @@
-base       = ["_gnu-base", "../languages/_c"]
-name       = "gcc"
-homepage   = "https://gcc.gnu.org/"
-detect     = ["gcc", "gcc-14", "gcc-13", "gcc-12", "gcc-11", "gcc-10"]
-extensions = [".c", ".s", ".S"]
+name          = "gcc"
+alias         = "g++"
+kind          = "compiler"
+family        = "gnu"
+homepage      = "https://gcc.gnu.org/"
+version_arg   = "--version"
+version_regex = '\b(\d+\.\d+\.\d+)\b'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address", "undefined", "thread", "leak"]
+
+detect       = ["gcc"]
+always_flags = ["$(arch == 'x86_64' ? '-m64' : arch == 'x86' ? '-m32' : '')"]
+
+dbg      = "-g"
+lto      = "-flto"
+sanitize = "-fsanitize={values}"
+cpu_ext  = "-m{name}"
 
 [toolset]
-cc  = "$(binary)"
-cxx = "$(binary.replace('gcc', 'g++'))"
-ld  = "$(binary.replace('gcc', 'g++'))"
+cc    = "$(binary)"
+cxx   = "$(binary.replace('gcc', 'g++'))"
+ld    = "$(binary.replace('gcc', 'g++'))"
+ar    = "ar"
+strip = "strip"
+
+[structure]
+include_dir  = "-I{path}"
+define       = "-D{name}"
+define_value = "-D{name}={value}"
+output       = "-o {path}"
+compile_only = "-c"
+dep_file     = "-MMD -MF {path}"
+target       = ""
+sysroot      = "--sysroot={path}"
+
+[optimization]
+"0" = "-O0"
+"1" = "-O1"
+"2" = "-O2"
+"3" = "-O3"
+"s" = "-Os"
+"z" = "-Oz"
+
+[warnings]
+normal = "-Wall"
+none   = ""
+all    = "-Wall -Wextra -Wpedantic"
+error  = "-Wall -Wextra -Wpedantic -Werror"
+
+[stdlib]
+none = "-nostdlib"
+
+extensions = [".c", ".s", ".S"]
+
+[language.std]
+"c11" = "-std=c11"
+"c17" = "-std=c17"
+"c23" = "-std=c23"
+
+[modules]
+style = "none"
 
 [linking.c]
-abi             = "c"
-compatible      = ["fortran", "asm"]
-compile_binary  = "$(binary)"
-linker          = ""
-extensions      = [".c", ".s", ".S"]
+abi            = "c"
+compatible     = ["fortran", "asm"]
+compile_binary = "$(binary)"
+linker         = ""
+extensions     = [".c", ".s", ".S"]

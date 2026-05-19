@@ -1,12 +1,43 @@
-base     = "_gnu-base"
-name     = "gdc"
-homepage = "https://gcc.gnu.org/"
-binary   = "gdc"
-extensions         = [".d"]
+name          = "gdc"
+kind          = "compiler"
+family        = "gnu"
+homepage      = "https://gcc.gnu.org/"
+version_arg   = "--version"
+version_regex = '\b(\d+\.\d+\.\d+)\b'
+passthrough        = false
+passthrough_prefix = ""
 sanitizer_options  = ["address", "undefined", "thread", "leak"]
 
+detect       = ["gdc"]
+always_flags = ["$(arch == 'x86_64' ? '-m64' : arch == 'x86' ? '-m32' : '')"]
+
+dbg      = "-g"
+lto      = "-flto"
+sanitize = "-fsanitize={values}"
+cpu_ext  = "-m{name}"
+
 [toolset]
-ld = "gdc"
+ld    = "gdc"
+ar    = "ar"
+strip = "strip"
+
+[structure]
+include_dir  = "-I{path}"
+define       = "-fversion={name}"
+define_value = "-fversion={name}"
+output       = "-o {path}"
+compile_only = "-c"
+dep_file     = "-MMD -MF {path}"
+target       = ""
+sysroot      = "--sysroot={path}"
+
+[optimization]
+"0" = "-O0"
+"1" = "-O1"
+"2" = "-O2"
+"3" = "-O3"
+"s" = "-Os"
+"z" = "-Oz"
 
 [warnings]
 normal = ""
@@ -14,10 +45,10 @@ none   = ""
 all    = "-Wall"
 error  = "-Wall -Werror"
 
-[structure]
-include_dir  = "-I{path}"
-define       = "-fversion={name}"
-define_value = "-fversion={name}"
+[stdlib]
+none = "-nostdlib"
+
+extensions = [".d"]
 
 [modules]
 style = "none"

@@ -1,4 +1,5 @@
-name          = "aarch64-linux-gnu"
+name          = "g++-15"
+alias         = "gcc-15"
 kind          = "compiler"
 family        = "gnu"
 homepage      = "https://gcc.gnu.org/"
@@ -8,8 +9,8 @@ passthrough        = false
 passthrough_prefix = ""
 sanitizer_options  = ["address", "undefined", "thread", "leak"]
 
-detect       = ["aarch64-linux-gnu-g++"]
-always_flags = []
+detect       = ["g++-15"]
+always_flags = ["$(arch == 'x86_64' ? '-m64' : arch == 'x86' ? '-m32' : '')"]
 
 dbg      = "-g"
 lto      = "-flto"
@@ -17,11 +18,11 @@ sanitize = "-fsanitize={values}"
 cpu_ext  = "-m{name}"
 
 [toolset]
-cc    = "aarch64-linux-gnu-gcc"
-cxx   = "aarch64-linux-gnu-g++"
-ld    = "aarch64-linux-gnu-g++"
-ar    = "aarch64-linux-gnu-ar"
-strip = "aarch64-linux-gnu-strip"
+cc    = "gcc-15"
+cxx   = "g++-15"
+ld    = "g++-15"
+ar    = "ar"
+strip = "strip"
 
 [structure]
 include_dir  = "-I{path}"

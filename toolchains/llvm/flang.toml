@@ -1,17 +1,40 @@
-base     = ["_llvm-base", "../languages/_fortran"]
-name     = "flang"
-homepage = "https://flang.llvm.org/"
-detect   = ["flang", "flang-new"]
+name          = "flang"
+kind          = "compiler"
+family        = "llvm"
+homepage      = "https://flang.llvm.org/"
+version_arg   = "--version"
 version_regex = 'flang(?:-new)? version (\d+\.\d+\.\d+)'
-sanitizer_options = ["address", "undefined"]
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address", "undefined"]
+
+detect       = ["flang", "flang-new"]
+always_flags = []
+
+dbg      = "-g"
+lto      = "-flto"
+sanitize = "-fsanitize={values}"
+cpu_ext  = "-m{name}"
 
 [toolset]
-ld = "$(binary)"
+ld    = "$(binary)"
+ar    = "ar"
+strip = "strip"
+
+[structure]
+include_dir  = "-I{path}"
+define       = "-D{name}"
+define_value = "-D{name}={value}"
+output       = "-o {path}"
+compile_only = "-c"
+dep_file     = "-MMD -MF {path}"
+target       = "--target={triple}"
+sysroot      = "--sysroot={path}"
 
 [optimization]
-"2" = "-O2"
 "0" = "-O0"
 "1" = "-O1"
+"2" = "-O2"
 "3" = "-O3"
 "s" = "-O2"
 "z" = "-O2"
@@ -22,5 +45,22 @@ none   = ""
 all    = "-Wall -Wextra"
 error  = "-Wall -Wextra -Werror"
 
+[stdlib]
+none = "-nostdlib"
+
+extensions = [".f90", ".f95", ".f03", ".f08", ".f", ".F90"]
+
+[language.std]
+"f95"   = "-std=f95"
+"f2003" = "-std=f2003"
+"f2008" = "-std=f2008"
+"f2018" = "-std=f2018"
+
 [modules]
 style = "none"
+
+[linking.fortran]
+abi        = "fortran"
+compatible = ["c"]
+linker     = ""
+extensions = [".f90", ".f95", ".f03", ".f08", ".f", ".F90"]

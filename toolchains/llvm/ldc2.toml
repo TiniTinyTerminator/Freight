@@ -1,21 +1,25 @@
-base       = "_llvm-base"
-name       = "ldc2"
-homepage   = "https://github.com/ldc-developers/ldc"
-binary     = "ldc2"
+name          = "ldc2"
+kind          = "compiler"
+family        = "llvm"
+homepage      = "https://github.com/ldc-developers/ldc"
+version_arg   = "--version"
 version_regex = '\b(\d+\.\d+\.\d+)\b'
-extensions = [".d"]
-sanitizer_options = ["address", "thread", "memory", "undefined"]
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address", "thread", "memory", "undefined"]
+
+detect       = ["ldc2"]
+always_flags = []
+
+dbg      = "-g"
 lto      = "-flto=full"
 sanitize = "-fsanitize={values}"
+cpu_ext  = "-m{name}"
 
 [toolset]
-ld = "ldc2"
-
-[warnings]
-normal = ""
-none   = ""
-all    = "-wi"
-error  = "-w"
+ld    = "ldc2"
+ar    = "ar"
+strip = "strip"
 
 [structure]
 include_dir   = "-I{path}"
@@ -29,15 +33,31 @@ system_lib    = "-L-l{name}"
 target        = "-mtriple={triple}"
 sysroot       = ""
 
+[optimization]
+"0" = "-O0"
+"1" = "-O1"
+"2" = "-O2"
+"3" = "-O3"
+"s" = "-Os"
+"z" = "-Oz"
+
+[warnings]
+normal = ""
+none   = ""
+all    = "-wi"
+error  = "-w"
+
+extensions = [".d"]
+
 [modules]
 style = "none"
+
+[compiler.dip1000]
+"false" = ""
+"true"  = "-preview=dip1000"
 
 [linking.d]
 abi        = "d"
 compatible = ["c"]
 linker     = ""
 extensions = [".d"]
-
-[compiler.dip1000]
-"false" = ""
-"true"  = "-preview=dip1000"

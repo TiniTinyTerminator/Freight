@@ -1,13 +1,66 @@
-base     = ["_gnu-base", "../languages/_fortran"]
-name     = "gfortran"
-homepage = "https://gcc.gnu.org/fortran/"
-binary   = "gfortran"
-sanitizer_options = ["address", "undefined"]
+name          = "gfortran"
+kind          = "compiler"
+family        = "gnu"
+homepage      = "https://gcc.gnu.org/fortran/"
+version_arg   = "--version"
+version_regex = '\b(\d+\.\d+\.\d+)\b'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address", "undefined"]
+
+detect       = ["gfortran"]
+always_flags = ["$(arch == 'x86_64' ? '-m64' : arch == 'x86' ? '-m32' : '')"]
+
+dbg      = "-g"
+lto      = "-flto"
 sanitize = "-fsanitize={values}"
 cpu_ext  = ""
 
 [toolset]
-ld = "gfortran"
+ld    = "gfortran"
+ar    = "ar"
+strip = "strip"
 
 [structure]
-dep_file = "-cpp -MMD -MF {path}"
+include_dir  = "-I{path}"
+define       = "-D{name}"
+define_value = "-D{name}={value}"
+output       = "-o {path}"
+compile_only = "-c"
+dep_file     = "-cpp -MMD -MF {path}"
+target       = ""
+sysroot      = "--sysroot={path}"
+
+[optimization]
+"0" = "-O0"
+"1" = "-O1"
+"2" = "-O2"
+"3" = "-O3"
+"s" = "-Os"
+"z" = "-Oz"
+
+[warnings]
+normal = "-Wall"
+none   = ""
+all    = "-Wall -Wextra"
+error  = "-Wall -Wextra -Werror"
+
+[stdlib]
+none = "-nostdlib"
+
+extensions = [".f90", ".f95", ".f03", ".f08", ".f", ".F90"]
+
+[language.std]
+"f95"   = "-std=f95"
+"f2003" = "-std=f2003"
+"f2008" = "-std=f2008"
+"f2018" = "-std=f2018"
+
+[modules]
+style = "none"
+
+[linking.fortran]
+abi        = "fortran"
+compatible = ["c"]
+linker     = ""
+extensions = [".f90", ".f95", ".f03", ".f08", ".f", ".F90"]

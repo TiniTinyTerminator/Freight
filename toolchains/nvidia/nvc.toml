@@ -1,21 +1,63 @@
-base       = "_nvhpc-base"
-name       = "nvc"
-homepage   = "https://developer.nvidia.com/hpc-sdk"
-binary     = "nvc"
-extensions = [".c"]
-sanitizer_options = ["address"]
+name          = "nvc"
+kind          = "compiler"
+family        = "nvidia"
+homepage      = "https://developer.nvidia.com/hpc-sdk"
+version_arg   = "--version"
+version_regex = '(\d+\.\d+)'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address"]
+supported_archs    = ["x86_64", "aarch64"]
+supported_os       = ["linux"]
+
+detect       = ["nvc"]
+always_flags = []
+
+dbg     = "-g"
+lto     = ""
+cpu_ext = "-m{name}"
 
 [toolset]
-cc = "nvc"
-ld = "nvc"
+cc  = "nvc"
+ld  = "nvc"
+ar  = "ar"
+
+[structure]
+include_dir  = "-I{path}"
+define       = "-D{name}"
+define_value = "-D{name}={value}"
+output       = "-o {path}"
+compile_only = "-c"
+dep_file     = "-MMD -MF {path}"
+target       = ""
+sysroot      = ""
+
+[optimization]
+"0" = "-O0"
+"1" = "-O1"
+"2" = "-O2"
+"3" = "-O3"
+"s" = "-O2"
+"z" = "-O2"
+
+[warnings]
+normal = ""
+none   = ""
+all    = "-Minform=warn"
+error  = "-Minform=warn -Werror"
+
+extensions = [".c"]
 
 [language.std]
 "c11" = "-std=c11"
 "c17" = "-std=c17"
 
+[modules]
+style = "none"
+
 [linking.c]
-abi             = "c"
-compatible      = ["fortran"]
-compile_binary  = "nvc"
-linker          = ""
-extensions      = [".c"]
+abi            = "c"
+compatible     = ["fortran"]
+compile_binary = "nvc"
+linker         = ""
+extensions     = [".c"]

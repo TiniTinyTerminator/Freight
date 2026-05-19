@@ -1,24 +1,66 @@
-base       = "_nvhpc-base"
-name       = "nvfortran"
-homepage   = "https://developer.nvidia.com/hpc-sdk"
-binary     = "nvfortran"
-extensions = [".f90", ".f95", ".f", ".F90"]
-sanitizer_options = ["address"]
+name          = "nvfortran"
+kind          = "compiler"
+family        = "nvidia"
+homepage      = "https://developer.nvidia.com/hpc-sdk"
+version_arg   = "--version"
+version_regex = '(\d+\.\d+)'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address"]
+supported_archs    = ["x86_64", "aarch64"]
+supported_os       = ["linux"]
+
+detect       = ["nvfortran"]
+always_flags = []
+
+dbg     = "-g"
+lto     = ""
+cpu_ext = "-m{name}"
 
 [toolset]
-ld = "nvfortran"
+ld  = "nvfortran"
+ar  = "ar"
+
+[structure]
+include_dir  = "-I{path}"
+define       = "-D{name}"
+define_value = "-D{name}={value}"
+output       = "-o {path}"
+compile_only = "-c"
+dep_file     = "-MMD -MF {path}"
+target       = ""
+sysroot      = ""
+
+[optimization]
+"0" = "-O0"
+"1" = "-O1"
+"2" = "-O2"
+"3" = "-O3"
+"s" = "-O2"
+"z" = "-O2"
+
+[warnings]
+normal = ""
+none   = ""
+all    = "-Minform=warn"
+error  = "-Minform=warn -Werror"
 
 [stdlib]
 none = ""
+
+extensions = [".f90", ".f95", ".f", ".F90"]
 
 [language.std]
 "f2003" = "-Mstandard"
 "f2008" = "-Mstandard"
 "f2018" = "-Mstandard"
 
+[modules]
+style = "none"
+
 [linking.fortran]
-abi             = "fortran"
-compatible      = ["c"]
-compile_binary  = "nvfortran"
-linker          = ""
-extensions      = [".f90", ".f95", ".f", ".F90"]
+abi            = "fortran"
+compatible     = ["c"]
+compile_binary = "nvfortran"
+linker         = ""
+extensions     = [".f90", ".f95", ".f", ".F90"]

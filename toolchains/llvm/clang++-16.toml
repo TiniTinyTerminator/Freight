@@ -1,14 +1,15 @@
-name          = "aarch64-linux-gnu"
+name          = "clang++-16"
+alias         = "clang-16"
 kind          = "compiler"
-family        = "gnu"
-homepage      = "https://gcc.gnu.org/"
+family        = "llvm"
+homepage      = "https://clang.llvm.org/"
 version_arg   = "--version"
 version_regex = '\b(\d+\.\d+\.\d+)\b'
 passthrough        = false
 passthrough_prefix = ""
-sanitizer_options  = ["address", "undefined", "thread", "leak"]
+sanitizer_options  = ["address", "undefined", "thread", "memory", "leak", "hwaddress", "dataflow", "cfi", "safestack"]
 
-detect       = ["aarch64-linux-gnu-g++"]
+detect       = ["clang++-16"]
 always_flags = []
 
 dbg      = "-g"
@@ -17,11 +18,11 @@ sanitize = "-fsanitize={values}"
 cpu_ext  = "-m{name}"
 
 [toolset]
-cc    = "aarch64-linux-gnu-gcc"
-cxx   = "aarch64-linux-gnu-g++"
-ld    = "aarch64-linux-gnu-g++"
-ar    = "aarch64-linux-gnu-ar"
-strip = "aarch64-linux-gnu-strip"
+cc    = "clang-16"
+cxx   = "clang++-16"
+ld    = "clang++-16"
+ar    = "ar"
+strip = "strip"
 
 [structure]
 include_dir  = "-I{path}"
@@ -30,7 +31,7 @@ define_value = "-D{name}={value}"
 output       = "-o {path}"
 compile_only = "-c"
 dep_file     = "-MMD -MF {path}"
-target       = ""
+target       = "--target={triple}"
 sysroot      = "--sysroot={path}"
 
 [optimization]
@@ -48,32 +49,42 @@ all    = "-Wall -Wextra -Wpedantic"
 error  = "-Wall -Wextra -Wpedantic -Werror"
 
 [stdlib]
-"libstdc++" = ""
+"libc++"    = "-stdlib=libc++"
+"libstdc++" = "-stdlib=libstdc++"
 none        = "-nostdlib"
 
-extensions = [".cpp", ".cppm", ".ixx", ".mpp", ".cc", ".cxx", ".c++"]
+extensions = [".cpp", ".cppm", ".ixx", ".mpp", ".cc", ".cxx", ".c++", ".mm"]
 
+# Clang 16: C++23 stable.
 [language.std]
 "c++17" = "-std=c++17"
 "c++20" = "-std=c++20"
 "c++23" = "-std=c++23"
-"c++26" = "-std=c++26"
 
 [modules]
-style         = "gcc"
-enable_flag   = "-fmodules-ts"
-compile_miu   = "-fmodule-output={pcm_path}"
+style         = "clang"
+precompile    = "--precompile"
 import_module = "-fmodule-file={name}={pcm_path}"
-header_unit   = "-fmodule-header"
+header_unit   = "-x c++-header"
 
 [pch]
 compile     = "-x c++-header"
-use         = "-include {header_path}"
-extension   = ".gch"
+use         = "-include-pch {pch_path}"
+extension   = ".pch"
 clangd_flag = "-include {header_path}"
+
+[compiler.lto_mode]
+thin = "-flto=thin"
+full = "-flto=full"
 
 [linking.cpp]
 abi        = "c++"
 compatible = ["c", "fortran"]
 linker     = ""
 extensions = [".cpp", ".cppm", ".ixx", ".mpp", ".cc", ".cxx", ".c++"]
+
+[linking.objcpp]
+abi        = "c++"
+compatible = ["c", "objc"]
+linker     = ""
+extensions = [".mm"]

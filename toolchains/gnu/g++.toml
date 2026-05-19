@@ -1,13 +1,64 @@
-base     = ["_gnu-base", "../languages/_cpp"]
-name     = "g++"
-alias    = "gcc"
-homepage = "https://gcc.gnu.org/"
-detect   = ["g++", "g++-14", "g++-13", "g++-12", "g++-11", "g++-10"]
+name          = "g++"
+alias         = "gcc"
+kind          = "compiler"
+family        = "gnu"
+homepage      = "https://gcc.gnu.org/"
+version_arg   = "--version"
+version_regex = '\b(\d+\.\d+\.\d+)\b'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address", "undefined", "thread", "leak"]
+
+detect       = ["g++"]
+always_flags = ["$(arch == 'x86_64' ? '-m64' : arch == 'x86' ? '-m32' : '')"]
+
+dbg      = "-g"
+lto      = "-flto"
+sanitize = "-fsanitize={values}"
+cpu_ext  = "-m{name}"
 
 [toolset]
-cc  = "$(binary.replace('g++', 'gcc').replace('g++-', 'gcc-'))"
-cxx = "$(binary)"
-ld  = "$(binary)"
+cc    = "$(binary.replace('g++', 'gcc'))"
+cxx   = "$(binary)"
+ld    = "$(binary)"
+ar    = "ar"
+strip = "strip"
+
+[structure]
+include_dir  = "-I{path}"
+define       = "-D{name}"
+define_value = "-D{name}={value}"
+output       = "-o {path}"
+compile_only = "-c"
+dep_file     = "-MMD -MF {path}"
+target       = ""
+sysroot      = "--sysroot={path}"
+
+[optimization]
+"0" = "-O0"
+"1" = "-O1"
+"2" = "-O2"
+"3" = "-O3"
+"s" = "-Os"
+"z" = "-Oz"
+
+[warnings]
+normal = "-Wall"
+none   = ""
+all    = "-Wall -Wextra -Wpedantic"
+error  = "-Wall -Wextra -Wpedantic -Werror"
+
+[stdlib]
+"libstdc++" = ""
+none        = "-nostdlib"
+
+extensions = [".cpp", ".cppm", ".ixx", ".mpp", ".cc", ".cxx", ".c++"]
+
+[language.std]
+"c++17" = "-std=c++17"
+"c++20" = "-std=c++20"
+"c++23" = "-std=c++23"
+"c++26" = "-std=c++26"
 
 [modules]
 style         = "gcc"
@@ -21,3 +72,9 @@ compile     = "-x c++-header"
 use         = "-include {header_path}"
 extension   = ".gch"
 clangd_flag = "-include {header_path}"
+
+[linking.cpp]
+abi        = "c++"
+compatible = ["c", "fortran"]
+linker     = ""
+extensions = [".cpp", ".cppm", ".ixx", ".mpp", ".cc", ".cxx", ".c++"]

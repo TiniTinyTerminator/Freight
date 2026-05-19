@@ -1,17 +1,61 @@
-base          = "_asm-base"
 name          = "yasm"
+kind          = "compiler"
+family        = ""
 homepage      = "https://yasm.tortall.net/"
-binary        = "yasm"
+version_arg   = "--version"
 version_regex = 'yasm (\d+\.\d+\.\d+)'
-supported_archs = ["x86", "x86_64"]
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = []
+supported_archs    = ["x86", "x86_64"]
+requires_toolchain = ["c"]
+
+detect       = ["yasm"]
+always_flags = []
+
+dbg = "-g dwarf2"
+lto = ""
 
 [toolset]
 as = "yasm"
 
-dbg = "-g dwarf2"
+[structure]
+include_dir  = "-I{path}"
+define       = "-D{name}"
+define_value = "-D{name}={value}"
+output       = "-o {path}"
+compile_only = ""
+dep_file     = ""
+target       = ""
+sysroot      = ""
+
+[optimization]
+"0" = ""
+"1" = ""
+"2" = ""
+"3" = ""
+"s" = ""
+"z" = ""
 
 [warnings]
 normal = ""
 none   = ""
 all    = "-w+all"
 error  = "-w+all -Werror"
+
+[arch_flags]
+"x86_64.linux"   = "-f elf64"
+"x86_64.macos"   = "-f macho64"
+"x86_64.windows" = "-f win64"
+"x86.linux"      = "-f elf32"
+"x86.macos"      = "-f macho32"
+"x86.windows"    = "-f win32"
+
+[modules]
+style = "none"
+
+[linking.asm]
+abi        = "c"
+compatible = ["c", "cpp"]
+linker     = ""
+extensions = [".asm", ".yasm"]
