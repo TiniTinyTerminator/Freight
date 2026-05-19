@@ -330,7 +330,7 @@ impl Default for BuildSettings {
     }
 }
 
-/// Module compilation strategy differs between GCC and Clang.
+/// Module compilation strategy differs between GCC, Clang, and MSVC.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ModuleStyle {
     /// GCC: single step — produces both `.pcm` and `.o`.
@@ -349,11 +349,17 @@ pub enum ModuleStyle {
         /// Non-empty → header unit precompilation is supported (`-x c++-header`).
         header_unit_flag: String,
     },
+    /// MSVC: single step — produces both `.ifc` and `.obj`.
+    /// Header unit precompilation (`/exportHeader`) is not yet supported.
+    Msvc {
+        compile_miu: String,
+        import_module: String,
+    },
     Unsupported,
 }
 
 impl ModuleStyle {
-    /// Build from a `modules_style = "gcc" | "clang"` string. Absent / unknown → `Unsupported`.
+    /// Build from a `modules_style = "gcc" | "clang" | "msvc"` string. Absent / unknown → `Unsupported`.
     pub fn from_style_str(s: &str) -> Self {
         match s {
             "gcc" => ModuleStyle::Gcc {
@@ -367,7 +373,19 @@ impl ModuleStyle {
                 import_module:    "-fmodule-file={name}={pcm_path}".into(),
                 header_unit_flag: "-x c++-header".into(),
             },
+            "msvc" => ModuleStyle::Msvc {
+                compile_miu:   "/interface /ifcOutput:{pcm_path}".into(),
+                import_module: "/reference {name}={pcm_path}".into(),
+            },
             _ => ModuleStyle::Unsupported,
+        }
+    }
+
+    /// File extension for Binary Module Interface files.
+    pub fn bmi_extension(&self) -> &'static str {
+        match self {
+            ModuleStyle::Msvc { .. } => ".ifc",
+            _ => ".pcm",
         }
     }
 }
@@ -1167,7 +1185,7 @@ impl CompilerTemplate {
         match &self.modules {
             ModuleStyle::Clang { header_unit_flag, .. } => !header_unit_flag.is_empty(),
             ModuleStyle::Gcc   { header_unit_flag, .. } => !header_unit_flag.is_empty(),
-            ModuleStyle::Unsupported => false,
+            ModuleStyle::Msvc { .. } | ModuleStyle::Unsupported => false,
         }
     }
 
@@ -1202,7 +1220,7 @@ impl CompilerTemplate {
                 push_flag_str(&mut args, header_unit_flag);  // -fmodule-header
                 args.extend_from_slice(include_flags);
             }
-            ModuleStyle::Unsupported => return None,
+            ModuleStyle::Msvc { .. } | ModuleStyle::Unsupported => return None,
         }
         args.push(header_abs.to_string_lossy().into_owned());
         args.extend(self.output_flag(pcm_path));
@@ -1215,6 +1233,7 @@ impl CompilerTemplate {
         match &self.modules {
             ModuleStyle::Gcc   { import_module, .. } => import_module,
             ModuleStyle::Clang { import_module, .. } => import_module,
+            ModuleStyle::Msvc  { import_module, .. } => import_module,
             ModuleStyle::Unsupported => "",
         }
     }
@@ -1227,7 +1246,7 @@ impl CompilerTemplate {
         let (import_module, supported) = match &self.modules {
             ModuleStyle::Clang { import_module, header_unit_flag, .. } => (import_module, !header_unit_flag.is_empty()),
             ModuleStyle::Gcc   { import_module, header_unit_flag, .. } => (import_module, !header_unit_flag.is_empty()),
-            ModuleStyle::Unsupported => return None,
+            ModuleStyle::Msvc { .. } | ModuleStyle::Unsupported => return None,
         };
         if !supported { return None; }
         Some(import_module
@@ -1987,5 +2006,39 @@ mod tests {
     #[test]
     fn gcc_c_template_has_no_pch_style() {
         assert_eq!(gcc_c().pch, None);
+    }
+
+    // ── ModuleStyle::Msvc ────────────────────────────────────────────────────────
+
+    #[test]
+    fn msvc_module_style_is_msvc_variant() {
+        assert!(matches!(toml("msvc.toml").modules, ModuleStyle::Msvc { .. }));
+    }
+
+    #[test]
+    fn msvc_module_bmi_extension_is_ifc() {
+        assert_eq!(ModuleStyle::from_style_str("msvc").bmi_extension(), ".ifc");
+    }
+
+    #[test]
+    fn gcc_clang_module_bmi_extension_is_pcm() {
+        assert_eq!(ModuleStyle::from_style_str("gcc").bmi_extension(),   ".pcm");
+        assert_eq!(ModuleStyle::from_style_str("clang").bmi_extension(), ".pcm");
+    }
+
+    #[test]
+    fn msvc_module_import_template() {
+        let t = toml("msvc.toml");
+        assert_eq!(t.module_import_template(), "/reference {name}={pcm_path}");
+    }
+
+    #[test]
+    fn msvc_does_not_support_header_units() {
+        assert!(!toml("msvc.toml").supports_header_units());
+    }
+
+    #[test]
+    fn icpx_module_style_is_clang_variant() {
+        assert!(matches!(toml("intel/icpx.toml").modules, ModuleStyle::Clang { .. }));
     }
 }

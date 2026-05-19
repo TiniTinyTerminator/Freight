@@ -8,7 +8,8 @@ supported_os  = ["windows"]
 lto      = "/GL"
 lto_link = "/LTCG"
 cpu_ext   = ""
-pch_style = "msvc"
+pch_style     = "msvc"
+modules_style = "msvc"
 
 [version]
 argument = ""

@@ -150,6 +150,7 @@ pub fn plan_module_build(
     project_dir: &Path,
     profile: &str,
     scanned: Vec<ScannedSource>,
+    bmi_ext: &str,
 ) -> Result<ModuleBuildPlan, FreightError> {
     let (mius, rest): (Vec<_>, Vec<_>) = scanned
         .into_iter()
@@ -215,7 +216,7 @@ pub fn plan_module_build(
 
     // Pre-populate the BMI map paths (actual files don't exist until compile time).
     let module_bmi_map = name_to_local.keys()
-        .map(|name| (name.clone(), bmi_path(project_dir, profile, name)))
+        .map(|name| (name.clone(), bmi_path(project_dir, profile, name, bmi_ext)))
         .collect();
 
     Ok(ModuleBuildPlan { miu_batches, rest, module_bmi_map })
@@ -224,13 +225,13 @@ pub fn plan_module_build(
 // ── BMI path ─────────────────────────────────────────────────────────────────
 
 /// Canonical path for a module's Binary Module Interface (BMI).
-/// `target/{profile}/modules/{name}.pcm`
-pub fn bmi_path(project_dir: &Path, profile: &str, module_name: &str) -> PathBuf {
+/// Extension is `.pcm` for GCC/Clang and `.ifc` for MSVC.
+pub fn bmi_path(project_dir: &Path, profile: &str, module_name: &str, ext: &str) -> PathBuf {
     project_dir
         .join("target")
         .join(profile)
         .join("modules")
-        .join(format!("{module_name}.pcm"))
+        .join(format!("{module_name}{ext}"))
 }
 
 // ── Module-aware compile pipeline ────────────────────────────────────────────
@@ -325,15 +326,18 @@ fn compile_miu(
         ModuleRole::Interface(n) => n,
         _ => unreachable!(),
     };
-    let bmi = bmi_path(project_dir, profile, module_name);
+    // Use a preliminary bmi_path for the dirty check (before compiler is selected).
+    // The ext is derived from the compiler selected below, but we need it for the up-to-date check.
+    // We do a two-pass: first resolve compiler, then check staleness.
+    let compiler = select_compiler(&scanned.source.lang_key, backend, detected, None)
+        .ok_or_else(|| FreightError::NoCompilerForLang(scanned.source.lang_key.clone()))?;
+    let bmi_ext = compiler.template.modules.bmi_extension();
+    let bmi = bmi_path(project_dir, profile, module_name, bmi_ext);
 
     if is_up_to_date(&src_abs, &obj, &dep) && bmi.exists() {
         progress(BuildEvent::Fresh { path: scanned.source.path.clone() });
         return Ok((obj, false));
     }
-
-    let compiler = select_compiler(&scanned.source.lang_key, backend, detected, None)
-        .ok_or_else(|| FreightError::NoCompilerForLang(scanned.source.lang_key.clone()))?;
     let settings = settings_for_lang(manifest, profile, &scanned.source.lang_key, include_dirs, project_dir, feature_defines);
     let compile_bin = resolve_compile_binary(compiler, &scanned.source.lang_key);
 
@@ -366,6 +370,13 @@ fn compile_miu(
             let mut mflags = split_flags(&own_flag);
             mflags.extend_from_slice(&dep_import_flags);
             mflags.extend_from_slice(header_unit_flags);
+            compile_one(&src_abs, &obj, &dep, &compile_bin, compiler, &settings, &mflags)?;
+        }
+        ModuleStyle::Msvc { compile_miu: miu_flag_tmpl, .. } => {
+            // Single pass: produces both the object file and the .ifc BMI.
+            let bmi_flag = miu_flag_tmpl.replace("{pcm_path}", &bmi.to_string_lossy());
+            let mut mflags = split_flags(&bmi_flag);
+            mflags.extend_from_slice(&dep_import_flags);
             compile_one(&src_abs, &obj, &dep, &compile_bin, compiler, &settings, &mflags)?;
         }
         ModuleStyle::Unsupported => {
@@ -574,7 +585,7 @@ mod tests {
     #[test]
     fn no_modules_gives_empty_batches() {
         let sources = vec![make_regular("src/main.cpp", &[])];
-        let plan = plan_module_build(Path::new("/proj"), "dev", sources).unwrap();
+        let plan = plan_module_build(Path::new("/proj"), "dev", sources, ".pcm").unwrap();
         assert!(plan.miu_batches.is_empty());
         assert_eq!(plan.rest.len(), 1);
     }
@@ -582,7 +593,7 @@ mod tests {
     #[test]
     fn single_miu_produces_one_batch() {
         let sources = vec![make_miu("math", &[]), make_regular("src/main.cpp", &["math"])];
-        let plan = plan_module_build(Path::new("/proj"), "dev", sources).unwrap();
+        let plan = plan_module_build(Path::new("/proj"), "dev", sources, ".pcm").unwrap();
         assert_eq!(plan.miu_batches.len(), 1);
         assert_eq!(plan.miu_batches[0].len(), 1);
         assert_eq!(plan.rest.len(), 1);
@@ -595,7 +606,7 @@ mod tests {
             make_miu("geometry", &[]),
             make_regular("src/main.cpp", &["math", "geometry"]),
         ];
-        let plan = plan_module_build(Path::new("/proj"), "dev", sources).unwrap();
+        let plan = plan_module_build(Path::new("/proj"), "dev", sources, ".pcm").unwrap();
         assert_eq!(plan.miu_batches.len(), 1);
         assert_eq!(plan.miu_batches[0].len(), 2);
     }
@@ -608,7 +619,7 @@ mod tests {
             make_miu("geometry", &["math"]),
             make_regular("src/main.cpp", &["geometry"]),
         ];
-        let plan = plan_module_build(Path::new("/proj"), "dev", sources).unwrap();
+        let plan = plan_module_build(Path::new("/proj"), "dev", sources, ".pcm").unwrap();
         assert_eq!(plan.miu_batches.len(), 2);
         let first_names: Vec<&str> = plan.miu_batches[0].iter()
             .map(|s| match &s.role { ModuleRole::Interface(n) => n.as_str(), _ => "" })
@@ -622,13 +633,19 @@ mod tests {
             make_miu("a", &["b"]),
             make_miu("b", &["a"]),
         ];
-        assert!(plan_module_build(Path::new("/proj"), "dev", sources).is_err());
+        assert!(plan_module_build(Path::new("/proj"), "dev", sources, ".pcm").is_err());
     }
 
     #[test]
     fn bmi_path_has_correct_structure() {
-        let p = bmi_path(Path::new("/project"), "dev", "math");
+        let p = bmi_path(Path::new("/project"), "dev", "math", ".pcm");
         assert_eq!(p, PathBuf::from("/project/target/dev/modules/math.pcm"));
+    }
+
+    #[test]
+    fn bmi_path_uses_ifc_for_msvc() {
+        let p = bmi_path(Path::new("/project"), "dev", "math", ".ifc");
+        assert_eq!(p, PathBuf::from("/project/target/dev/modules/math.ifc"));
     }
 
     #[test]

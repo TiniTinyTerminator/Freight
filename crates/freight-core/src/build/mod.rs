@@ -957,7 +957,10 @@ fn build_sources(
     let scanned = scan_sources(project_dir, sources);
     if has_modules(&scanned) {
         // C++20 modules have their own dependency ordering — unity doesn't apply.
-        let mut plan = plan_module_build(project_dir, profile, scanned)?;
+        let bmi_ext = select_compiler("cpp", backend, detected, None)
+            .map(|c| c.template.modules.bmi_extension())
+            .unwrap_or(".pcm");
+        let mut plan = plan_module_build(project_dir, profile, scanned, bmi_ext)?;
         compile_module_sources(project_dir, manifest, backend, profile, &mut plan, include_dirs, detected, feature_defines, header_unit_flags, progress)
     } else if manifest.compiler.unity {
         compile::compile_sources_unity(project_dir, manifest, backend, profile, sources, include_dirs, detected, feature_defines, header_unit_flags, progress)
