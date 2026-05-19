@@ -3,7 +3,6 @@ kind          = "compiler"
 family        = "llvm"
 homepage      = "https://clang.llvm.org/"
 
-supported_archs = ["x86_64", "x86", "aarch64", "armv7", "riscv64", "wasm32", "wasm64", "powerpc64le"]
 supported_os    = ["linux", "macos", "windows", "freebsd"]
 
 debug    = "-g"
@@ -22,11 +21,6 @@ options = ["address", "undefined", "thread", "memory", "leak", "hwaddress", "dat
 [arch_flags]
 x86_64  = "-m64"
 x86     = "-m32"
-aarch64 = ""
-armv7   = "-mthumb"
-riscv64 = ""
-wasm32  = ""
-wasm64  = ""
 
 [toolset]
 cc      = "$(binary)"

@@ -3,7 +3,6 @@ kind          = "compiler"
 family        = "gnu"
 homepage      = "https://gcc.gnu.org/fortran/"
 
-supported_archs = ["x86_64", "x86", "aarch64", "armv7", "riscv64", "powerpc64le", "s390x"]
 supported_os    = ["linux", "macos", "windows"]
 
 debug    = "-g"
@@ -22,8 +21,6 @@ options = ["address", "undefined"]
 [arch_flags]
 x86_64      = "-m64"
 x86         = "-m32"
-aarch64     = ""
-powerpc64le = ""
 
 [toolset]
 ld     = "gfortran"
