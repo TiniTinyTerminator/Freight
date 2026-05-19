@@ -1,7 +1,6 @@
 kind          = "formatter"
 name          = "clang-format"
 family        = "llvm"
-binary        = "clang-format"
 extensions    = [".cpp", ".cc", ".cxx", ".c++", ".cppm", ".c", ".h", ".hpp", ".hxx", ".cu", ".hip"]
 
 [version]

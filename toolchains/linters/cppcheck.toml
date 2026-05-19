@@ -1,7 +1,6 @@
 kind          = "linter"
 name          = "cppcheck"
 family        = "cppcheck"
-binary        = "cppcheck"
 extensions    = [".cpp", ".cc", ".cxx", ".c++", ".cppm", ".c"]
 
 [version]

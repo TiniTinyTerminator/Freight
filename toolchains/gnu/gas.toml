@@ -6,8 +6,6 @@ binary             = "as"
 extensions         = [".s", ".S"]
 requires_toolchain = ["c"]
 
-always_flags = []
-
 [version]
 argument = "--version"
 regex    = 'GNU assembler (?:\([^)]+\) )?(\d+\.\d+(?:\.\d+)?)'

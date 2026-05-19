@@ -1,7 +1,6 @@
 kind          = "formatter"
 name          = "astyle"
 family        = "astyle"
-binary        = "astyle"
 extensions    = [".cpp", ".cc", ".cxx", ".c++", ".c", ".h", ".hpp", ".hxx", ".cs", ".java"]
 
 [version]

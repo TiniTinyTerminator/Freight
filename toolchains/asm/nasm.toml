@@ -5,9 +5,6 @@ homepage      = "https://www.nasm.us/"
 supported_archs    = ["x86", "x86_64"]
 requires_toolchain = ["c"]
 
-detect       = ["nasm"]
-always_flags = []
-
 debug = "-g -F dwarf"
 lto = ""
 

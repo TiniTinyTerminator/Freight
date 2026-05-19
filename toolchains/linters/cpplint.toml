@@ -1,7 +1,6 @@
 kind          = "linter"
 name          = "cpplint"
 family        = "cpplint"
-binary        = "cpplint"
 extensions    = [".cpp", ".cc", ".cxx", ".c++", ".c", ".h", ".hpp", ".hxx"]
 
 [version]

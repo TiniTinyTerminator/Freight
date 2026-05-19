@@ -2,7 +2,6 @@ name          = "nvcc"
 kind          = "compiler"
 family        = ""
 homepage      = "https://developer.nvidia.com/cuda-toolkit"
-binary        = "nvcc"
 extensions    = [".cu", ".cuh"]
 supported_archs    = ["x86_64", "aarch64"]
 supported_os       = ["linux", "windows"]

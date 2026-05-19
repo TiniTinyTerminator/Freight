@@ -2,7 +2,6 @@ name          = "hipcc"
 kind          = "compiler"
 family        = ""
 homepage      = "https://rocm.docs.amd.com/"
-binary        = "hipcc"
 extensions    = [".hip"]
 supported_archs    = ["x86_64"]
 supported_os       = ["linux"]

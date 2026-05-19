@@ -5,9 +5,6 @@ homepage      = "https://developer.nvidia.com/hpc-sdk"
 supported_archs    = ["x86_64", "aarch64"]
 supported_os       = ["linux"]
 
-detect       = ["nvfortran"]
-always_flags = []
-
 debug = "-g"
 lto     = ""
 cpu_ext = "-m{name}"

@@ -3,9 +3,6 @@ kind          = "compiler"
 family        = "llvm"
 homepage      = "https://github.com/ldc-developers/ldc"
 
-detect       = ["ldc2"]
-always_flags = []
-
 debug = "-g"
 lto      = "-flto=full"
 cpu_ext  = "-m{name}"
@@ -17,7 +14,7 @@ argument = "--version"
 regex    = '\b(\d+\.\d+\.\d+)\b'
 
 [sanitizer]
-format  = "-fsanitize={values}"
+argument = "-fsanitize={values}"
 options = ["address", "thread", "memory", "undefined"]
 
 [toolset]

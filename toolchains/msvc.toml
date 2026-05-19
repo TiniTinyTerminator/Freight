@@ -14,7 +14,7 @@ argument = ""
 regex    = 'Version (\d+\.\d+\.\d+\.\d+)'
 
 [sanitizer]
-format  = "/fsanitize={values}"
+argument = "/fsanitize={values}"
 options = ["address"]
 
 [toolset]

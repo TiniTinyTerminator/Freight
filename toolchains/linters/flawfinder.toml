@@ -1,7 +1,6 @@
 kind          = "linter"
 name          = "flawfinder"
 family        = "flawfinder"
-binary        = "flawfinder"
 extensions    = [".cpp", ".cc", ".cxx", ".c++", ".c", ".h", ".hpp", ".hxx"]
 
 [version]

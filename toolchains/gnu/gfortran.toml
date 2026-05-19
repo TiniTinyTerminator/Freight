@@ -3,9 +3,6 @@ kind          = "compiler"
 family        = "gnu"
 homepage      = "https://gcc.gnu.org/fortran/"
 
-detect       = ["gfortran"]
-always_flags = ["$(arch == 'x86_64' ? '-m64' : arch == 'x86' ? '-m32' : '')"]
-
 debug = "-g"
 lto      = "-flto"
 cpu_ext  = ""
@@ -15,8 +12,12 @@ argument = "--version"
 regex    = '\b(\d+\.\d+\.\d+)\b'
 
 [sanitizer]
-format  = "-fsanitize={values}"
+argument = "-fsanitize={values}"
 options = ["address", "undefined"]
+
+[arch_flags]
+x86_64 = "-m64"
+x86    = "-m32"
 
 [toolset]
 ld    = "gfortran"

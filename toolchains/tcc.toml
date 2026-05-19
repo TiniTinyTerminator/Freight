@@ -2,7 +2,6 @@ name          = "tcc"
 kind          = "compiler"
 family        = ""
 homepage      = "https://bellard.org/tcc/"
-binary        = "tcc"
 extensions    = [".c"]
 lto = ""
 

@@ -1,7 +1,6 @@
 kind          = "formatter"
 name          = "uncrustify"
 family        = "uncrustify"
-binary        = "uncrustify"
 extensions    = [".cpp", ".cc", ".cxx", ".c++", ".c", ".h", ".hpp", ".hxx", ".cs", ".java"]
 
 [version]

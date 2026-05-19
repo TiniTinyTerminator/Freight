@@ -1,7 +1,5 @@
 kind          = "debugger"
 name          = "lldb"
-binary        = "lldb"
-
 [version]
 argument = "--version"
 regex    = '\b(\d+\.\d+\.\d+)\b'

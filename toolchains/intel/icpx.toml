@@ -6,7 +6,6 @@ supported_archs    = ["x86", "x86_64"]
 supported_os       = ["linux", "windows"]
 required_env       = ["ONEAPI_ROOT"]
 
-detect       = ["icpx"]
 always_flags = ["-fsycl"]
 
 debug = "-g"
@@ -20,7 +19,7 @@ argument = "--version"
 regex    = '\b(\d+\.\d+\.\d+)\b'
 
 [sanitizer]
-format  = "-fsanitize={values}"
+argument = "-fsanitize={values}"
 options = ["address", "undefined", "thread", "leak"]
 
 [toolset]

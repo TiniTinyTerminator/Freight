@@ -2,7 +2,6 @@ name          = "ispc"
 kind          = "compiler"
 family        = "intel"
 homepage      = "https://ispc.github.io/"
-binary        = "ispc"
 extensions    = [".ispc"]
 supported_archs    = ["x86_64", "aarch64"]
 requires_toolchain = ["cpp"]

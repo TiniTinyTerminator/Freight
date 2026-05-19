@@ -1,7 +1,6 @@
 kind          = "linter"
 name          = "clang-tidy"
 family        = "llvm"
-binary        = "clang-tidy"
 extensions    = [".cpp", ".cc", ".cxx", ".c++", ".cppm", ".c"]
 
 [version]

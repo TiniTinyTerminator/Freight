@@ -3,9 +3,6 @@ kind          = "compiler"
 family        = "gnu"
 homepage      = "https://gcc.gnu.org/"
 
-detect       = ["aarch64-linux-gnu-g++"]
-always_flags = []
-
 debug = "-g"
 lto      = "-flto"
 cpu_ext  = "-m{name}"
@@ -15,7 +12,7 @@ argument = "--version"
 regex    = '\b(\d+\.\d+\.\d+)\b'
 
 [sanitizer]
-format  = "-fsanitize={values}"
+argument = "-fsanitize={values}"
 options = ["address", "undefined", "thread", "leak"]
 
 [toolset]

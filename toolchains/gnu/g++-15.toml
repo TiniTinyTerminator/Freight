@@ -4,9 +4,6 @@ kind          = "compiler"
 family        = "gnu"
 homepage      = "https://gcc.gnu.org/"
 
-detect       = ["g++-15"]
-always_flags = ["$(arch == 'x86_64' ? '-m64' : arch == 'x86' ? '-m32' : '')"]
-
 debug = "-g"
 lto      = "-flto"
 cpu_ext  = "-m{name}"
@@ -16,8 +13,12 @@ argument = "--version"
 regex    = '\b(\d+\.\d+\.\d+)\b'
 
 [sanitizer]
-format  = "-fsanitize={values}"
+argument = "-fsanitize={values}"
 options = ["address", "undefined", "thread", "leak"]
+
+[arch_flags]
+x86_64 = "-m64"
+x86    = "-m32"
 
 [toolset]
 cc    = "gcc-15"

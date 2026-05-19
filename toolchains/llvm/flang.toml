@@ -3,9 +3,6 @@ kind          = "compiler"
 family        = "llvm"
 homepage      = "https://flang.llvm.org/"
 
-detect       = ["flang", "flang-new"]
-always_flags = []
-
 debug = "-g"
 lto      = "-flto"
 cpu_ext  = "-m{name}"
@@ -15,7 +12,7 @@ argument = "--version"
 regex    = 'flang(?:-new)? version (\d+\.\d+\.\d+)'
 
 [sanitizer]
-format  = "-fsanitize={values}"
+argument = "-fsanitize={values}"
 options = ["address", "undefined"]
 
 [toolset]

@@ -4,9 +4,6 @@ kind          = "compiler"
 family        = "llvm"
 homepage      = "https://clang.llvm.org/"
 
-detect       = ["clang++-16"]
-always_flags = []
-
 debug = "-g"
 lto      = "-flto"
 cpu_ext  = "-m{name}"
@@ -18,7 +15,7 @@ argument = "--version"
 regex    = '\b(\d+\.\d+\.\d+)\b'
 
 [sanitizer]
-format  = "-fsanitize={values}"
+argument = "-fsanitize={values}"
 options = ["address", "undefined", "thread", "memory", "leak", "hwaddress", "dataflow", "cfi", "safestack"]
 
 [toolset]

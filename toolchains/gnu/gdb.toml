@@ -1,7 +1,5 @@
 kind          = "debugger"
 name          = "gdb"
-binary        = "gdb"
-
 [version]
 argument = "--version"
 regex    = 'GNU gdb[^\d]+(\d+\.\d+)'

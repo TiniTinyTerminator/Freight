@@ -5,9 +5,6 @@ homepage      = "https://yasm.tortall.net/"
 supported_archs    = ["x86", "x86_64"]
 requires_toolchain = ["c"]
 
-detect       = ["yasm"]
-always_flags = []
-
 debug = "-g dwarf2"
 lto = ""
 

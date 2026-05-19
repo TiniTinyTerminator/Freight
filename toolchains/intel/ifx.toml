@@ -6,8 +6,6 @@ supported_archs    = ["x86", "x86_64"]
 supported_os       = ["linux", "windows"]
 required_env       = ["ONEAPI_ROOT"]
 
-detect = ["ifx"]
-
 debug = "-g"
 lto = "-ipo"
 cpu_ext = "-m{name}"

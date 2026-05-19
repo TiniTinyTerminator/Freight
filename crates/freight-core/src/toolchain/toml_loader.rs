@@ -75,8 +75,8 @@ struct TomlPassthrough {
 
 #[derive(Deserialize, Default, Clone, Debug)]
 struct TomlSanitizer {
-    options: Option<Vec<String>>,
-    format:  Option<String>,
+    options:   Option<Vec<String>>,
+    argument:  Option<String>,
 }
 
 /// The full TOML toolchain document.
@@ -88,7 +88,6 @@ struct TomlToolchain {
     homepage:          Option<String>,
     kind:              Option<String>,
     base:              Option<TomlBase>,
-    detect:            Option<Vec<String>>,
     binary:            Option<String>,
     version:           Option<TomlVersion>,
     passthrough:       Option<TomlPassthrough>,
@@ -491,7 +490,6 @@ fn merge(base: TomlToolchain, overlay: TomlToolchain) -> TomlToolchain {
         homepage:           scalar!(homepage),
         kind:               scalar!(kind),
         base:               overlay.base,   // not propagated
-        detect:             arr!(detect),
         binary:             scalar!(binary),
         version:            match (base.version, overlay.version) {
             (None, v) | (v, None) => v,
@@ -509,8 +507,8 @@ fn merge(base: TomlToolchain, overlay: TomlToolchain) -> TomlToolchain {
         sanitizer:          match (base.sanitizer, overlay.sanitizer) {
             (None, v) | (v, None) => v,
             (Some(b), Some(o)) => Some(TomlSanitizer {
-                options: o.options.or(b.options),
-                format:  o.format.or(b.format),
+                options:  o.options.or(b.options),
+                argument: o.argument.or(b.argument),
             }),
         },
         extensions:         arr!(extensions),
@@ -654,44 +652,13 @@ fn load_base(name: &str, dir: Option<&Path>) -> Result<TomlToolchain, FreightErr
     Ok(raw)
 }
 
-/// Detect the binary from `detect` list or explicit `binary` field.
+/// Resolve the binary name: explicit `binary` field, else fall back to `name`.
 fn resolve_binary(tc: &TomlToolchain) -> String {
-    if let Some(detect_list) = &tc.detect {
-        for candidate in detect_list {
-            if find_binary(candidate).is_some() {
-                return candidate.clone();
-            }
-        }
-        // Fall back to first entry even if not found.
-        if let Some(first) = detect_list.first() {
-            return first.clone();
-        }
-    }
-    if let Some(b) = &tc.binary {
-        return b.clone();
-    }
-    String::new()
+    tc.binary.clone()
+        .or_else(|| tc.name.clone())
+        .unwrap_or_default()
 }
 
-fn find_binary(name: &str) -> Option<String> {
-    let path_var = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path_var) {
-        let candidate = dir.join(name);
-        if candidate.is_file() {
-            return Some(name.to_string());
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if let Ok(meta) = candidate.metadata() {
-                if meta.permissions().mode() & 0o111 != 0 {
-                    return Some(name.to_string());
-                }
-            }
-        }
-    }
-    None
-}
 
 fn eval_opt_string(s: Option<&str>, ctx: &EvalCtx<'_>) -> String {
     s.map(|v| eval_expr(v, ctx)).unwrap_or_default()
@@ -749,7 +716,7 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
     def.flags_lto      = eval_opt_string(tc.lto.as_deref(), ctx);
     def.flags_lto_link = eval_opt_string(tc.lto_link.as_deref(), ctx);
     def.sanitize       = tc.sanitizer.as_ref()
-        .and_then(|s| s.format.as_deref())
+        .and_then(|s| s.argument.as_deref())
         .map(|f| eval_expr(f, ctx))
         .unwrap_or_default();
     def.cpu_ext        = eval_opt_string(tc.cpu_ext.as_deref(), ctx);
