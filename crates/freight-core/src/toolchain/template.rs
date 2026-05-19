@@ -196,7 +196,7 @@ fn save_template_cache(path: &Path, cache: &TemplateCache) {
 fn template_cache_key(path: &Path, src: &str) -> Result<String, FreightError> {
     let file_hash = sha256_hex(src.as_bytes());
     let base_hash = included_base_hash(path, src)?;
-    Ok(format!("v2:{file_hash}:{base_hash}"))
+    Ok(format!("v3:{file_hash}:{base_hash}"))
 }
 
 fn included_base_hash(path: &Path, src: &str) -> Result<String, FreightError> {
@@ -423,16 +423,22 @@ pub enum PchStyle {
     Gcc,
     Clang,
     Msvc,
+    /// IAR Embedded Workbench — `iccarm header.h --create_pch out.pch`.
+    Iar,
 }
 
 impl PchStyle {
     /// Returns `(compile_flag, use_flag_template, extension)`.
     /// `use_flag_template` supports `{header_path}` and `{pch_path}` placeholders.
+    /// Returns `(compile_flag, use_flag_template, extension)`.
+    /// `compile_flag` semantics vary by style — see `pch.rs` for invocation details.
     pub fn flags(&self) -> (&'static str, &'static str, &'static str) {
         match self {
             PchStyle::Gcc   => ("-x c++-header",    "-include {header_path}",            ".gch"),
             PchStyle::Clang => ("-x c++-header",    "-include-pch {pch_path}",           ".pch"),
             PchStyle::Msvc  => ("/Yc{header_path}", "/Yu{header_path} /FI{header_path}", ".pch"),
+            // compile_flag is just the flag token; pch.rs passes the path as a separate arg.
+            PchStyle::Iar   => ("--create_pch",     "--use_pch {pch_path}",              ".pch"),
         }
     }
 
@@ -441,6 +447,7 @@ impl PchStyle {
             "gcc"   => Some(Self::Gcc),
             "clang" => Some(Self::Clang),
             "msvc"  => Some(Self::Msvc),
+            "iar"   => Some(Self::Iar),
             _       => None,
         }
     }

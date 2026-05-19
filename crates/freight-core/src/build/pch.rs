@@ -77,9 +77,15 @@ pub fn compile_pch(
 
     match pch_style {
         PchStyle::Msvc => {
+            // cl.exe /Yc{header} /Fp{pch} {header}
             cmd.arg(compile_flag.replace("{header_path}", &header_path.to_string_lossy()));
             cmd.arg(format!("/Fp{}", pch_out.display()));
             cmd.arg(&header_path);
+        }
+        PchStyle::Iar => {
+            // iccarm {header} --create_pch {pch}  (source before output, no -o)
+            cmd.arg(&header_path);
+            cmd.arg(compile_flag).arg(&pch_out);
         }
         _ => {
             for flag in compile_flag.split_whitespace() {
