@@ -3,8 +3,12 @@ kind          = "compiler"
 family        = "gnu"
 homepage      = "https://gcc.gnu.org/"
 
-debug = "-g"
+supported_archs = ["x86_64", "x86", "aarch64", "riscv64"]
+supported_os    = ["linux", "macos", "windows"]
+
+debug    = "-g"
 lto      = "-flto"
+lto_link = "-flto"
 cpu_ext  = "-m{name}"
 
 [version]
@@ -16,13 +20,17 @@ argument = "-fsanitize={values}"
 options = ["address", "undefined", "thread", "leak"]
 
 [arch_flags]
-x86_64 = "-m64"
-x86    = "-m32"
+x86_64  = "-m64"
+x86     = "-m32"
+aarch64 = ""
+riscv64 = ""
 
 [toolset]
-ld    = "gdc"
-ar    = "ar"
-strip = "strip"
+ld     = "gdc"
+ar     = "ar"
+ranlib = "ranlib"
+strip  = "strip"
+nm     = "nm"
 
 [structure]
 include_dir  = "-I{path}"
@@ -31,22 +39,46 @@ define_value = "-fversion={name}"
 output       = "-o {path}"
 compile_only = "-c"
 dep_file     = "-MMD -MF {path}"
+system_lib   = "-l{name}"
 target       = ""
 sysroot      = "--sysroot={path}"
 
 [optimization]
-"0" = "-O0"
-"1" = "-O1"
-"2" = "-O2"
-"3" = "-O3"
-"s" = "-Os"
-"z" = "-Oz"
+"0"    = "-O0"
+"1"    = "-O1"
+"2"    = "-O2"
+"3"    = "-O3"
+"g"    = "-Og"
+"s"    = "-Os"
+"z"    = "-Oz"
+"fast" = "-Ofast"
 
 [warnings]
 normal = ""
 none   = ""
 all    = "-Wall"
 error  = "-Wall -Werror"
+
+[language.betterc]
+enabled  = "-fno-druntime"
+disabled = ""
+
+[language.unittest]
+enabled  = "-funittest"
+disabled = ""
+
+[compiler.debug_info]
+dwarf4 = "-gdwarf-4"
+dwarf5 = "-gdwarf-5"
+gdb    = "-ggdb3"
+"1"    = "-g1"
+"2"    = "-g2"
+"3"    = "-g3"
+
+[compiler.lto_mode]
+auto      = "-flto=auto"
+jobserver = "-flto=jobserver"
+
 [linking.d]
 abi        = "d"
 compatible = ["c"]

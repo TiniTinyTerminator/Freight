@@ -19,12 +19,13 @@ options = []
 ld = "clang"
 
 [optimization]
-"2" = "-O2"
-"0" = "-O0"
-"1" = "-O1"
-"3" = "-O3"
-"s" = "-Os"
-"z" = "-Oz"
+"2"    = "-O2"
+"0"    = "-O0"
+"1"    = "-O1"
+"3"    = "-O3"
+"s"    = "-Os"
+"z"    = "-Oz"
+"fast" = "-Ofast"
 
 debug = "-g"
 
@@ -43,12 +44,25 @@ compile_only = "-c"
 dep_file     = "-MMD -MF {path}"
 target       = ""
 sysroot      = ""
+
 [language.std]
 "CL3.0" = "-cl-std=CL3.0"
-"CL1.0" = "-cl-std=CL1.0"
-"CL1.1" = "-cl-std=CL1.1"
-"CL1.2" = "-cl-std=CL1.2"
 "CL2.0" = "-cl-std=CL2.0"
+"CL1.2" = "-cl-std=CL1.2"
+"CL1.1" = "-cl-std=CL1.1"
+"CL1.0" = "-cl-std=CL1.0"
+
+[language.fast_relaxed_math]
+enabled  = "-cl-fast-relaxed-math"
+disabled = ""
+
+[language.mad_enable]
+enabled  = "-cl-mad-enable"
+disabled = ""
+
+[language.fp64]
+enabled  = "-Dcl_khr_fp64"
+disabled = ""
 
 [linking.opencl]
 abi        = "opencl"

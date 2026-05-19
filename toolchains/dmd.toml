@@ -3,6 +3,8 @@ kind          = "compiler"
 family        = ""
 homepage      = "https://dlang.org/dmd.html"
 extensions    = [".d"]
+supported_archs = ["x86_64", "x86", "aarch64"]
+supported_os    = ["linux", "macos", "windows"]
 lto = ""
 
 [version]
@@ -16,6 +18,7 @@ options = []
 ld    = "dmd"
 ar    = "ar"
 strip = "strip"
+nm    = "nm"
 
 [optimization]
 "1" = "-O"
@@ -44,12 +47,25 @@ dep_file_mode = "none"
 system_lib    = "-L-l{name}"
 target        = ""
 sysroot       = ""
+
+[language.betterc]
+enabled  = "-betterC"
+disabled = ""
+
+[language.unittest]
+enabled  = "-unittest"
+disabled = ""
+
+[compiler.dip1000]
+"false" = ""
+"true"  = "-preview=dip1000"
+
+[compiler.inline]
+enabled  = "-inline"
+disabled = ""
+
 [linking.d]
 abi        = "d"
 compatible = ["c"]
 linker     = ""
 extensions = [".d"]
-
-[compiler.dip1000]
-"false" = ""
-"true"  = "-preview=dip1000"

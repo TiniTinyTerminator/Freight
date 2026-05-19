@@ -3,6 +3,8 @@ kind          = "compiler"
 family        = ""
 homepage      = "https://bellard.org/tcc/"
 extensions    = [".c"]
+supported_archs = ["x86_64", "x86", "aarch64", "armv7"]
+supported_os    = ["linux", "windows"]
 lto = ""
 
 [version]
@@ -40,12 +42,15 @@ define_value = "-D{name}={value}"
 output       = "-o {path}"
 compile_only = "-c"
 dep_file     = ""
+system_lib   = "-l{name}"
 target       = ""
 sysroot      = ""
+
 [language.std]
 "c11" = "-std=c11"
 "c99" = "-std=c99"
 "c17" = "-std=c17"
+"c89" = "-std=c89"
 
 [linking.c]
 abi             = "c"

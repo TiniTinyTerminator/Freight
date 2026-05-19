@@ -3,8 +3,12 @@ kind          = "compiler"
 family        = "llvm"
 homepage      = "https://clang.llvm.org/"
 
-debug = "-g"
-lto      = "-flto"
+supported_archs = ["x86_64", "x86", "aarch64", "armv7", "riscv64", "wasm32", "wasm64", "powerpc64le"]
+supported_os    = ["linux", "macos", "windows", "freebsd"]
+
+debug    = "-g"
+lto      = "-flto=thin"
+lto_link = "-flto=thin"
 cpu_ext  = "-m{name}"
 
 [version]
@@ -15,12 +19,25 @@ regex    = '\b(\d+\.\d+\.\d+)\b'
 argument = "-fsanitize={values}"
 options = ["address", "undefined", "thread", "memory", "leak", "hwaddress", "dataflow", "cfi", "safestack"]
 
+[arch_flags]
+x86_64  = "-m64"
+x86     = "-m32"
+aarch64 = ""
+armv7   = "-mthumb"
+riscv64 = ""
+wasm32  = ""
+wasm64  = ""
+
 [toolset]
-cc    = "$(binary)"
-cxx   = "$(binary.replace('clang', 'clang++'))"
-ld    = "$(binary.replace('clang', 'clang++'))"
-ar    = "ar"
-strip = "strip"
+cc      = "$(binary)"
+cxx     = "$(binary.replace('clang', 'clang++'))"
+ld      = "$(binary.replace('clang', 'clang++'))"
+ar      = "ar"
+ranlib  = "ranlib"
+strip   = "strip"
+nm      = "nm"
+objcopy = "objcopy"
+objdump = "objdump"
 
 [structure]
 include_dir  = "-I{path}"
@@ -29,16 +46,19 @@ define_value = "-D{name}={value}"
 output       = "-o {path}"
 compile_only = "-c"
 dep_file     = "-MMD -MF {path}"
+system_lib   = "-l{name}"
 target       = "--target={triple}"
 sysroot      = "--sysroot={path}"
 
 [optimization]
-"0" = "-O0"
-"1" = "-O1"
-"2" = "-O2"
-"3" = "-O3"
-"s" = "-Os"
-"z" = "-Oz"
+"0"    = "-O0"
+"1"    = "-O1"
+"2"    = "-O2"
+"3"    = "-O3"
+"g"    = "-Og"
+"s"    = "-Os"
+"z"    = "-Oz"
+"fast" = "-Ofast"
 
 [warnings]
 normal = "-Wall"
@@ -46,10 +66,40 @@ none   = ""
 all    = "-Wall -Wextra -Wpedantic"
 error  = "-Wall -Wextra -Wpedantic -Werror"
 
+[compiler.lto_mode]
+thin = "-flto=thin"
+full = "-flto=full"
+
+[compiler.debug_info]
+dwarf4   = "-gdwarf-4"
+dwarf5   = "-gdwarf-5"
+gdb      = "-ggdb3"
+codeview = "-gcodeview"
+"1"      = "-g1"
+"2"      = "-g2"
+"3"      = "-g3"
+
 [language.std]
-"c11" = "-std=c11"
-"c17" = "-std=c17"
-"c23" = "-std=c23"
+"c11"   = "-std=c11"
+"c17"   = "-std=c17"
+"c23"   = "-std=c23"
+"c99"   = "-std=c99"
+"c89"   = "-std=c89"
+"gnu11" = "-std=gnu11"
+"gnu17" = "-std=gnu17"
+"gnu23" = "-std=gnu23"
+
+[language.visibility]
+default   = "-fvisibility=default"
+hidden    = "-fvisibility=hidden"
+internal  = "-fvisibility=internal"
+protected = "-fvisibility=protected"
+
+[language.stack_protector]
+strong = "-fstack-protector-strong"
+all    = "-fstack-protector-all"
+none   = "-fno-stack-protector"
+
 [linking.c]
 abi            = "c"
 compatible     = ["fortran", "asm"]

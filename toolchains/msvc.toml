@@ -7,8 +7,8 @@ extensions    = [".cpp", ".cc", ".cxx", ".c++", ".c"]
 supported_os  = ["windows"]
 lto      = "/GL"
 lto_link = "/LTCG"
-cpu_ext   = ""
-design        = "msvc"
+cpu_ext  = ""
+design   = "msvc"
 
 [version]
 argument = ""
@@ -19,11 +19,12 @@ argument = "/fsanitize={values}"
 options = ["address"]
 
 [toolset]
-cc    = "cl.exe"
-cxx   = "cl.exe"
-ld    = "link.exe"
-ar    = "lib.exe"
-strip = ""
+cc      = "cl.exe"
+cxx     = "cl.exe"
+ld      = "link.exe"
+ar      = "lib.exe"
+strip   = ""
+dumpbin = "dumpbin.exe"
 
 [optimization]
 "2" = "/O2"
@@ -55,11 +56,39 @@ target        = ""
 sysroot       = ""
 
 [language.std]
-"c++17" = "/std:c++17"
-"c++20" = "/std:c++20"
-"c++23" = "/std:c++latest"
-"c17"   = "/std:c17"
-"c11"   = "/std:c11"
+"c++17"  = "/std:c++17"
+"c++20"  = "/std:c++20"
+"c++23"  = "/std:c++latest"
+"c++14"  = "/std:c++14"
+"c17"    = "/std:c17"
+"c11"    = "/std:c11"
+
+[language.exceptions]
+sync     = "/EHsc"
+async    = "/EHa"
+disabled = "/EHs-c-"
+
+[language.rtti]
+enabled  = "/GR"
+disabled = "/GR-"
+
+[compiler.runtime]
+dynamic        = "/MD"
+dynamic_debug  = "/MDd"
+static         = "/MT"
+static_debug   = "/MTd"
+
+[compiler.debug_info]
+pdb    = "/Zi /FS"
+z7     = "/Z7"
+none   = ""
+
+[compiler.arch]
+avx    = "/arch:AVX"
+avx2   = "/arch:AVX2"
+avx512 = "/arch:AVX512"
+ia32   = "/arch:IA32"
+
 [linking.c]
 abi             = "c"
 compatible      = []

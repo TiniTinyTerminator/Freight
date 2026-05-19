@@ -8,10 +8,11 @@ required_env       = ["ONEAPI_ROOT"]
 
 always_flags = ["-fsycl"]
 
-debug = "-g"
+debug    = "-g"
 lto      = "-flto"
-cpu_ext       = "-m{name}"
-design        = "clang"
+lto_link = "-flto"
+cpu_ext  = "-m{name}"
+design   = "clang"
 
 extensions = [".cpp", ".cc", ".cxx", ".c++", ".sycl"]
 
@@ -23,10 +24,16 @@ regex    = '\b(\d+\.\d+\.\d+)\b'
 argument = "-fsanitize={values}"
 options = ["address", "undefined", "thread", "leak"]
 
+[arch_flags]
+x86_64 = "-m64"
+x86    = "-m32"
+
 [toolset]
-ld    = "icpx"
-ar    = "ar"
-strip = "strip"
+ld     = "icpx"
+ar     = "ar"
+ranlib = "ranlib"
+strip  = "strip"
+nm     = "nm"
 
 [structure]
 include_dir  = "-I{path}"
@@ -35,16 +42,18 @@ define_value = "-D{name}={value}"
 output       = "-o {path}"
 compile_only = "-c"
 dep_file     = "-MMD -MF {path}"
+system_lib   = "-l{name}"
 target       = "--target={triple}"
 sysroot      = "--sysroot={path}"
 
 [optimization]
-"0" = "-O0"
-"1" = "-O1"
-"2" = "-O2"
-"3" = "-O3"
-"s" = "-Os"
-"z" = "-Oz"
+"0"    = "-O0"
+"1"    = "-O1"
+"2"    = "-O2"
+"3"    = "-O3"
+"s"    = "-Os"
+"z"    = "-Oz"
+"fast" = "-Ofast"
 
 [warnings]
 normal = "-Wall"
@@ -52,10 +61,31 @@ none   = ""
 all    = "-Wall -Wextra"
 error  = "-Wall -Wextra -Werror"
 
+[compiler.debug_info]
+dwarf4 = "-gdwarf-4"
+dwarf5 = "-gdwarf-5"
+"1"    = "-g1"
+"2"    = "-g2"
+"3"    = "-g3"
+
 [language.std]
 "c++17" = "-std=c++17"
 "c++20" = "-std=c++20"
 "c++23" = "-std=c++23"
+"c++14" = "-std=c++14"
+
+[language.exceptions]
+enabled  = "-fexceptions"
+disabled = "-fno-exceptions"
+
+[language.rtti]
+enabled  = "-frtti"
+disabled = "-fno-rtti"
+
+[language.visibility]
+default  = "-fvisibility=default"
+hidden   = "-fvisibility=hidden"
+
 [linking.sycl]
 abi        = "sycl"
 compatible = ["c++", "c", "fortran"]

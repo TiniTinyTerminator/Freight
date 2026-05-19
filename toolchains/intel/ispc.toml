@@ -4,6 +4,7 @@ family        = "intel"
 homepage      = "https://ispc.github.io/"
 extensions    = [".ispc"]
 supported_archs    = ["x86_64", "aarch64"]
+supported_os       = ["linux", "macos", "windows"]
 requires_toolchain = ["cpp"]
 lto = ""
 
@@ -42,6 +43,18 @@ compile_only = ""
 dep_file     = "-MMM {path}"
 target       = ""
 sysroot      = ""
+
+[compiler.target_isa]
+value = "--target=$(value)"
+
+[compiler.cpu]
+value = "--cpu=$(value)"
+
+[compiler.math_lib]
+default = ""
+svml    = "--math-lib=svml"
+system  = "--math-lib=system"
+
 [linking.ispc]
 abi        = "ispc"
 compatible = ["c++", "c"]

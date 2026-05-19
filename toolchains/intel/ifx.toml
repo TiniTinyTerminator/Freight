@@ -6,9 +6,10 @@ supported_archs    = ["x86", "x86_64"]
 supported_os       = ["linux", "windows"]
 required_env       = ["ONEAPI_ROOT"]
 
-debug = "-g"
-lto = "-ipo"
-cpu_ext = "-m{name}"
+debug    = "-g"
+lto      = "-ipo"
+lto_link = "-ipo"
+cpu_ext  = "-m{name}"
 
 extensions = [".f90", ".f95", ".f03", ".f08", ".f", ".F90"]
 
@@ -17,12 +18,19 @@ argument = "--version"
 regex    = '(\d+\.\d+\.\d+)'
 
 [sanitizer]
+argument = "-fsanitize={values}"
 options = ["address", "undefined"]
 
+[arch_flags]
+x86_64 = "-m64"
+x86    = "-m32"
+
 [toolset]
-ld    = "ifx"
-ar    = "ar"
-strip = "strip"
+ld     = "ifx"
+ar     = "ar"
+ranlib = "ranlib"
+strip  = "strip"
+nm     = "nm"
 
 [structure]
 include_dir  = "-I{path}"
@@ -31,16 +39,18 @@ define_value = "-D{name}={value}"
 output       = "-o {path}"
 compile_only = "-c"
 dep_file     = "-cpp -MMD -MF {path}"
+system_lib   = "-l{name}"
 target       = ""
 sysroot      = ""
 
 [optimization]
-"0" = "-O0"
-"1" = "-O1"
-"2" = "-O2"
-"3" = "-O3"
-"s" = "-O2"
-"z" = "-O2"
+"0"    = "-O0"
+"1"    = "-O1"
+"2"    = "-O2"
+"3"    = "-O3"
+"s"    = "-O2"
+"z"    = "-O2"
+"fast" = "-O3 -fp-model fast=2"
 
 [warnings]
 normal = ""
@@ -49,10 +59,31 @@ all    = "-warn all"
 error  = "-warn all -warn errors"
 
 [language.std]
-"f95"   = "-std=f95"
 "f2003" = "-std=f2003"
 "f2008" = "-std=f2008"
 "f2018" = "-std=f2018"
+"f95"   = "-std=f95"
+
+[language.implicit_none]
+enabled  = "-implicitnone"
+disabled = ""
+
+[language.real_kind]
+"32"  = ""
+"64"  = "-real-size 64"
+"128" = "-real-size 128"
+
+[language.openmp]
+enabled  = "-qopenmp"
+disabled = ""
+
+[compiler.debug_info]
+dwarf4 = "-gdwarf-4"
+dwarf5 = "-gdwarf-5"
+"1"    = "-g1"
+"2"    = "-g2"
+"3"    = "-g3"
+
 [linking.fortran]
 abi        = "fortran"
 compatible = ["c"]

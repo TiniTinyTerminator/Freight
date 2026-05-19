@@ -3,9 +3,13 @@ kind          = "compiler"
 family        = "gnu"
 homepage      = "https://gcc.gnu.org/fortran/"
 
-debug = "-g"
+supported_archs = ["x86_64", "x86", "aarch64", "armv7", "riscv64", "powerpc64le", "s390x"]
+supported_os    = ["linux", "macos", "windows"]
+
+debug    = "-g"
 lto      = "-flto"
-cpu_ext  = ""
+lto_link = "-flto"
+cpu_ext  = "-m{name}"
 
 [version]
 argument = "--version"
@@ -16,13 +20,17 @@ argument = "-fsanitize={values}"
 options = ["address", "undefined"]
 
 [arch_flags]
-x86_64 = "-m64"
-x86    = "-m32"
+x86_64      = "-m64"
+x86         = "-m32"
+aarch64     = ""
+powerpc64le = ""
 
 [toolset]
-ld    = "gfortran"
-ar    = "ar"
-strip = "strip"
+ld     = "gfortran"
+ar     = "ar"
+ranlib = "ranlib"
+strip  = "strip"
+nm     = "nm"
 
 [structure]
 include_dir  = "-I{path}"
@@ -31,16 +39,19 @@ define_value = "-D{name}={value}"
 output       = "-o {path}"
 compile_only = "-c"
 dep_file     = "-cpp -MMD -MF {path}"
+system_lib   = "-l{name}"
 target       = ""
 sysroot      = "--sysroot={path}"
 
 [optimization]
-"0" = "-O0"
-"1" = "-O1"
-"2" = "-O2"
-"3" = "-O3"
-"s" = "-Os"
-"z" = "-Oz"
+"0"    = "-O0"
+"1"    = "-O1"
+"2"    = "-O2"
+"3"    = "-O3"
+"g"    = "-Og"
+"s"    = "-Os"
+"z"    = "-Oz"
+"fast" = "-Ofast"
 
 [warnings]
 normal = "-Wall"
@@ -49,10 +60,36 @@ all    = "-Wall -Wextra"
 error  = "-Wall -Wextra -Werror"
 
 [language.std]
-"f95"   = "-std=f95"
 "f2003" = "-std=f2003"
 "f2008" = "-std=f2008"
 "f2018" = "-std=f2018"
+"f95"   = "-std=f95"
+
+[language.implicit_none]
+enabled  = "-fimplicit-none"
+disabled = ""
+
+[language.real_kind]
+"32"  = ""
+"64"  = "-fdefault-real-8"
+"128" = "-fdefault-real-16"
+
+[language.openmp]
+enabled  = "-fopenmp"
+disabled = ""
+
+[compiler.debug_info]
+dwarf4 = "-gdwarf-4"
+dwarf5 = "-gdwarf-5"
+gdb    = "-ggdb3"
+"1"    = "-g1"
+"2"    = "-g2"
+"3"    = "-g3"
+
+[compiler.lto_mode]
+auto      = "-flto=auto"
+jobserver = "-flto=jobserver"
+
 [linking.fortran]
 abi        = "fortran"
 compatible = ["c"]

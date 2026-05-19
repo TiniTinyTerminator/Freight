@@ -3,9 +3,13 @@ kind          = "compiler"
 family        = "llvm"
 homepage      = "https://github.com/ldc-developers/ldc"
 
-debug = "-g"
-lto      = "-flto=full"
-cpu_ext  = "-m{name}"
+supported_archs = ["x86_64", "x86", "aarch64", "armv7", "riscv64", "wasm32"]
+supported_os    = ["linux", "macos", "windows", "freebsd"]
+
+debug   = "-g"
+lto     = "-flto=full"
+lto_link = "-flto=full"
+cpu_ext = "-m{name}"
 
 extensions = [".d"]
 
@@ -17,10 +21,20 @@ regex    = '\b(\d+\.\d+\.\d+)\b'
 argument = "-fsanitize={values}"
 options = ["address", "thread", "memory", "undefined"]
 
+[arch_flags]
+x86_64  = "-m64"
+x86     = "-m32"
+aarch64 = ""
+armv7   = ""
+riscv64 = ""
+wasm32  = ""
+
 [toolset]
-ld    = "ldc2"
-ar    = "ar"
-strip = "strip"
+ld     = "ldc2"
+ar     = "ar"
+ranlib = "ranlib"
+strip  = "strip"
+nm     = "nm"
 
 [structure]
 include_dir   = "-I{path}"
@@ -35,21 +49,42 @@ target        = "-mtriple={triple}"
 sysroot       = ""
 
 [optimization]
-"0" = "-O0"
-"1" = "-O1"
-"2" = "-O2"
-"3" = "-O3"
-"s" = "-Os"
-"z" = "-Oz"
+"0"    = "-O0"
+"1"    = "-O1"
+"2"    = "-O2"
+"3"    = "-O3"
+"s"    = "-Os"
+"z"    = "-Oz"
+"fast" = "-O3 -ffast-math"
 
 [warnings]
 normal = ""
 none   = ""
 all    = "-wi"
 error  = "-w"
+
+[language.betterc]
+enabled  = "-betterC"
+disabled = ""
+
+[language.unittest]
+enabled  = "-unittest"
+disabled = ""
+
 [compiler.dip1000]
 "false" = ""
 "true"  = "-preview=dip1000"
+
+[compiler.lto_mode]
+thin = "-flto=thin"
+full = "-flto=full"
+
+[compiler.debug_info]
+dwarf4 = "-gdwarf=4"
+dwarf5 = "-gdwarf=5"
+"1"    = "-g1"
+"2"    = "-g2"
+"3"    = "-g3"
 
 [linking.d]
 abi        = "d"

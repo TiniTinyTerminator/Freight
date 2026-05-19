@@ -5,8 +5,9 @@ homepage      = "https://developer.nvidia.com/hpc-sdk"
 supported_archs    = ["x86_64", "aarch64"]
 supported_os       = ["linux"]
 
-debug = "-g"
-lto     = ""
+debug   = "-g"
+lto     = "-Mipa"
+lto_link = "-Mipa"
 cpu_ext = "-m{name}"
 
 [version]
@@ -17,8 +18,11 @@ regex    = '(\d+\.\d+)'
 options = ["address"]
 
 [toolset]
-ld  = "nvfortran"
-ar  = "ar"
+ld     = "nvfortran"
+ar     = "ar"
+ranlib = "ranlib"
+strip  = "strip"
+nm     = "nm"
 
 [structure]
 include_dir  = "-I{path}"
@@ -27,16 +31,18 @@ define_value = "-D{name}={value}"
 output       = "-o {path}"
 compile_only = "-c"
 dep_file     = "-MMD -MF {path}"
+system_lib   = "-l{name}"
 target       = ""
 sysroot      = ""
 
 [optimization]
-"0" = "-O0"
-"1" = "-O1"
-"2" = "-O2"
-"3" = "-O3"
-"s" = "-O2"
-"z" = "-O2"
+"0"    = "-O0"
+"1"    = "-O1"
+"2"    = "-O2"
+"3"    = "-O3"
+"s"    = "-O2"
+"z"    = "-O2"
+"fast" = "-O4 -Mfprelaxed"
 
 [warnings]
 normal = ""
@@ -45,9 +51,28 @@ all    = "-Minform=warn"
 error  = "-Minform=warn -Werror"
 
 [language.std]
-"f2003" = "-Mstandard"
 "f2008" = "-Mstandard"
 "f2018" = "-Mstandard"
+"f2003" = "-Mstandard"
+
+[language.implicit_none]
+enabled  = "-Mdclchk"
+disabled = ""
+
+[language.openmp]
+enabled  = "-mp"
+disabled = ""
+
+[compiler.acc]
+enabled  = "-acc"
+disabled = ""
+
+[compiler.gpu_arch]
+value = "-gpu=$(value)"
+
+[compiler.target_arch]
+value = "-tp=$(value)"
+
 [linking.fortran]
 abi            = "fortran"
 compatible     = ["c"]
