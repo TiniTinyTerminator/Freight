@@ -11,12 +11,16 @@ requires_toolchain = ["cpp"]
 always_flags       = ["--expt-relaxed-constexpr", "--extended-lambda"]
 lto = ""
 
-[header]
-version_arg   = "--version"
-version_regex = 'release (\d+\.\d+)'
-passthrough        = true
-passthrough_prefix = "-Xcompiler"
-sanitizer_options = []
+[version]
+argument = "--version"
+regex    = 'release (\d+\.\d+)'
+
+[passthrough]
+enabled = true
+prefix  = "-Xcompiler"
+
+[sanitizer]
+options = []
 
 [toolset]
 ld = "nvcc"
@@ -29,7 +33,7 @@ ld = "nvcc"
 "s" = "-O2"
 "z" = "-O2"
 
-dbg = "-g -G"
+debug = "-g -G"
 
 [warnings]
 normal = "-Wall"

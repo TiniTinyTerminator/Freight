@@ -594,6 +594,14 @@ impl CompilerTemplate {
         Self::from_eval_result(r)
     }
 
+    /// Read a `.toml` toolchain file from disk and parse it.
+    pub fn from_toml_file(path: &Path) -> Result<Self, FreightError> {
+        let src = std::fs::read_to_string(path).map_err(FreightError::Io)?;
+        let dir = path.parent();
+        let r = super::toml_loader::load_toml_toolchain(&src, dir)?;
+        Self::from_eval_result_pub(r)
+    }
+
     fn from_eval_result(r: script::EvalResult) -> Result<Self, FreightError> {
         Self::from_eval_result_pub(r)
     }
@@ -1255,56 +1263,48 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    // Standalone templates (no include) — from_rhai is fine without a directory.
-    const NVCC_RHAI: &str   = include_str!("../../../../toolchains/nvidia/nvcc.rhai");
-    const OPENCL_RHAI: &str = include_str!("../../../../toolchains/opencl.rhai");
-    const HIPCC_RHAI: &str  = include_str!("../../../../toolchains/amd/hipcc.rhai");
-    const ISPC_RHAI: &str   = include_str!("../../../../toolchains/intel/ispc.rhai");
-    const TCC_RHAI: &str    = include_str!("../../../../toolchains/tcc.rhai");
-    const MSVC_RHAI: &str   = include_str!("../../../../toolchains/msvc.rhai");
-
     const TOOLCHAINS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../toolchains");
-    fn rhai(rel: &str) -> CompilerTemplate {
-        CompilerTemplate::from_rhai_file(&std::path::Path::new(TOOLCHAINS).join(rel)).unwrap()
+    fn toml(rel: &str) -> CompilerTemplate {
+        CompilerTemplate::from_toml_file(&std::path::Path::new(TOOLCHAINS).join(rel)).unwrap()
     }
-    fn gcc()   -> CompilerTemplate { rhai("gnu/g++.rhai") }
-    fn gcc_c() -> CompilerTemplate { rhai("gnu/gcc.rhai") }
-    fn clang() -> CompilerTemplate { rhai("llvm/clang++.rhai") }
-    fn nvcc()  -> CompilerTemplate { CompilerTemplate::from_rhai(NVCC_RHAI).unwrap() }
+    fn gcc()   -> CompilerTemplate { toml("gnu/g++.toml") }
+    fn gcc_c() -> CompilerTemplate { toml("gnu/gcc.toml") }
+    fn clang() -> CompilerTemplate { toml("llvm/clang++.toml") }
+    fn nvcc()  -> CompilerTemplate { toml("nvidia/nvcc.toml") }
 
     // ── Parsing ───────────────────────────────────────────────────────────────
 
     #[test]
     fn all_templates_parse() {
         // GNU family
-        rhai("gnu/g++.rhai");
-        rhai("gnu/gcc.rhai");
-        rhai("gnu/gfortran.rhai");
-        rhai("gnu/gdc.rhai");
+        toml("gnu/g++.toml");
+        toml("gnu/gcc.toml");
+        toml("gnu/gfortran.toml");
+        toml("gnu/gdc.toml");
         // LLVM family
-        rhai("llvm/clang++.rhai");
-        rhai("llvm/clang.rhai");
-        rhai("llvm/flang.rhai");
-        rhai("llvm/ldc2.rhai");
+        toml("llvm/clang++.toml");
+        toml("llvm/clang.toml");
+        toml("llvm/flang.toml");
+        toml("llvm/ldc2.toml");
         // Intel
-        rhai("intel/icpx.rhai");
-        rhai("intel/ifx.rhai");
-        CompilerTemplate::from_rhai(ISPC_RHAI).unwrap();
+        toml("intel/icpx.toml");
+        toml("intel/ifx.toml");
+        toml("intel/ispc.toml");
         // AMD
-        CompilerTemplate::from_rhai(HIPCC_RHAI).unwrap();
+        toml("amd/hipcc.toml");
         // NVIDIA
-        CompilerTemplate::from_rhai(NVCC_RHAI).unwrap();
-        rhai("nvidia/nvc++.rhai");
-        rhai("nvidia/nvc.rhai");
-        rhai("nvidia/nvfortran.rhai");
+        toml("nvidia/nvcc.toml");
+        toml("nvidia/nvc++.toml");
+        toml("nvidia/nvc.toml");
+        toml("nvidia/nvfortran.toml");
         // Assemblers
-        rhai("asm/nasm.rhai");
-        rhai("asm/yasm.rhai");
+        toml("asm/nasm.toml");
+        toml("asm/yasm.toml");
         // Standalone
-        rhai("dmd.rhai");
-        CompilerTemplate::from_rhai(TCC_RHAI).unwrap();
-        CompilerTemplate::from_rhai(OPENCL_RHAI).unwrap();
-        CompilerTemplate::from_rhai(MSVC_RHAI).unwrap();
+        toml("dmd.toml");
+        toml("tcc.toml");
+        toml("opencl.toml");
+        toml("msvc.toml");
     }
 
     #[test]
@@ -1488,7 +1488,7 @@ mod tests {
 
     #[test]
     fn gfortran_has_no_modules() {
-        let t = rhai("gnu/gfortran.rhai");
+        let t = toml("gnu/gfortran.toml");
         assert_eq!(t.modules, ModuleStyle::Unsupported);
         assert!(t.extensions.contains(&".f90".to_string()));
     }
@@ -1862,7 +1862,7 @@ mod tests {
 
     // ── MSVC toolchain ────────────────────────────────────────────────────────
 
-    fn msvc() -> CompilerTemplate { CompilerTemplate::from_rhai(MSVC_RHAI).unwrap() }
+    fn msvc() -> CompilerTemplate { toml("msvc.toml") }
 
     #[test]
     fn msvc_ar_is_lib_exe() {

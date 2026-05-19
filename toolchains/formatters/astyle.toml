@@ -4,9 +4,9 @@ family        = "astyle"
 binary        = "astyle"
 extensions    = [".cpp", ".cc", ".cxx", ".c++", ".c", ".h", ".hpp", ".hxx", ".cs", ".java"]
 
-[header]
-version_arg   = "--version"
-version_regex = 'Artistic Style Version (\d+\.\d+)'
+[version]
+argument = "--version"
+regex    = 'Artistic Style Version (\d+\.\d+)'
 
 [run]
 fix   = "--suffix=none"

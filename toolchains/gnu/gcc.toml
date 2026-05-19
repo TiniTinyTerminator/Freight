@@ -7,17 +7,21 @@ homepage      = "https://gcc.gnu.org/"
 detect       = ["gcc"]
 always_flags = ["$(arch == 'x86_64' ? '-m64' : arch == 'x86' ? '-m32' : '')"]
 
-dbg      = "-g"
+debug = "-g"
 lto      = "-flto"
 sanitize = "-fsanitize={values}"
 cpu_ext  = "-m{name}"
 
-[header]
-version_arg   = "--version"
-version_regex = '\b(\d+\.\d+\.\d+)\b'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options  = ["address", "undefined", "thread", "leak"]
+[version]
+argument = "--version"
+regex    = '\b(\d+\.\d+\.\d+)\b'
+
+[passthrough]
+enabled = false
+prefix  = ""
+
+[sanitizer]
+options = ["address", "undefined", "thread", "leak"]
 
 [toolset]
 cc    = "$(binary)"

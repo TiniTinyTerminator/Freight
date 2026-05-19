@@ -4,9 +4,9 @@ family        = "uncrustify"
 binary        = "uncrustify"
 extensions    = [".cpp", ".cc", ".cxx", ".c++", ".c", ".h", ".hpp", ".hxx", ".cs", ".java"]
 
-[header]
-version_arg   = "--version"
-version_regex = 'Uncrustify-(\d+\.\d+\.\d+)'
+[version]
+argument = "--version"
+regex    = 'Uncrustify-(\d+\.\d+\.\d+)'
 
 [run]
 fix   = "--no-backup --replace"

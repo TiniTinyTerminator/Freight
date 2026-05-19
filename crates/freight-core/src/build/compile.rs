@@ -714,30 +714,33 @@ mod tests {
     fn named_backend_matches_template_name() {
         let ts = templates();
         let detected = fake_detected(&ts);
-        // "gnu" family → g++ for cpp language
+        // "gnu" family → a g++ variant for cpp language
         let backend = Backend("gnu".into());
         let found = select_compiler("cpp", &backend, &detected, None);
         assert!(found.is_some());
-        assert_eq!(found.unwrap().template.name, "g++");
+        assert!(found.unwrap().template.name.starts_with("g++"),
+            "expected a g++ variant");
     }
 
     #[test]
     fn named_backend_family_picks_right_compiler_per_lang() {
         let ts = templates();
         let detected = fake_detected(&ts);
-        // "gnu" family → g++ for cpp, gcc for c, gfortran for fortran
+        // "gnu" family → g++ variant for cpp, gcc for c, gfortran for fortran
         let cpp = select_compiler("cpp", &Backend("gnu".into()), &detected, None);
         assert!(cpp.is_some(), "gnu backend should find a C++ compiler");
-        assert_eq!(cpp.unwrap().template.name, "g++");
+        assert!(cpp.unwrap().template.name.starts_with("g++"),
+            "expected a g++ variant");
 
         let fortran = select_compiler("fortran", &Backend("gnu".into()), &detected, None);
         assert!(fortran.is_some(), "gnu backend should find a Fortran compiler");
         assert_eq!(fortran.unwrap().template.name, "gfortran");
 
-        // "llvm" family → clang++ for cpp
+        // "llvm" family → a clang++ variant for cpp
         let cpp_llvm = select_compiler("cpp", &Backend("llvm".into()), &detected, None);
         assert!(cpp_llvm.is_some(), "llvm backend should find a C++ compiler");
-        assert_eq!(cpp_llvm.unwrap().template.name, "clang++");
+        assert!(cpp_llvm.unwrap().template.name.starts_with("clang++"),
+            "expected a clang++ variant");
     }
 
     #[test]

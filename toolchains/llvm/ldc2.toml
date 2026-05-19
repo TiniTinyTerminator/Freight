@@ -6,17 +6,23 @@ homepage      = "https://github.com/ldc-developers/ldc"
 detect       = ["ldc2"]
 always_flags = []
 
-dbg      = "-g"
+debug = "-g"
 lto      = "-flto=full"
 sanitize = "-fsanitize={values}"
 cpu_ext  = "-m{name}"
 
-[header]
-version_arg   = "--version"
-version_regex = '\b(\d+\.\d+\.\d+)\b'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options  = ["address", "thread", "memory", "undefined"]
+extensions = [".d"]
+
+[version]
+argument = "--version"
+regex    = '\b(\d+\.\d+\.\d+)\b'
+
+[passthrough]
+enabled = false
+prefix  = ""
+
+[sanitizer]
+options = ["address", "thread", "memory", "undefined"]
 
 [toolset]
 ld    = "ldc2"
@@ -48,8 +54,6 @@ normal = ""
 none   = ""
 all    = "-wi"
 error  = "-w"
-
-extensions = [".d"]
 
 [language.modules]
 style = "none"

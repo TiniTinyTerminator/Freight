@@ -2,9 +2,9 @@ kind          = "debugger"
 name          = "lldb"
 binary        = "lldb"
 
-[header]
-version_arg   = "--version"
-version_regex = '\b(\d+\.\d+\.\d+)\b'
+[version]
+argument = "--version"
+regex    = '\b(\d+\.\d+\.\d+)\b'
 
 [launch]
 separator = "--"

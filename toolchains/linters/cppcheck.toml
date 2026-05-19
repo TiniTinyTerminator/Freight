@@ -4,9 +4,9 @@ family        = "cppcheck"
 binary        = "cppcheck"
 extensions    = [".cpp", ".cc", ".cxx", ".c++", ".cppm", ".c"]
 
-[header]
-version_arg   = "--version"
-version_regex = 'Cppcheck (\d+\.\d+)'
+[version]
+argument = "--version"
+regex    = 'Cppcheck (\d+\.\d+)'
 
 [run]
 check = "--error-exitcode=1"

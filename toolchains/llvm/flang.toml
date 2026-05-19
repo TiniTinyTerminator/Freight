@@ -6,17 +6,21 @@ homepage      = "https://flang.llvm.org/"
 detect       = ["flang", "flang-new"]
 always_flags = []
 
-dbg      = "-g"
+debug = "-g"
 lto      = "-flto"
 sanitize = "-fsanitize={values}"
 cpu_ext  = "-m{name}"
 
-[header]
-version_arg   = "--version"
-version_regex = 'flang(?:-new)? version (\d+\.\d+\.\d+)'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options  = ["address", "undefined"]
+[version]
+argument = "--version"
+regex    = 'flang(?:-new)? version (\d+\.\d+\.\d+)'
+
+[passthrough]
+enabled = false
+prefix  = ""
+
+[sanitizer]
+options = ["address", "undefined"]
 
 [toolset]
 ld    = "$(binary)"

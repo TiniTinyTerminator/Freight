@@ -6,12 +6,16 @@ binary        = "tcc"
 extensions    = [".c"]
 lto = ""
 
-[header]
-version_arg   = "-v"
-version_regex = 'version (\d+\.\d+\.\d+)'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options = []
+[version]
+argument = "-v"
+regex    = 'version (\d+\.\d+\.\d+)'
+
+[passthrough]
+enabled = false
+prefix  = ""
+
+[sanitizer]
+options = []
 
 [toolset]
 cc = "tcc"
@@ -26,7 +30,7 @@ ar = "tcc"
 "s" = ""
 "z" = ""
 
-dbg = "-g"
+debug = "-g"
 
 [warnings]
 normal = "-Wall"

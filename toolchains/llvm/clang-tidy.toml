@@ -4,9 +4,9 @@ family        = "llvm"
 binary        = "clang-tidy"
 extensions    = [".cpp", ".cc", ".cxx", ".c++", ".cppm", ".c"]
 
-[header]
-version_arg   = "--version"
-version_regex = 'LLVM version (\d+\.\d+\.\d+)'
+[version]
+argument = "--version"
+regex    = 'LLVM version (\d+\.\d+\.\d+)'
 
 [run]
 check = ""

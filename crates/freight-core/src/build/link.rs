@@ -323,19 +323,21 @@ mod tests {
 
     const TEMPLATES_DIR: &str =
         concat!(env!("CARGO_MANIFEST_DIR"), "/../../toolchains");
-    const MSVC_RHAI: &str =
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../toolchains/msvc.rhai"));
 
     fn templates() -> Vec<CompilerTemplate> {
         crate::toolchain::load_templates(std::path::Path::new(TEMPLATES_DIR))
     }
 
     fn gcc() -> CompilerTemplate {
-        CompilerTemplate::from_rhai_file(
-            &std::path::Path::new(TEMPLATES_DIR).join("gnu/g++.rhai")
+        CompilerTemplate::from_toml_file(
+            &std::path::Path::new(TEMPLATES_DIR).join("gnu/g++.toml")
         ).unwrap()
     }
-    fn msvc() -> CompilerTemplate { CompilerTemplate::from_rhai(MSVC_RHAI).unwrap() }
+    fn msvc() -> CompilerTemplate {
+        CompilerTemplate::from_toml_file(
+            &std::path::Path::new(TEMPLATES_DIR).join("msvc.toml")
+        ).unwrap()
+    }
 
     fn fake_detected(templates: &[CompilerTemplate]) -> Vec<DetectedCompiler> {
         templates.iter().map(|t| DetectedCompiler {

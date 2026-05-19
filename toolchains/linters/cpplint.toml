@@ -4,9 +4,9 @@ family        = "cpplint"
 binary        = "cpplint"
 extensions    = [".cpp", ".cc", ".cxx", ".c++", ".c", ".h", ".hpp", ".hxx"]
 
-[header]
-version_arg   = "--version"
-version_regex = 'cpplint (\d+\.\d+\.\d+)'
+[version]
+argument = "--version"
+regex    = 'cpplint (\d+\.\d+\.\d+)'
 
 [run]
 check = ""

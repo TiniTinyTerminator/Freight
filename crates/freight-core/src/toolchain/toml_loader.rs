@@ -62,17 +62,21 @@ struct TomlDap {
     mi_mode: String,
 }
 
-/// Metadata that is identical across all compilers of the same family:
-/// how to detect the version, whether to wrap flags, which sanitizers exist.
-/// Lives under `[header]` in `.toml` files; top-level fields are still
-/// accepted as a fallback so existing files keep working.
 #[derive(Deserialize, Default, Clone, Debug)]
-struct TomlHeader {
-    version_arg:        Option<String>,
-    version_regex:      Option<String>,
-    passthrough:        Option<bool>,
-    passthrough_prefix: Option<String>,
-    sanitizer_options:  Option<Vec<String>>,
+struct TomlVersion {
+    argument: Option<String>,
+    regex:    Option<String>,
+}
+
+#[derive(Deserialize, Default, Clone, Debug)]
+struct TomlPassthrough {
+    enabled: Option<bool>,
+    prefix:  Option<String>,
+}
+
+#[derive(Deserialize, Default, Clone, Debug)]
+struct TomlSanitizer {
+    options: Option<Vec<String>>,
 }
 
 /// The full TOML toolchain document.
@@ -86,22 +90,17 @@ struct TomlToolchain {
     base:              Option<TomlBase>,
     detect:            Option<Vec<String>>,
     binary:            Option<String>,
-    /// Preferred location for version/passthrough/sanitizer metadata.
-    header:            Option<TomlHeader>,
-    /// Top-level fallbacks kept for backward compatibility.
-    version_arg:       Option<String>,
-    version_regex:     Option<String>,
+    version:           Option<TomlVersion>,
+    passthrough:       Option<TomlPassthrough>,
+    sanitizer:         Option<TomlSanitizer>,
     extensions:        Option<Vec<String>>,
     always_flags:      Option<Vec<String>>,
-    sanitizer_options: Option<Vec<String>>,
     supported_archs:   Option<Vec<String>>,
     supported_os:      Option<Vec<String>>,
     required_tools:    Option<Vec<String>>,
     required_env:      Option<Vec<String>>,
     requires_toolchain: Option<Vec<String>>,
-    passthrough:       Option<bool>,
-    passthrough_prefix: Option<String>,
-    dbg:               Option<String>,
+    debug:             Option<String>,
     lto:               Option<String>,
     lto_link:          Option<String>,
     sanitize:          Option<String>,
@@ -495,29 +494,34 @@ fn merge(base: TomlToolchain, overlay: TomlToolchain) -> TomlToolchain {
         base:               overlay.base,   // not propagated
         detect:             arr!(detect),
         binary:             scalar!(binary),
-        header:             match (base.header, overlay.header) {
+        version:            match (base.version, overlay.version) {
             (None, v) | (v, None) => v,
-            (Some(b), Some(o)) => Some(TomlHeader {
-                version_arg:        o.version_arg.or(b.version_arg),
-                version_regex:      o.version_regex.or(b.version_regex),
-                passthrough:        o.passthrough.or(b.passthrough),
-                passthrough_prefix: o.passthrough_prefix.or(b.passthrough_prefix),
-                sanitizer_options:  o.sanitizer_options.or(b.sanitizer_options),
+            (Some(b), Some(o)) => Some(TomlVersion {
+                argument: o.argument.or(b.argument),
+                regex:    o.regex.or(b.regex),
             }),
         },
-        version_arg:        scalar!(version_arg),
-        version_regex:      scalar!(version_regex),
+        passthrough:        match (base.passthrough, overlay.passthrough) {
+            (None, v) | (v, None) => v,
+            (Some(b), Some(o)) => Some(TomlPassthrough {
+                enabled: o.enabled.or(b.enabled),
+                prefix:  o.prefix.or(b.prefix),
+            }),
+        },
+        sanitizer:          match (base.sanitizer, overlay.sanitizer) {
+            (None, v) | (v, None) => v,
+            (Some(b), Some(o)) => Some(TomlSanitizer {
+                options: o.options.or(b.options),
+            }),
+        },
         extensions:         arr!(extensions),
         always_flags:       arr!(always_flags),
-        sanitizer_options:  arr!(sanitizer_options),
         supported_archs:    arr!(supported_archs),
         supported_os:       arr!(supported_os),
         required_tools:     arr!(required_tools),
         required_env:       arr!(required_env),
         requires_toolchain: arr!(requires_toolchain),
-        passthrough:        scalar!(passthrough),
-        passthrough_prefix: scalar!(passthrough_prefix),
-        dbg:                scalar!(dbg),
+        debug:              scalar!(debug),
         lto:                scalar!(lto),
         lto_link:           scalar!(lto_link),
         sanitize:           scalar!(sanitize),
@@ -718,27 +722,32 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
     def.binary  = binary.to_string();
     def.kind    = tc.kind.clone().unwrap_or_else(|| "compiler".to_string());
 
-    // [header] fields take priority; top-level values are the fallback.
-    let hdr = tc.header.as_ref();
-    def.version_arg   = hdr.and_then(|h| h.version_arg.clone())
-        .or_else(|| tc.version_arg.clone()).unwrap_or_default();
-    def.version_regex = hdr.and_then(|h| h.version_regex.clone())
-        .or_else(|| tc.version_regex.clone()).unwrap_or_default();
-    def.passthrough_enabled = hdr.and_then(|h| h.passthrough)
-        .or(tc.passthrough).unwrap_or(false);
-    def.passthrough_prefix  = hdr.and_then(|h| h.passthrough_prefix.clone())
-        .or_else(|| tc.passthrough_prefix.clone()).unwrap_or_default();
-    def.sanitizer_options   = hdr.and_then(|h| h.sanitizer_options.clone())
-        .or_else(|| tc.sanitizer_options.clone()).unwrap_or_default();
+    def.version_arg         = tc.version.as_ref().and_then(|v| v.argument.clone()).unwrap_or_default();
+    def.version_regex       = tc.version.as_ref().and_then(|v| v.regex.clone()).unwrap_or_default();
+    def.passthrough_enabled = tc.passthrough.as_ref().and_then(|p| p.enabled).unwrap_or(false);
+    def.passthrough_prefix  = tc.passthrough.as_ref().and_then(|p| p.prefix.clone()).unwrap_or_default();
+    def.sanitizer_options   = tc.sanitizer.as_ref().and_then(|s| s.options.clone()).unwrap_or_default();
 
-    def.extensions         = tc.extensions.clone().unwrap_or_default();
+    // If no top-level extensions, derive them from all linking section extensions.
+    def.extensions = if let Some(exts) = tc.extensions.clone().filter(|v| !v.is_empty()) {
+        exts
+    } else if let Some(linking) = &tc.linking {
+        let mut all: Vec<String> = linking.values()
+            .flat_map(|lp| lp.extensions.iter().cloned())
+            .collect();
+        all.sort();
+        all.dedup();
+        all
+    } else {
+        Vec::new()
+    };
     def.supported_archs    = tc.supported_archs.clone().unwrap_or_default();
     def.supported_os       = tc.supported_os.clone().unwrap_or_default();
     def.required_tools     = tc.required_tools.clone().unwrap_or_default();
     def.required_env       = tc.required_env.clone().unwrap_or_default();
     def.requires_toolchain = tc.requires_toolchain.clone().unwrap_or_default();
 
-    def.flags_debug    = eval_opt_string(tc.dbg.as_deref(), ctx);
+    def.flags_debug    = eval_opt_string(tc.debug.as_deref(), ctx);
     def.flags_lto      = eval_opt_string(tc.lto.as_deref(), ctx);
     def.flags_lto_link = eval_opt_string(tc.lto_link.as_deref(), ctx);
     def.sanitize       = eval_opt_string(tc.sanitize.as_deref(), ctx);
@@ -1133,8 +1142,8 @@ pub fn load_debugger_template_toml(src: &str, dir: Option<&Path>) -> Result<Debu
     Ok(DebuggerTemplate {
         name:          merged.name.clone().unwrap_or_default(),
         binary:        binary.clone(),
-        version_arg:   merged.version_arg.clone().unwrap_or_default(),
-        version_regex: merged.version_regex.clone().unwrap_or_default(),
+        version_arg:   merged.version.as_ref().and_then(|v| v.argument.clone()).unwrap_or_default(),
+        version_regex: merged.version.as_ref().and_then(|v| v.regex.clone()).unwrap_or_default(),
         launch: LaunchConfig { separator },
         dap: DapConfig {
             binaries:    dap_binaries,
@@ -1169,8 +1178,8 @@ pub fn load_tool_toml(src: &str, dir: Option<&Path>) -> Result<ToolTemplate, Fre
     let kind = merged.kind.clone().unwrap_or_else(|| "formatter".to_string());
     let name = merged.name.clone().unwrap_or_default();
     let family = merged.family.clone().unwrap_or_default();
-    let version_arg = merged.version_arg.clone().unwrap_or_default();
-    let version_regex = merged.version_regex.clone().unwrap_or_default();
+    let version_arg = merged.version.as_ref().and_then(|v| v.argument.clone()).unwrap_or_default();
+    let version_regex = merged.version.as_ref().and_then(|v| v.regex.clone()).unwrap_or_default();
     let extensions = merged.extensions.clone().unwrap_or_default();
 
     let run: HashMap<String, String> = merged.run.as_ref()
@@ -1277,13 +1286,17 @@ mod tests {
 name = "testcc"
 kind = "compiler"
 binary = "testcc"
-version_arg = "--version"
-version_regex = '(\d+\.\d+)'
 extensions = [".c"]
-passthrough = false
-passthrough_prefix = ""
 lto = "-flto"
-dbg = "-g"
+debug = "-g"
+
+[version]
+argument = "--version"
+regex = '(\d+\.\d+)'
+
+[passthrough]
+enabled = false
+prefix  = ""
 
 [structure]
 include_dir  = "-I{path}"
@@ -1314,9 +1327,11 @@ none   = ""
     fn toml_toolchain_name_required() {
         let src = r#"
 binary = "testcc"
-version_arg = "--version"
-version_regex = '(\d+)'
 extensions = [".c"]
+
+[version]
+argument = "--version"
+regex = '(\d+)'
 "#;
         assert!(load_toml_toolchain(src, None).is_err());
     }

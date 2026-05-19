@@ -10,12 +10,16 @@ lto_link = "/LTCG"
 sanitize = "/fsanitize={values}"
 cpu_ext  = ""
 
-[header]
-version_arg   = ""
-version_regex = 'Version (\d+\.\d+\.\d+\.\d+)'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options = ["address"]
+[version]
+argument = ""
+regex    = 'Version (\d+\.\d+\.\d+\.\d+)'
+
+[passthrough]
+enabled = false
+prefix  = ""
+
+[sanitizer]
+options = ["address"]
 
 [toolset]
 cc    = "cl.exe"
@@ -32,7 +36,7 @@ strip = ""
 "s" = "/O1 /Os"
 "z" = "/O1 /Os"
 
-dbg = "/Zi /FS"
+debug = "/Zi /FS"
 
 [warnings]
 normal = "/W3"

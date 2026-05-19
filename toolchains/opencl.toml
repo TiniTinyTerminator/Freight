@@ -8,12 +8,16 @@ requires_toolchain = ["cpp"]
 lto = ""
 always_flags = ["-x", "cl"]
 
-[header]
-version_arg   = "--version"
-version_regex = '\b(\d+\.\d+\.\d+)\b'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options = []
+[version]
+argument = "--version"
+regex    = '\b(\d+\.\d+\.\d+)\b'
+
+[passthrough]
+enabled = false
+prefix  = ""
+
+[sanitizer]
+options = []
 
 [toolset]
 ld = "clang"
@@ -26,7 +30,7 @@ ld = "clang"
 "s" = "-Os"
 "z" = "-Oz"
 
-dbg = "-g"
+debug = "-g"
 
 [warnings]
 normal = "-Wall"

@@ -7,17 +7,23 @@ homepage      = "https://clang.llvm.org/"
 detect       = ["clang++-14"]
 always_flags = []
 
-dbg      = "-g"
+debug = "-g"
 lto      = "-flto"
 sanitize = "-fsanitize={values}"
 cpu_ext  = "-m{name}"
 
-[header]
-version_arg   = "--version"
-version_regex = '\b(\d+\.\d+\.\d+)\b'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options  = ["address", "undefined", "thread", "memory", "leak", "hwaddress", "dataflow", "cfi", "safestack"]
+extensions = [".cpp", ".cppm", ".ixx", ".mpp", ".cc", ".cxx", ".c++", ".mm"]
+
+[version]
+argument = "--version"
+regex    = '\b(\d+\.\d+\.\d+)\b'
+
+[passthrough]
+enabled = false
+prefix  = ""
+
+[sanitizer]
+options = ["address", "undefined", "thread", "memory", "leak", "hwaddress", "dataflow", "cfi", "safestack"]
 
 [toolset]
 cc    = "clang-14"
@@ -54,8 +60,6 @@ error  = "-Wall -Wextra -Wpedantic -Werror"
 "libc++"    = "-stdlib=libc++"
 "libstdc++" = "-stdlib=libstdc++"
 none        = "-nostdlib"
-
-extensions = [".cpp", ".cppm", ".ixx", ".mpp", ".cc", ".cxx", ".c++", ".mm"]
 
 # Clang 14: C++17 and C++20; C++23 experimental (-std=c++2b).
 [language.std]

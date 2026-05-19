@@ -4,9 +4,9 @@ family        = "flawfinder"
 binary        = "flawfinder"
 extensions    = [".cpp", ".cc", ".cxx", ".c++", ".c", ".h", ".hpp", ".hxx"]
 
-[header]
-version_arg   = "--version"
-version_regex = 'Flawfinder version (\d+\.\d+)'
+[version]
+argument = "--version"
+regex    = 'Flawfinder version (\d+\.\d+)'
 
 [run]
 check = "--error-level=1"
