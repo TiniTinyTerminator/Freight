@@ -112,11 +112,11 @@ struct TomlToolchain {
     arch_flags:   Option<IndexMap<String, String>>,
     optimization: Option<IndexMap<String, String>>,
     warnings:     Option<IndexMap<String, String>>,
-    stdlib:       Option<IndexMap<String, String>>,
-    modules:      Option<IndexMap<String, String>>,
-    pch:          Option<IndexMap<String, String>>,
     linking:      Option<IndexMap<String, TomlLinking>>,
+    /// `[language.std]` → standards map; `[language.modules]` → module params;
+    /// `[language.pch]` → PCH params; other entries become language option handlers.
     language:     Option<IndexMap<String, IndexMap<String, String>>>,
+    /// `[compiler.stdlib]` → stdlib flag map; other entries become compiler option handlers.
     compiler:     Option<IndexMap<String, IndexMap<String, String>>>,
 
     // debugger-specific
@@ -527,15 +527,6 @@ fn merge(base: TomlToolchain, overlay: TomlToolchain) -> TomlToolchain {
         arch_flags:         map!(arch_flags),
         optimization:       map!(optimization),
         warnings:           map!(warnings),
-        stdlib:             match (base.stdlib, overlay.stdlib) {
-            // An explicitly empty `stdlib = {}` in overlay means "no stdlib flags"
-            // — we need to represent that differently from "not set".
-            // We use None = not set, Some(empty) = explicitly empty.
-            (_, Some(o)) => Some(o),
-            (b, None) => b,
-        },
-        modules:            map!(modules),
-        pch:                map!(pch),
         linking:            map!(linking),
         language:           map_nested!(language),
         compiler:           map_nested!(compiler),
@@ -756,7 +747,11 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
     // Flag maps.
     def.flags_opt      = eval_map(tc.optimization.as_ref(), ctx);
     def.flags_warnings = eval_map(tc.warnings.as_ref(), ctx);
-    def.flags_stdlib   = eval_map(tc.stdlib.as_ref(), ctx);
+    // [compiler.stdlib] → stdlib flag map.
+    def.flags_stdlib   = eval_map(
+        tc.compiler.as_ref().and_then(|c| c.get("stdlib")),
+        ctx,
+    );
 
     // always_flags — evaluate and filter empty strings.
     def.always_flags = tc.always_flags.as_deref().unwrap_or(&[])
@@ -787,24 +782,6 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
     def.structure.insert("target".into(),       gs(s.and_then(|s| s.target.as_ref())));
     def.structure.insert("sysroot".into(),      gs(s.and_then(|s| s.sysroot.as_ref())));
 
-    // Modules.
-    if let Some(modules) = &tc.modules {
-        let style = modules.get("style").cloned().unwrap_or_default();
-        def.module_style = style;
-        for (k, v) in modules {
-            if k != "style" {
-                def.module_params.insert(k.clone(), eval_expr(v, ctx));
-            }
-        }
-    }
-
-    // PCH.
-    if let Some(pch) = &tc.pch {
-        for (k, v) in pch {
-            def.pch.insert(k.clone(), eval_expr(v, ctx));
-        }
-    }
-
     // Linking.
     if let Some(linking) = &tc.linking {
         for (lang, lp) in linking {
@@ -821,16 +798,28 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
         }
     }
 
-    // Standards from [language.*] — first entry of [language.std] is the default.
+    // [language.std] → standards map and default; [language.modules] → module params;
+    // [language.pch] → PCH params; other entries become language option handlers.
     if let Some(lang_map) = &tc.language {
-        // Handle `language.std` → standards + defaults.
         if let Some(std_map) = lang_map.get("std") {
             for (k, v) in std_map {
                 def.standards.insert(k.clone(), v.clone());
             }
-            // First key = default.
             if let Some((first_key, _)) = std_map.iter().next() {
                 def.defaults.insert("std".to_string(), first_key.clone());
+            }
+        }
+        if let Some(modules) = lang_map.get("modules") {
+            def.module_style = modules.get("style").cloned().unwrap_or_default();
+            for (k, v) in modules {
+                if k != "style" {
+                    def.module_params.insert(k.clone(), eval_expr(v, ctx));
+                }
+            }
+        }
+        if let Some(pch) = lang_map.get("pch") {
+            for (k, v) in pch {
+                def.pch.insert(k.clone(), eval_expr(v, ctx));
             }
         }
     }
@@ -881,15 +870,18 @@ fn build_handlers(
     let mut comp_handlers = HashMap::new();
     let mut lang_handlers = HashMap::new();
 
+    // Skip `compiler.stdlib` — handled via def.flags_stdlib, not an option handler.
     for (opt_name, map) in compiler_maps {
+        if opt_name == "stdlib" { continue; }
         if let Some(handler) = make_map_handler(map, ctx) {
             comp_handlers.insert(opt_name.clone(), handler);
         }
     }
 
-    // Skip `language.std` — it's already handled via def.standards / def.defaults.
+    // Skip `language.std` (→ def.standards), `language.modules` and `language.pch`
+    // — all three are handled directly in build_def, not as option handlers.
     for (opt_name, map) in language_maps {
-        if opt_name == "std" { continue; }
+        if matches!(opt_name.as_str(), "std" | "modules" | "pch") { continue; }
         if let Some(handler) = make_map_handler(map, ctx) {
             lang_handlers.insert(opt_name.clone(), handler);
         }

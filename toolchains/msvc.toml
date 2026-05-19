@@ -60,7 +60,7 @@ sysroot       = ""
 "c17"   = "/std:c17"
 "c11"   = "/std:c11"
 
-[modules]
+[language.modules]
 style = "none"
 
 [linking.c]

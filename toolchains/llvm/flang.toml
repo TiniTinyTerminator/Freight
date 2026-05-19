@@ -53,7 +53,7 @@ error  = "-Wall -Wextra -Werror"
 "f2008" = "-std=f2008"
 "f2018" = "-std=f2018"
 
-[modules]
+[language.modules]
 style = "none"
 
 [linking.fortran]

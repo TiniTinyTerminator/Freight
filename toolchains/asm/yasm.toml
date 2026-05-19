@@ -53,7 +53,7 @@ error  = "-w+all -Werror"
 "x86.macos"      = "-f macho32"
 "x86.windows"    = "-f win32"
 
-[modules]
+[language.modules]
 style = "none"
 
 [linking.asm]

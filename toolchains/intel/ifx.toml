@@ -56,7 +56,7 @@ extensions = [".f90", ".f95", ".f03", ".f08", ".f", ".F90"]
 "f2008" = "-std=f2008"
 "f2018" = "-std=f2018"
 
-[modules]
+[language.modules]
 style = "none"
 
 [linking.fortran]

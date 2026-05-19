@@ -52,7 +52,7 @@ error  = "-Minform=warn -Werror"
 "f2008" = "-Mstandard"
 "f2018" = "-Mstandard"
 
-[modules]
+[language.modules]
 style = "none"
 
 [linking.fortran]

@@ -50,7 +50,7 @@ none   = ""
 all    = "-Wall -Wextra -Wpedantic"
 error  = "-Wall -Wextra -Wpedantic -Werror"
 
-[stdlib]
+[compiler.stdlib]
 "libc++"    = "-stdlib=libc++"
 "libstdc++" = "-stdlib=libstdc++"
 none        = "-nostdlib"
@@ -63,13 +63,13 @@ extensions = [".cpp", ".cppm", ".ixx", ".mpp", ".cc", ".cxx", ".c++", ".mm"]
 "c++23" = "-std=c++23"
 "c++26" = "-std=c++26"
 
-[modules]
+[language.modules]
 style         = "clang"
 precompile    = "--precompile"
 import_module = "-fmodule-file={name}={pcm_path}"
 header_unit   = "-x c++-header"
 
-[pch]
+[language.pch]
 compile     = "-x c++-header"
 use         = "-include-pch {pch_path}"
 extension   = ".pch"

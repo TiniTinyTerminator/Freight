@@ -56,14 +56,14 @@ error  = "-Wall -Wextra -Wpedantic -Werror"
 "c++23" = "-std=c++23"
 "c++26" = "-std=c++26"
 
-[modules]
+[language.modules]
 style         = "gcc"
 enable_flag   = "-fmodules-ts"
 compile_miu   = "-fmodule-output={pcm_path}"
 import_module = "-fmodule-file={name}={pcm_path}"
 header_unit   = "-fmodule-header"
 
-[pch]
+[language.pch]
 compile     = "-x c++-header"
 use         = "-include {header_path}"
 extension   = ".gch"

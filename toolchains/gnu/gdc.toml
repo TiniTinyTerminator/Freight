@@ -47,7 +47,7 @@ none   = ""
 all    = "-Wall"
 error  = "-Wall -Werror"
 
-[modules]
+[language.modules]
 style = "none"
 
 [linking.d]

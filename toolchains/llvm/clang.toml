@@ -54,7 +54,7 @@ error  = "-Wall -Wextra -Wpedantic -Werror"
 "c17" = "-std=c17"
 "c23" = "-std=c23"
 
-[modules]
+[language.modules]
 style = "none"
 
 [linking.c]

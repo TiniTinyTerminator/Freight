@@ -51,7 +51,7 @@ error  = "-w"
 
 extensions = [".d"]
 
-[modules]
+[language.modules]
 style = "none"
 
 [compiler.dip1000]

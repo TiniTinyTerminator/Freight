@@ -44,7 +44,7 @@ dep_file     = ""
 target       = ""
 sysroot      = ""
 
-[modules]
+[language.modules]
 style = "none"
 
 [language.std]

@@ -45,7 +45,7 @@ sysroot      = ""
 [arch_flags]
 "x86.linux"      = "--32"
 
-[modules]
+[language.modules]
 style = "none"
 
 [linking.gas]

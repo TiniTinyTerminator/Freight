@@ -46,7 +46,7 @@ system_lib    = "-L-l{name}"
 target        = ""
 sysroot       = ""
 
-[modules]
+[language.modules]
 style = "none"
 
 [linking.d]

@@ -54,7 +54,7 @@ extensions = [".c"]
 "c11" = "-std=c11"
 "c17" = "-std=c17"
 
-[modules]
+[language.modules]
 style = "none"
 
 [linking.c]

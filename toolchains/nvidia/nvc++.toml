@@ -55,7 +55,7 @@ extensions = [".cpp", ".cc", ".cxx", ".c++"]
 "c++17" = "-std=c++17"
 "c++20" = "-std=c++20"
 
-[modules]
+[language.modules]
 style = "none"
 
 [linking.cpp]

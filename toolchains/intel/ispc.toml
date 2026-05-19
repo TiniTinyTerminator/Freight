@@ -44,7 +44,7 @@ dep_file     = "-MMM {path}"
 target       = ""
 sysroot      = ""
 
-[modules]
+[language.modules]
 style = "none"
 
 [linking.ispc]
