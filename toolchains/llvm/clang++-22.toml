@@ -3,11 +3,6 @@ alias         = "clang-22"
 kind          = "compiler"
 family        = "llvm"
 homepage      = "https://clang.llvm.org/"
-version_arg   = "--version"
-version_regex = '\b(\d+\.\d+\.\d+)\b'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options  = ["address", "undefined", "thread", "memory", "leak", "hwaddress", "dataflow", "cfi", "safestack"]
 
 detect       = ["clang++-22"]
 always_flags = []
@@ -16,6 +11,13 @@ dbg      = "-g"
 lto      = "-flto"
 sanitize = "-fsanitize={values}"
 cpu_ext  = "-m{name}"
+
+[header]
+version_arg   = "--version"
+version_regex = '\b(\d+\.\d+\.\d+)\b'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address", "undefined", "thread", "memory", "leak", "hwaddress", "dataflow", "cfi", "safestack"]
 
 [toolset]
 cc    = "clang-22"

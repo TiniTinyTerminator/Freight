@@ -2,11 +2,6 @@ name          = "nasm"
 kind          = "compiler"
 family        = ""
 homepage      = "https://www.nasm.us/"
-version_arg   = "--version"
-version_regex = 'NASM version (\d+\.\d+(?:\.\d+)?)'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options  = []
 supported_archs    = ["x86", "x86_64"]
 requires_toolchain = ["c"]
 
@@ -15,6 +10,13 @@ always_flags = []
 
 dbg = "-g -F dwarf"
 lto = ""
+
+[header]
+version_arg   = "--version"
+version_regex = 'NASM version (\d+\.\d+(?:\.\d+)?)'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = []
 
 [toolset]
 as = "nasm"

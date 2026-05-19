@@ -2,11 +2,6 @@ name          = "nvfortran"
 kind          = "compiler"
 family        = "nvidia"
 homepage      = "https://developer.nvidia.com/hpc-sdk"
-version_arg   = "--version"
-version_regex = '(\d+\.\d+)'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options  = ["address"]
 supported_archs    = ["x86_64", "aarch64"]
 supported_os       = ["linux"]
 
@@ -16,6 +11,13 @@ always_flags = []
 dbg     = "-g"
 lto     = ""
 cpu_ext = "-m{name}"
+
+[header]
+version_arg   = "--version"
+version_regex = '(\d+\.\d+)'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address"]
 
 [toolset]
 ld  = "nvfortran"
@@ -44,11 +46,6 @@ normal = ""
 none   = ""
 all    = "-Minform=warn"
 error  = "-Minform=warn -Werror"
-
-[stdlib]
-none = ""
-
-extensions = [".f90", ".f95", ".f", ".F90"]
 
 [language.std]
 "f2003" = "-Mstandard"

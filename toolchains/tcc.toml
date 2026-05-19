@@ -1,15 +1,17 @@
 name          = "tcc"
 kind          = "compiler"
 family        = ""
-sanitizer_options = []
 homepage      = "https://bellard.org/tcc/"
 binary        = "tcc"
+extensions    = [".c"]
+lto = ""
+
+[header]
 version_arg   = "-v"
 version_regex = 'version (\d+\.\d+\.\d+)'
-extensions    = [".c"]
 passthrough        = false
 passthrough_prefix = ""
-lto = ""
+sanitizer_options = []
 
 [toolset]
 cc = "tcc"

@@ -2,11 +2,6 @@ name          = "gdc"
 kind          = "compiler"
 family        = "gnu"
 homepage      = "https://gcc.gnu.org/"
-version_arg   = "--version"
-version_regex = '\b(\d+\.\d+\.\d+)\b'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options  = ["address", "undefined", "thread", "leak"]
 
 detect       = ["gdc"]
 always_flags = ["$(arch == 'x86_64' ? '-m64' : arch == 'x86' ? '-m32' : '')"]
@@ -15,6 +10,13 @@ dbg      = "-g"
 lto      = "-flto"
 sanitize = "-fsanitize={values}"
 cpu_ext  = "-m{name}"
+
+[header]
+version_arg   = "--version"
+version_regex = '\b(\d+\.\d+\.\d+)\b'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address", "undefined", "thread", "leak"]
 
 [toolset]
 ld    = "gdc"
@@ -44,11 +46,6 @@ normal = ""
 none   = ""
 all    = "-Wall"
 error  = "-Wall -Werror"
-
-[stdlib]
-none = "-nostdlib"
-
-extensions = [".d"]
 
 [modules]
 style = "none"

@@ -2,11 +2,6 @@ name          = "aarch64-linux-gnu"
 kind          = "compiler"
 family        = "gnu"
 homepage      = "https://gcc.gnu.org/"
-version_arg   = "--version"
-version_regex = '\b(\d+\.\d+\.\d+)\b'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options  = ["address", "undefined", "thread", "leak"]
 
 detect       = ["aarch64-linux-gnu-g++"]
 always_flags = []
@@ -15,6 +10,13 @@ dbg      = "-g"
 lto      = "-flto"
 sanitize = "-fsanitize={values}"
 cpu_ext  = "-m{name}"
+
+[header]
+version_arg   = "--version"
+version_regex = '\b(\d+\.\d+\.\d+)\b'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address", "undefined", "thread", "leak"]
 
 [toolset]
 cc    = "aarch64-linux-gnu-gcc"
@@ -46,12 +48,6 @@ normal = "-Wall"
 none   = ""
 all    = "-Wall -Wextra -Wpedantic"
 error  = "-Wall -Wextra -Wpedantic -Werror"
-
-[stdlib]
-"libstdc++" = ""
-none        = "-nostdlib"
-
-extensions = [".cpp", ".cppm", ".ixx", ".mpp", ".cc", ".cxx", ".c++"]
 
 [language.std]
 "c++17" = "-std=c++17"

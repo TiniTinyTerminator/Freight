@@ -3,11 +3,6 @@ alias         = "gcc-14"
 kind          = "compiler"
 family        = "gnu"
 homepage      = "https://gcc.gnu.org/"
-version_arg   = "--version"
-version_regex = '\b(\d+\.\d+\.\d+)\b'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options  = ["address", "undefined", "thread", "leak"]
 
 detect       = ["g++-14"]
 always_flags = ["$(arch == 'x86_64' ? '-m64' : arch == 'x86' ? '-m32' : '')"]
@@ -16,6 +11,13 @@ dbg      = "-g"
 lto      = "-flto"
 sanitize = "-fsanitize={values}"
 cpu_ext  = "-m{name}"
+
+[header]
+version_arg   = "--version"
+version_regex = '\b(\d+\.\d+\.\d+)\b'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address", "undefined", "thread", "leak"]
 
 [toolset]
 cc    = "gcc-14"
@@ -48,13 +50,6 @@ none   = ""
 all    = "-Wall -Wextra -Wpedantic"
 error  = "-Wall -Wextra -Wpedantic -Werror"
 
-[stdlib]
-"libstdc++" = ""
-none        = "-nostdlib"
-
-extensions = [".cpp", ".cppm", ".ixx", ".mpp", ".cc", ".cxx", ".c++"]
-
-# GCC 14: C++23 stable; C++26 available as -std=c++26 (experimental).
 [language.std]
 "c++17" = "-std=c++17"
 "c++20" = "-std=c++20"

@@ -2,11 +2,6 @@ name          = "ifx"
 kind          = "compiler"
 family        = "intel"
 homepage      = "https://www.intel.com/content/www/us/en/developer/tools/oneapi/fortran-compiler.html"
-version_arg   = "--version"
-version_regex = '(\d+\.\d+\.\d+)'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options  = ["address", "undefined"]
 supported_archs    = ["x86", "x86_64"]
 supported_os       = ["linux", "windows"]
 required_env       = ["ONEAPI_ROOT"]
@@ -16,6 +11,13 @@ detect = ["ifx"]
 dbg = "-g"
 lto = "-ipo"
 cpu_ext = "-m{name}"
+
+[header]
+version_arg   = "--version"
+version_regex = '(\d+\.\d+\.\d+)'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address", "undefined"]
 
 [toolset]
 ld    = "ifx"

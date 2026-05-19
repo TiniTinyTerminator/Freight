@@ -2,11 +2,6 @@ name          = "flang"
 kind          = "compiler"
 family        = "llvm"
 homepage      = "https://flang.llvm.org/"
-version_arg   = "--version"
-version_regex = 'flang(?:-new)? version (\d+\.\d+\.\d+)'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options  = ["address", "undefined"]
 
 detect       = ["flang", "flang-new"]
 always_flags = []
@@ -15,6 +10,13 @@ dbg      = "-g"
 lto      = "-flto"
 sanitize = "-fsanitize={values}"
 cpu_ext  = "-m{name}"
+
+[header]
+version_arg   = "--version"
+version_regex = 'flang(?:-new)? version (\d+\.\d+\.\d+)'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address", "undefined"]
 
 [toolset]
 ld    = "$(binary)"
@@ -44,11 +46,6 @@ normal = "-Wall"
 none   = ""
 all    = "-Wall -Wextra"
 error  = "-Wall -Wextra -Werror"
-
-[stdlib]
-none = "-nostdlib"
-
-extensions = [".f90", ".f95", ".f03", ".f08", ".f", ".F90"]
 
 [language.std]
 "f95"   = "-std=f95"

@@ -2,11 +2,6 @@ name          = "nvc"
 kind          = "compiler"
 family        = "nvidia"
 homepage      = "https://developer.nvidia.com/hpc-sdk"
-version_arg   = "--version"
-version_regex = '(\d+\.\d+)'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options  = ["address"]
 supported_archs    = ["x86_64", "aarch64"]
 supported_os       = ["linux"]
 
@@ -16,6 +11,13 @@ always_flags = []
 dbg     = "-g"
 lto     = ""
 cpu_ext = "-m{name}"
+
+[header]
+version_arg   = "--version"
+version_regex = '(\d+\.\d+)'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address"]
 
 [toolset]
 cc  = "nvc"

@@ -1,17 +1,19 @@
 name          = "opencl"
 kind          = "compiler"
 family        = ""
-sanitizer_options = []
 homepage      = "https://www.khronos.org/opencl/"
 binary        = "clang"
-version_arg   = "--version"
-version_regex = '\b(\d+\.\d+\.\d+)\b'
 extensions    = [".cl"]
-passthrough        = false
-passthrough_prefix = ""
 requires_toolchain = ["cpp"]
 lto = ""
 always_flags = ["-x", "cl"]
+
+[header]
+version_arg   = "--version"
+version_regex = '\b(\d+\.\d+\.\d+)\b'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options = []
 
 [toolset]
 ld = "clang"

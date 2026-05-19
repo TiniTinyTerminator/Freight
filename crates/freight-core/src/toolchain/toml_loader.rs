@@ -62,6 +62,19 @@ struct TomlDap {
     mi_mode: String,
 }
 
+/// Metadata that is identical across all compilers of the same family:
+/// how to detect the version, whether to wrap flags, which sanitizers exist.
+/// Lives under `[header]` in `.toml` files; top-level fields are still
+/// accepted as a fallback so existing files keep working.
+#[derive(Deserialize, Default, Clone, Debug)]
+struct TomlHeader {
+    version_arg:        Option<String>,
+    version_regex:      Option<String>,
+    passthrough:        Option<bool>,
+    passthrough_prefix: Option<String>,
+    sanitizer_options:  Option<Vec<String>>,
+}
+
 /// The full TOML toolchain document.
 #[derive(Deserialize, Default, Clone, Debug)]
 struct TomlToolchain {
@@ -73,6 +86,9 @@ struct TomlToolchain {
     base:              Option<TomlBase>,
     detect:            Option<Vec<String>>,
     binary:            Option<String>,
+    /// Preferred location for version/passthrough/sanitizer metadata.
+    header:            Option<TomlHeader>,
+    /// Top-level fallbacks kept for backward compatibility.
     version_arg:       Option<String>,
     version_regex:     Option<String>,
     extensions:        Option<Vec<String>>,
@@ -479,6 +495,16 @@ fn merge(base: TomlToolchain, overlay: TomlToolchain) -> TomlToolchain {
         base:               overlay.base,   // not propagated
         detect:             arr!(detect),
         binary:             scalar!(binary),
+        header:             match (base.header, overlay.header) {
+            (None, v) | (v, None) => v,
+            (Some(b), Some(o)) => Some(TomlHeader {
+                version_arg:        o.version_arg.or(b.version_arg),
+                version_regex:      o.version_regex.or(b.version_regex),
+                passthrough:        o.passthrough.or(b.passthrough),
+                passthrough_prefix: o.passthrough_prefix.or(b.passthrough_prefix),
+                sanitizer_options:  o.sanitizer_options.or(b.sanitizer_options),
+            }),
+        },
         version_arg:        scalar!(version_arg),
         version_regex:      scalar!(version_regex),
         extensions:         arr!(extensions),
@@ -701,19 +727,25 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
     def.binary  = binary.to_string();
     def.kind    = tc.kind.clone().unwrap_or_else(|| "compiler".to_string());
 
-    def.version_arg   = tc.version_arg.clone().unwrap_or_default();
-    def.version_regex = tc.version_regex.clone().unwrap_or_default();
+    // [header] fields take priority; top-level values are the fallback.
+    let hdr = tc.header.as_ref();
+    def.version_arg   = hdr.and_then(|h| h.version_arg.clone())
+        .or_else(|| tc.version_arg.clone()).unwrap_or_default();
+    def.version_regex = hdr.and_then(|h| h.version_regex.clone())
+        .or_else(|| tc.version_regex.clone()).unwrap_or_default();
+    def.passthrough_enabled = hdr.and_then(|h| h.passthrough)
+        .or(tc.passthrough).unwrap_or(false);
+    def.passthrough_prefix  = hdr.and_then(|h| h.passthrough_prefix.clone())
+        .or_else(|| tc.passthrough_prefix.clone()).unwrap_or_default();
+    def.sanitizer_options   = hdr.and_then(|h| h.sanitizer_options.clone())
+        .or_else(|| tc.sanitizer_options.clone()).unwrap_or_default();
 
     def.extensions         = tc.extensions.clone().unwrap_or_default();
-    def.sanitizer_options  = tc.sanitizer_options.clone().unwrap_or_default();
     def.supported_archs    = tc.supported_archs.clone().unwrap_or_default();
     def.supported_os       = tc.supported_os.clone().unwrap_or_default();
     def.required_tools     = tc.required_tools.clone().unwrap_or_default();
     def.required_env       = tc.required_env.clone().unwrap_or_default();
     def.requires_toolchain = tc.requires_toolchain.clone().unwrap_or_default();
-
-    def.passthrough_enabled = tc.passthrough.unwrap_or(false);
-    def.passthrough_prefix  = tc.passthrough_prefix.clone().unwrap_or_default();
 
     def.flags_debug    = eval_opt_string(tc.dbg.as_deref(), ctx);
     def.flags_lto      = eval_opt_string(tc.lto.as_deref(), ctx);

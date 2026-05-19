@@ -1,17 +1,19 @@
 name          = "ispc"
 kind          = "compiler"
 family        = "intel"
-sanitizer_options = []
 homepage      = "https://ispc.github.io/"
 binary        = "ispc"
-version_arg   = "--version"
-version_regex = '(\d+\.\d+\.\d+)'
 extensions    = [".ispc"]
-passthrough        = false
-passthrough_prefix = ""
 supported_archs    = ["x86_64", "aarch64"]
 requires_toolchain = ["cpp"]
 lto = ""
+
+[header]
+version_arg   = "--version"
+version_regex = '(\d+\.\d+\.\d+)'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options = []
 
 [toolset]
 ld = "ispc"

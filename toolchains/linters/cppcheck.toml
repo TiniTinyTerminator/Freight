@@ -2,9 +2,11 @@ kind          = "linter"
 name          = "cppcheck"
 family        = "cppcheck"
 binary        = "cppcheck"
+extensions    = [".cpp", ".cc", ".cxx", ".c++", ".cppm", ".c"]
+
+[header]
 version_arg   = "--version"
 version_regex = 'Cppcheck (\d+\.\d+)'
-extensions    = [".cpp", ".cc", ".cxx", ".c++", ".cppm", ".c"]
 
 [run]
 check = "--error-exitcode=1"

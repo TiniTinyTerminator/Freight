@@ -1,6 +1,8 @@
 kind          = "debugger"
 name          = "gdb"
 binary        = "gdb"
+
+[header]
 version_arg   = "--version"
 version_regex = 'GNU gdb[^\d]+(\d+\.\d+)'
 

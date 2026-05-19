@@ -1,19 +1,21 @@
 name          = "msvc"
 kind          = "compiler"
 family        = ""
-sanitizer_options = ["address"]
 homepage      = "https://visualstudio.microsoft.com/"
 binary        = "cl.exe"
-version_arg   = ""
-version_regex = 'Version (\d+\.\d+\.\d+\.\d+)'
 extensions    = [".cpp", ".cc", ".cxx", ".c++", ".c"]
-passthrough        = false
-passthrough_prefix = ""
 supported_os  = ["windows"]
 lto      = "/GL"
 lto_link = "/LTCG"
 sanitize = "/fsanitize={values}"
 cpu_ext  = ""
+
+[header]
+version_arg   = ""
+version_regex = 'Version (\d+\.\d+\.\d+\.\d+)'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options = ["address"]
 
 [toolset]
 cc    = "cl.exe"

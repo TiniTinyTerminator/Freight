@@ -1,15 +1,17 @@
 name          = "dmd"
 kind          = "compiler"
 family        = ""
-sanitizer_options = []
 homepage      = "https://dlang.org/dmd.html"
 binary        = "dmd"
+extensions    = [".d"]
+lto = ""
+
+[header]
 version_arg   = "--version"
 version_regex = 'v(\d+\.\d+\.\d+)'
-extensions    = [".d"]
 passthrough        = false
 passthrough_prefix = ""
-lto = ""
+sanitizer_options = []
 
 [toolset]
 ld    = "dmd"

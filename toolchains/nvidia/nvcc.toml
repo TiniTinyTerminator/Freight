@@ -1,20 +1,22 @@
 name          = "nvcc"
 kind          = "compiler"
 family        = ""
-sanitizer_options = []
 homepage      = "https://developer.nvidia.com/cuda-toolkit"
 binary        = "nvcc"
-version_arg   = "--version"
-version_regex = 'release (\d+\.\d+)'
 extensions    = [".cu", ".cuh"]
-passthrough        = true
-passthrough_prefix = "-Xcompiler"
 supported_archs    = ["x86_64", "aarch64"]
 supported_os       = ["linux", "windows"]
 required_tools     = ["ptxas", "fatbinary"]
 requires_toolchain = ["cpp"]
 always_flags       = ["--expt-relaxed-constexpr", "--extended-lambda"]
 lto = ""
+
+[header]
+version_arg   = "--version"
+version_regex = 'release (\d+\.\d+)'
+passthrough        = true
+passthrough_prefix = "-Xcompiler"
+sanitizer_options = []
 
 [toolset]
 ld = "nvcc"

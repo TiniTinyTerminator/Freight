@@ -2,11 +2,6 @@ name          = "gfortran"
 kind          = "compiler"
 family        = "gnu"
 homepage      = "https://gcc.gnu.org/fortran/"
-version_arg   = "--version"
-version_regex = '\b(\d+\.\d+\.\d+)\b'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options  = ["address", "undefined"]
 
 detect       = ["gfortran"]
 always_flags = ["$(arch == 'x86_64' ? '-m64' : arch == 'x86' ? '-m32' : '')"]
@@ -15,6 +10,13 @@ dbg      = "-g"
 lto      = "-flto"
 sanitize = "-fsanitize={values}"
 cpu_ext  = ""
+
+[header]
+version_arg   = "--version"
+version_regex = '\b(\d+\.\d+\.\d+)\b'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address", "undefined"]
 
 [toolset]
 ld    = "gfortran"
@@ -44,11 +46,6 @@ normal = "-Wall"
 none   = ""
 all    = "-Wall -Wextra"
 error  = "-Wall -Wextra -Werror"
-
-[stdlib]
-none = "-nostdlib"
-
-extensions = [".f90", ".f95", ".f03", ".f08", ".f", ".F90"]
 
 [language.std]
 "f95"   = "-std=f95"

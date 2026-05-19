@@ -3,11 +3,6 @@ alias         = "gcc-11"
 kind          = "compiler"
 family        = "gnu"
 homepage      = "https://gcc.gnu.org/"
-version_arg   = "--version"
-version_regex = '\b(\d+\.\d+\.\d+)\b'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options  = ["address", "undefined", "thread", "leak"]
 
 detect       = ["g++-11"]
 always_flags = ["$(arch == 'x86_64' ? '-m64' : arch == 'x86' ? '-m32' : '')"]
@@ -16,6 +11,13 @@ dbg      = "-g"
 lto      = "-flto"
 sanitize = "-fsanitize={values}"
 cpu_ext  = "-m{name}"
+
+[header]
+version_arg   = "--version"
+version_regex = '\b(\d+\.\d+\.\d+)\b'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address", "undefined", "thread", "leak"]
 
 [toolset]
 cc    = "gcc-11"
@@ -48,13 +50,6 @@ none   = ""
 all    = "-Wall -Wextra -Wpedantic"
 error  = "-Wall -Wextra -Wpedantic -Werror"
 
-[stdlib]
-"libstdc++" = ""
-none        = "-nostdlib"
-
-extensions = [".cpp", ".cppm", ".ixx", ".mpp", ".cc", ".cxx", ".c++"]
-
-# GCC 11: C++20 is stable; C++23 support is partial and experimental.
 [language.std]
 "c++17" = "-std=c++17"
 "c++20" = "-std=c++20"

@@ -1,17 +1,19 @@
 name               = "gas"
 kind               = "compiler"
 family             = ""
-sanitizer_options  = []
 homepage           = "https://www.gnu.org/software/binutils/"
 binary             = "as"
-version_arg        = "--version"
-version_regex      = 'GNU assembler (?:\([^)]+\) )?(\d+\.\d+(?:\.\d+)?)'
 extensions         = [".s", ".S"]
-passthrough        = false
-passthrough_prefix = ""
 requires_toolchain = ["c"]
 
 always_flags = []
+
+[header]
+version_arg        = "--version"
+version_regex      = 'GNU assembler (?:\([^)]+\) )?(\d+\.\d+(?:\.\d+)?)'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = []
 
 [optimization]
 "0" = ""

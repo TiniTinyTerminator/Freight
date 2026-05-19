@@ -2,11 +2,6 @@ name          = "icpx"
 kind          = "compiler"
 family        = "intel"
 homepage      = "https://www.intel.com/content/www/us/en/developer/tools/oneapi/dpc-compiler.html"
-version_arg   = "--version"
-version_regex = '\b(\d+\.\d+\.\d+)\b'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options  = ["address", "undefined", "thread", "leak"]
 supported_archs    = ["x86", "x86_64"]
 supported_os       = ["linux", "windows"]
 required_env       = ["ONEAPI_ROOT"]
@@ -18,6 +13,13 @@ dbg      = "-g"
 lto      = "-flto"
 sanitize = "-fsanitize={values}"
 cpu_ext  = "-m{name}"
+
+[header]
+version_arg   = "--version"
+version_regex = '\b(\d+\.\d+\.\d+)\b'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address", "undefined", "thread", "leak"]
 
 [toolset]
 ld    = "icpx"

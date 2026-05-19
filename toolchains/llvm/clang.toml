@@ -2,11 +2,6 @@ name          = "clang"
 kind          = "compiler"
 family        = "llvm"
 homepage      = "https://clang.llvm.org/"
-version_arg   = "--version"
-version_regex = '\b(\d+\.\d+\.\d+)\b'
-passthrough        = false
-passthrough_prefix = ""
-sanitizer_options  = ["address", "undefined", "thread", "memory", "leak", "hwaddress", "dataflow", "cfi", "safestack"]
 
 detect       = ["clang"]
 always_flags = []
@@ -15,6 +10,13 @@ dbg      = "-g"
 lto      = "-flto"
 sanitize = "-fsanitize={values}"
 cpu_ext  = "-m{name}"
+
+[header]
+version_arg   = "--version"
+version_regex = '\b(\d+\.\d+\.\d+)\b'
+passthrough        = false
+passthrough_prefix = ""
+sanitizer_options  = ["address", "undefined", "thread", "memory", "leak", "hwaddress", "dataflow", "cfi", "safestack"]
 
 [toolset]
 cc    = "$(binary)"
@@ -46,11 +48,6 @@ normal = "-Wall"
 none   = ""
 all    = "-Wall -Wextra -Wpedantic"
 error  = "-Wall -Wextra -Wpedantic -Werror"
-
-[stdlib]
-none = "-nostdlib"
-
-extensions = [".c", ".s", ".S"]
 
 [language.std]
 "c11" = "-std=c11"
