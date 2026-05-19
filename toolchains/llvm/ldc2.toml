@@ -47,10 +47,6 @@ normal = ""
 none   = ""
 all    = "-wi"
 error  = "-w"
-
-[language.modules]
-style = "none"
-
 [compiler.dip1000]
 "false" = ""
 "true"  = "-preview=dip1000"

@@ -78,6 +78,8 @@ pub(crate) struct ToolchainDef {
     pub pch: HashMap<String, String>,
     /// Resolved PCH style from `pch_style = "gcc" | "clang" | "msvc"` in TOML.
     pub pch_style: Option<String>,
+    /// Resolved modules style from `modules_style = "gcc" | "clang"` in TOML.
+    pub modules_style: Option<String>,
     /// Default option values used when the manifest doesn't specify them.
     /// Keys match manifest language/compiler option names (e.g. `"std"`, `"stdlib"`).
     pub defaults: HashMap<String, String>,

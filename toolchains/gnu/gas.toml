@@ -42,10 +42,6 @@ sysroot      = ""
 
 [arch_flags]
 "x86.linux"      = "--32"
-
-[language.modules]
-style = "none"
-
 [linking.gas]
 abi        = "c"
 compatible = ["c", "cpp"]

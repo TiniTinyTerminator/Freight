@@ -42,10 +42,6 @@ compile_only = ""
 dep_file     = "-MMM {path}"
 target       = ""
 sysroot      = ""
-
-[language.modules]
-style = "none"
-
 [linking.ispc]
 abi        = "ispc"
 compatible = ["c++", "c"]

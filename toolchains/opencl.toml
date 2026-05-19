@@ -43,10 +43,6 @@ compile_only = "-c"
 dep_file     = "-MMD -MF {path}"
 target       = ""
 sysroot      = ""
-
-[language.modules]
-style = "none"
-
 [language.std]
 "CL3.0" = "-cl-std=CL3.0"
 "CL1.0" = "-cl-std=CL1.0"

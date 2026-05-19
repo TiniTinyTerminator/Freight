@@ -47,10 +47,6 @@ normal = ""
 none   = ""
 all    = "-Wall"
 error  = "-Wall -Werror"
-
-[language.modules]
-style = "none"
-
 [linking.d]
 abi        = "d"
 compatible = ["c"]

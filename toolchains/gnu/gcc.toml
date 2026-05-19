@@ -55,10 +55,6 @@ error  = "-Wall -Wextra -Wpedantic -Werror"
 "c11" = "-std=c11"
 "c17" = "-std=c17"
 "c23" = "-std=c23"
-
-[language.modules]
-style = "none"
-
 [linking.c]
 abi            = "c"
 compatible     = ["fortran", "asm"]

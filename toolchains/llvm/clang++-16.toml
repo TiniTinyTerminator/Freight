@@ -8,6 +8,7 @@ debug = "-g"
 lto      = "-flto"
 cpu_ext  = "-m{name}"
 pch_style = "clang"
+modules_style = "clang"
 
 extensions = [".cpp", ".cppm", ".ixx", ".mpp", ".cc", ".cxx", ".c++", ".mm"]
 
@@ -60,12 +61,6 @@ none        = "-nostdlib"
 "c++17" = "-std=c++17"
 "c++20" = "-std=c++20"
 "c++23" = "-std=c++23"
-
-[language.modules]
-style         = "clang"
-precompile    = "--precompile"
-import_module = "-fmodule-file={name}={pcm_path}"
-header_unit   = "-x c++-header"
 [compiler.lto_mode]
 thin = "-flto=thin"
 full = "-flto=full"

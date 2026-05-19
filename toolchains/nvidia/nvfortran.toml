@@ -48,10 +48,6 @@ error  = "-Minform=warn -Werror"
 "f2003" = "-Mstandard"
 "f2008" = "-Mstandard"
 "f2018" = "-Mstandard"
-
-[language.modules]
-style = "none"
-
 [linking.fortran]
 abi            = "fortran"
 compatible     = ["c"]

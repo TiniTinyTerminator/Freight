@@ -42,10 +42,6 @@ compile_only = "-c"
 dep_file     = ""
 target       = ""
 sysroot      = ""
-
-[language.modules]
-style = "none"
-
 [language.std]
 "c11" = "-std=c11"
 "c99" = "-std=c99"

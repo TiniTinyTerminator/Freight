@@ -60,10 +60,6 @@ sysroot       = ""
 "c++23" = "/std:c++latest"
 "c17"   = "/std:c17"
 "c11"   = "/std:c11"
-
-[language.modules]
-style = "none"
-
 [linking.c]
 abi             = "c"
 compatible      = []

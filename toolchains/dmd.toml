@@ -44,10 +44,6 @@ dep_file_mode = "none"
 system_lib    = "-L-l{name}"
 target        = ""
 sysroot       = ""
-
-[language.modules]
-style = "none"
-
 [linking.d]
 abi        = "d"
 compatible = ["c"]

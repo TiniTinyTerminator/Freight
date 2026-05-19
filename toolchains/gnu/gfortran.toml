@@ -53,10 +53,6 @@ error  = "-Wall -Wextra -Werror"
 "f2003" = "-std=f2003"
 "f2008" = "-std=f2008"
 "f2018" = "-std=f2018"
-
-[language.modules]
-style = "none"
-
 [linking.fortran]
 abi        = "fortran"
 compatible = ["c"]

@@ -352,6 +352,26 @@ pub enum ModuleStyle {
     Unsupported,
 }
 
+impl ModuleStyle {
+    /// Build from a `modules_style = "gcc" | "clang"` string. Absent / unknown → `Unsupported`.
+    pub fn from_style_str(s: &str) -> Self {
+        match s {
+            "gcc" => ModuleStyle::Gcc {
+                enable_flag:      "-fmodules-ts".into(),
+                compile_miu:      "-fmodule-output={pcm_path}".into(),
+                import_module:    "-fmodule-file={name}={pcm_path}".into(),
+                header_unit_flag: "-fmodule-header".into(),
+            },
+            "clang" => ModuleStyle::Clang {
+                precompile:       "--precompile".into(),
+                import_module:    "-fmodule-file={name}={pcm_path}".into(),
+                header_unit_flag: "-x c++-header".into(),
+            },
+            _ => ModuleStyle::Unsupported,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StructureFlags {
     pub include_dir: String,
@@ -693,7 +713,10 @@ impl CompilerTemplate {
             sysroot:      get_struct("sysroot"),
         };
 
-        let modules = {
+        let modules = if let Some(s) = def.modules_style.as_deref() {
+            ModuleStyle::from_style_str(s)
+        } else {
+            // Legacy Rhai fallback — reads module_style / module_params set by script.rs.
             let p = &def.module_params;
             let get = |k: &str| p.get(k).cloned().unwrap_or_default();
             match def.module_style.as_str() {

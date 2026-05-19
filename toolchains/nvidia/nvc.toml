@@ -50,10 +50,6 @@ error  = "-Minform=warn -Werror"
 [language.std]
 "c11" = "-std=c11"
 "c17" = "-std=c17"
-
-[language.modules]
-style = "none"
-
 [linking.c]
 abi            = "c"
 compatible     = ["fortran"]

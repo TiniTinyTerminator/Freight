@@ -51,10 +51,6 @@ error  = "-Minform=warn -Werror"
 [language.std]
 "c++17" = "-std=c++17"
 "c++20" = "-std=c++20"
-
-[language.modules]
-style = "none"
-
 [linking.cpp]
 abi        = "c++"
 compatible = ["c", "fortran"]

@@ -49,10 +49,6 @@ error  = "-w+all -Werror"
 "x86.linux"      = "-f elf32"
 "x86.macos"      = "-f macho32"
 "x86.windows"    = "-f win32"
-
-[language.modules]
-style = "none"
-
 [linking.asm]
 abi        = "c"
 compatible = ["c", "cpp"]

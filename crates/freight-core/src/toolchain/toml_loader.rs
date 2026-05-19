@@ -104,6 +104,7 @@ struct TomlToolchain {
     lto_link:          Option<String>,
     cpu_ext:           Option<String>,
     pch_style:         Option<String>,
+    modules_style:     Option<String>,
 
     structure:    Option<TomlStructure>,
     toolset:      Option<IndexMap<String, String>>,
@@ -524,6 +525,7 @@ fn merge(base: TomlToolchain, overlay: TomlToolchain) -> TomlToolchain {
         lto_link:           scalar!(lto_link),
         cpu_ext:            scalar!(cpu_ext),
         pch_style:          scalar!(pch_style),
+        modules_style:      scalar!(modules_style),
         structure:          merge_structure(base.structure, overlay.structure),
         toolset:            map!(toolset),
         arch_flags:         map!(arch_flags),
@@ -723,6 +725,7 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
         .unwrap_or_default();
     def.cpu_ext        = eval_opt_string(tc.cpu_ext.as_deref(), ctx);
     def.pch_style      = tc.pch_style.clone();
+    def.modules_style  = tc.modules_style.clone();
 
     // Flag maps.
     def.flags_opt      = eval_map(tc.optimization.as_ref(), ctx);
@@ -789,15 +792,8 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
                 def.defaults.insert("std".to_string(), first_key.clone());
             }
         }
-        if let Some(modules) = lang_map.get("modules") {
-            def.module_style = modules.get("style").cloned().unwrap_or_default();
-            for (k, v) in modules {
-                if k != "style" {
-                    def.module_params.insert(k.clone(), eval_expr(v, ctx));
-                }
-            }
-        }
-        // [language.pch] is no longer used — pch_style = "gcc"|"clang"|"msvc" replaces it.
+        // [language.modules] and [language.pch] are no longer used —
+        // modules_style / pch_style top-level fields replace them.
     }
 
     // Defaults from [optimization] first key.

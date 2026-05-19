@@ -44,10 +44,6 @@ compile_only = "-c"
 dep_file     = "-MMD -MF {path}"
 target       = "--target={triple}"
 sysroot      = "--sysroot={path}"
-
-[language.modules]
-style = "none"
-
 [language.std]
 "c++17" = "-std=c++17"
 "c++14" = "-std=c++14"
