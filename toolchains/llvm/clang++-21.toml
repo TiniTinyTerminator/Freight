@@ -70,7 +70,6 @@ header_unit   = "-x c++-header"
 compile     = "-x c++-header"
 use         = "-include-pch {pch_path}"
 extension   = ".pch"
-clangd_flag = "-include {header_path}"
 
 [compiler.lto_mode]
 thin = "-flto=thin"

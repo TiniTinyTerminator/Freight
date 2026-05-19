@@ -389,10 +389,6 @@ pub struct PchConfig {
     pub use_flag: String,
     /// File extension for the PCH output, e.g. `".pch"` or `".gch"`.
     pub extension: String,
-    /// Flag injected into `compile_commands.json` for IDE/clangd consumers.
-    /// Clangd needs the *source* header, not the opaque binary PCH.
-    /// Placeholder: `{header_path}`. Defaults to `"-include {header_path}"` when empty.
-    pub clangd_flag: String,
 }
 
 /// A fully-parsed compiler template loaded from a `.toml` file.
@@ -716,7 +712,6 @@ impl CompilerTemplate {
             compile:     get_pch("compile"),
             use_flag:    get_pch("use"),
             extension:   get_pch("extension"),
-            clangd_flag: get_pch("clangd_flag"),
         };
 
         Ok(Self {

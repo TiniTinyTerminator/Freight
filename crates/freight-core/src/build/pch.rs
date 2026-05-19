@@ -9,7 +9,7 @@ pub struct CompiledPch {
     /// Flag(s) to inject into real compiler invocations (e.g. `-include-pch /path/to/pch`).
     pub use_flag: String,
     /// Flag for `compile_commands.json` — always `-include {original_header}` so clangd
-    /// reads the source header directly rather than an opaque binary PCH it can't use.
+    /// reads the source header rather than an opaque binary PCH it can't parse.
     pub clangd_flag: String,
 }
 
@@ -55,8 +55,8 @@ pub fn compile_pch(
             .ok();
         if let (Some(hm), Some(pm)) = (header_mtime, pch_mtime) {
             if pm >= hm {
-                let use_flag = expand_pch_use_flag(&pch_cfg.use_flag, &header_path, &pch_out);
-                let clangd_flag = expand_pch_clangd_flag(&pch_cfg.clangd_flag, &header_path);
+                let use_flag    = expand_pch_use_flag(&pch_cfg.use_flag, &header_path, &pch_out);
+                let clangd_flag = format!("-include {}", header_path.display());
                 return Ok(Some(CompiledPch { use_flag, clangd_flag }));
             }
         }
@@ -89,17 +89,9 @@ pub fn compile_pch(
         ));
     }
 
-    let use_flag = expand_pch_use_flag(&pch_cfg.use_flag, &header_path, &pch_out);
-    let clangd_flag = expand_pch_clangd_flag(&pch_cfg.clangd_flag, &header_path);
+    let use_flag    = expand_pch_use_flag(&pch_cfg.use_flag, &header_path, &pch_out);
+    let clangd_flag = format!("-include {}", header_path.display());
     Ok(Some(CompiledPch { use_flag, clangd_flag }))
-}
-
-fn expand_pch_clangd_flag(template: &str, header_path: &Path) -> String {
-    if template.is_empty() {
-        format!("-include {}", header_path.display())
-    } else {
-        template.replace("{header_path}", &header_path.display().to_string())
-    }
 }
 
 fn expand_pch_use_flag(template: &str, header_path: &Path, pch_path: &Path) -> String {
