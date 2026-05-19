@@ -67,7 +67,6 @@ header_unit   = "-fmodule-header"
 compile     = "-x c++-header"
 use         = "-include {header_path}"
 extension   = ".gch"
-clangd_flag = "-include {header_path}"
 
 [linking.cpp]
 abi        = "c++"
