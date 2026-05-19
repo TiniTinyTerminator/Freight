@@ -7,7 +7,9 @@ supported_archs    = ["x86_64"]
 supported_os       = ["linux"]
 required_tools     = ["hipconfig"]
 requires_toolchain = ["cpp"]
-lto = "-flto"
+lto           = "-flto"
+pch_style     = "clang"
+modules_style = "clang"
 
 [version]
 argument = "--version"
