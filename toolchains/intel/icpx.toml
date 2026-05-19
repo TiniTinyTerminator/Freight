@@ -11,7 +11,7 @@ always_flags = ["-fsycl"]
 debug = "-g"
 lto      = "-flto"
 cpu_ext       = "-m{name}"
-modules_style = "clang"
+design        = "clang"
 
 extensions = [".cpp", ".cc", ".cxx", ".c++", ".sycl"]
 

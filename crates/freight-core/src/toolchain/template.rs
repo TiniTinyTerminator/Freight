@@ -196,7 +196,7 @@ fn save_template_cache(path: &Path, cache: &TemplateCache) {
 fn template_cache_key(path: &Path, src: &str) -> Result<String, FreightError> {
     let file_hash = sha256_hex(src.as_bytes());
     let base_hash = included_base_hash(path, src)?;
-    Ok(format!("v3:{file_hash}:{base_hash}"))
+    Ok(format!("v4:{file_hash}:{base_hash}"))
 }
 
 fn included_base_hash(path: &Path, src: &str) -> Result<String, FreightError> {
@@ -359,7 +359,7 @@ pub enum ModuleStyle {
 }
 
 impl ModuleStyle {
-    /// Build from a `modules_style = "gcc" | "clang" | "msvc"` string. Absent / unknown → `Unsupported`.
+    /// Build from a `design = "gcc" | "clang" | "msvc"` string. Absent / unknown → `Unsupported`.
     pub fn from_style_str(s: &str) -> Self {
         match s {
             "gcc" => ModuleStyle::Gcc {
@@ -425,20 +425,26 @@ pub enum PchStyle {
     Msvc,
     /// IAR Embedded Workbench — `iccarm header.h --create_pch out.pch`.
     Iar,
+    /// Escape hatch for compilers that don't fit a named style.
+    Custom {
+        compile:   String,
+        use_flag:  String,
+        extension: String,
+    },
 }
 
 impl PchStyle {
     /// Returns `(compile_flag, use_flag_template, extension)`.
     /// `use_flag_template` supports `{header_path}` and `{pch_path}` placeholders.
-    /// Returns `(compile_flag, use_flag_template, extension)`.
     /// `compile_flag` semantics vary by style — see `pch.rs` for invocation details.
-    pub fn flags(&self) -> (&'static str, &'static str, &'static str) {
+    pub fn flags(&self) -> (&str, &str, &str) {
         match self {
             PchStyle::Gcc   => ("-x c++-header",    "-include {header_path}",            ".gch"),
             PchStyle::Clang => ("-x c++-header",    "-include-pch {pch_path}",           ".pch"),
             PchStyle::Msvc  => ("/Yc{header_path}", "/Yu{header_path} /FI{header_path}", ".pch"),
             // compile_flag is just the flag token; pch.rs passes the path as a separate arg.
             PchStyle::Iar   => ("--create_pch",     "--use_pch {pch_path}",              ".pch"),
+            PchStyle::Custom { compile, use_flag, extension } => (compile, use_flag, extension),
         }
     }
 
@@ -738,7 +744,7 @@ impl CompilerTemplate {
             sysroot:      get_struct("sysroot"),
         };
 
-        let modules = if let Some(s) = def.modules_style.as_deref() {
+        let modules = if let Some(s) = def.design.as_deref() {
             ModuleStyle::from_style_str(s)
         } else {
             // Legacy Rhai fallback — reads module_style / module_params set by script.rs.
@@ -772,7 +778,18 @@ impl CompilerTemplate {
 
         let always_flags = def.always_flags;
 
-        let pch = def.pch_style.as_deref().and_then(PchStyle::from_str);
+        let pch = match def.design.as_deref() {
+            Some("custom") => {
+                let get = |k: &str| def.pch.get(k).cloned().unwrap_or_default();
+                Some(PchStyle::Custom {
+                    compile:   get("compile"),
+                    use_flag:  get("use"),
+                    extension: get("extension"),
+                })
+            }
+            Some(s) => PchStyle::from_str(s),
+            None    => None,
+        };
 
         Ok(Self {
             name:                  def.name,

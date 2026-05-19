@@ -103,8 +103,11 @@ struct TomlToolchain {
     lto:               Option<String>,
     lto_link:          Option<String>,
     cpu_ext:           Option<String>,
-    pch_style:         Option<String>,
-    modules_style:     Option<String>,
+    /// Compiler design family: `"gcc" | "clang" | "msvc" | "iar" | "custom"`.
+    /// Drives both PCH and module support. Use `[pch]` section when `design = "custom"`.
+    design:            Option<String>,
+    /// Custom PCH flags; only used when `design = "custom"`.
+    pch:               Option<TomlCustomPch>,
 
     structure:    Option<TomlStructure>,
     toolset:      Option<IndexMap<String, String>>,
@@ -126,6 +129,15 @@ struct TomlToolchain {
 
     // formatter/linter-specific
     run: Option<IndexMap<String, String>>,
+}
+
+/// Custom PCH flags used when `design = "custom"`.
+#[derive(Deserialize, Default, Clone, Debug)]
+struct TomlCustomPch {
+    compile:   Option<String>,
+    #[serde(rename = "use")]
+    use_flag:  Option<String>,
+    extension: Option<String>,
 }
 
 #[derive(Deserialize, Default, Clone, Debug)]
@@ -524,8 +536,15 @@ fn merge(base: TomlToolchain, overlay: TomlToolchain) -> TomlToolchain {
         lto:                scalar!(lto),
         lto_link:           scalar!(lto_link),
         cpu_ext:            scalar!(cpu_ext),
-        pch_style:          scalar!(pch_style),
-        modules_style:      scalar!(modules_style),
+        design:             scalar!(design),
+        pch:                match (base.pch, overlay.pch) {
+            (None, v) | (v, None) => v,
+            (Some(b), Some(o)) => Some(TomlCustomPch {
+                compile:   o.compile.or(b.compile),
+                use_flag:  o.use_flag.or(b.use_flag),
+                extension: o.extension.or(b.extension),
+            }),
+        },
         structure:          merge_structure(base.structure, overlay.structure),
         toolset:            map!(toolset),
         arch_flags:         map!(arch_flags),
@@ -724,8 +743,12 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
         .map(|f| eval_expr(f, ctx))
         .unwrap_or_default();
     def.cpu_ext        = eval_opt_string(tc.cpu_ext.as_deref(), ctx);
-    def.pch_style      = tc.pch_style.clone();
-    def.modules_style  = tc.modules_style.clone();
+    def.design = tc.design.clone();
+    if let Some(p) = &tc.pch {
+        if let Some(v) = &p.compile   { def.pch.insert("compile".into(), v.clone()); }
+        if let Some(v) = &p.use_flag  { def.pch.insert("use".into(), v.clone()); }
+        if let Some(v) = &p.extension { def.pch.insert("extension".into(), v.clone()); }
+    }
 
     // Flag maps.
     def.flags_opt      = eval_map(tc.optimization.as_ref(), ctx);
@@ -792,8 +815,7 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
                 def.defaults.insert("std".to_string(), first_key.clone());
             }
         }
-        // [language.modules] and [language.pch] are no longer used —
-        // modules_style / pch_style top-level fields replace them.
+        // [language.modules] and [language.pch] are no longer used — `design` field replaces them.
     }
 
     // Defaults from [optimization] first key.

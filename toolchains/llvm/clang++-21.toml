@@ -7,8 +7,7 @@ homepage      = "https://clang.llvm.org/"
 debug = "-g"
 lto      = "-flto"
 cpu_ext  = "-m{name}"
-pch_style = "clang"
-modules_style = "clang"
+design        = "clang"
 
 extensions = [".cpp", ".cppm", ".ixx", ".mpp", ".cc", ".cxx", ".c++", ".mm"]
 

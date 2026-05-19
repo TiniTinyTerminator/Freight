@@ -74,12 +74,11 @@ pub(crate) struct ToolchainDef {
     /// E.g. `clang++` sets `alias = "clang"` so `[compiler.clang]` applies to both.
     pub alias: Option<String>,
     pub sanitizer_options: Vec<String>,
-    /// PCH params: "compile" flag, "use" template, "extension" (e.g. ".pch" / ".gch")
+    /// Custom PCH flags used when `design = "custom"`: keys "compile", "use", "extension".
     pub pch: HashMap<String, String>,
-    /// Resolved PCH style from `pch_style = "gcc" | "clang" | "msvc"` in TOML.
-    pub pch_style: Option<String>,
-    /// Resolved modules style from `modules_style = "gcc" | "clang"` in TOML.
-    pub modules_style: Option<String>,
+    /// Compiler design family: `"gcc" | "clang" | "msvc" | "iar" | "custom"`.
+    /// Drives both PCH and module support.
+    pub design: Option<String>,
     /// Default option values used when the manifest doesn't specify them.
     /// Keys match manifest language/compiler option names (e.g. `"std"`, `"stdlib"`).
     pub defaults: HashMap<String, String>,

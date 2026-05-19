@@ -8,8 +8,7 @@ supported_os       = ["linux"]
 required_tools     = ["hipconfig"]
 requires_toolchain = ["cpp"]
 lto           = "-flto"
-pch_style     = "clang"
-modules_style = "clang"
+design        = "clang"
 
 [version]
 argument = "--version"

@@ -6,8 +6,7 @@ homepage      = "https://gcc.gnu.org/"
 debug = "-g"
 lto      = "-flto"
 cpu_ext  = "-m{name}"
-pch_style = "gcc"
-modules_style = "gcc"
+design        = "gcc"
 
 [version]
 argument = "--version"
