@@ -7,6 +7,7 @@ homepage      = "https://clang.llvm.org/"
 debug = "-g"
 lto      = "-flto"
 cpu_ext  = "-m{name}"
+pch_style = "clang"
 
 extensions = [".cpp", ".cppm", ".ixx", ".mpp", ".cc", ".cxx", ".c++", ".mm"]
 
@@ -66,12 +67,6 @@ style         = "clang"
 precompile    = "--precompile"
 import_module = "-fmodule-file={name}={pcm_path}"
 header_unit   = "-x c++-header"
-
-[language.pch]
-compile     = "-x c++-header"
-use         = "-include-pch {pch_path}"
-extension   = ".pch"
-
 [compiler.lto_mode]
 thin = "-flto=thin"
 full = "-flto=full"

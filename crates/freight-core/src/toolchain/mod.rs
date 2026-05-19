@@ -18,7 +18,7 @@ pub use detect::{
     load_templates, load_all_templates, templates_dir, user_templates_dir, toolchain_add, toolchain_use,
     check_manifest_version_bounds, backend_matches, parse_versioned_name,
 };
-pub use template::{BuildSettings, CompilerTemplate, ModuleStyle};
+pub use template::{BuildSettings, CompilerTemplate, ModuleStyle, PchStyle};
 pub use system_libs::{SystemLibStub, load_system_lib_stubs, find_stub};
 pub use tool::{
     DetectedTool, ToolTemplate,

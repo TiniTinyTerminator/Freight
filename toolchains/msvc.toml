@@ -7,7 +7,8 @@ extensions    = [".cpp", ".cc", ".cxx", ".c++", ".c"]
 supported_os  = ["windows"]
 lto      = "/GL"
 lto_link = "/LTCG"
-cpu_ext  = ""
+cpu_ext   = ""
+pch_style = "msvc"
 
 [version]
 argument = ""

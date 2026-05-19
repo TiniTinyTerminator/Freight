@@ -6,6 +6,7 @@ homepage      = "https://gcc.gnu.org/"
 debug = "-g"
 lto      = "-flto"
 cpu_ext  = "-m{name}"
+pch_style = "gcc"
 
 [version]
 argument = "--version"
@@ -58,12 +59,6 @@ enable_flag   = "-fmodules-ts"
 compile_miu   = "-fmodule-output={pcm_path}"
 import_module = "-fmodule-file={name}={pcm_path}"
 header_unit   = "-fmodule-header"
-
-[language.pch]
-compile     = "-x c++-header"
-use         = "-include {header_path}"
-extension   = ".gch"
-
 [linking.cpp]
 abi        = "c++"
 compatible = ["c", "fortran"]

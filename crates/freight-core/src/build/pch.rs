@@ -3,6 +3,7 @@ use std::process::Command;
 
 use crate::error::FreightError;
 use crate::toolchain::DetectedCompiler;
+use crate::toolchain::template::PchStyle;
 
 /// Result of compiling a PCH.
 pub struct CompiledPch {
@@ -15,7 +16,7 @@ pub struct CompiledPch {
 
 /// Compile `header_rel` to a PCH and return the flag string to inject.
 ///
-/// Returns `None` if the compiler has no PCH config (empty compile/use fields).
+/// Returns `None` if the compiler has no PCH style configured.
 /// Skips recompilation if the PCH output is already newer than the header.
 pub fn compile_pch(
     project_dir: &Path,
@@ -26,10 +27,10 @@ pub fn compile_pch(
     feature_defines: &[String],
     extra_flags: &[String],
 ) -> Result<Option<CompiledPch>, FreightError> {
-    let pch_cfg = &compiler.template.pch;
-    if pch_cfg.compile.is_empty() || pch_cfg.use_flag.is_empty() {
+    let Some(pch_style) = &compiler.template.pch else {
         return Ok(None);
-    }
+    };
+    let (compile_flag, use_template, extension) = pch_style.flags();
 
     let header_path = project_dir.join(header_rel);
     if !header_path.exists() {
@@ -43,7 +44,7 @@ pub fn compile_pch(
         .unwrap_or("pch");
     let pch_dir = project_dir.join("target").join(profile).join("pch");
     std::fs::create_dir_all(&pch_dir)?;
-    let pch_out = pch_dir.join(format!("{}{}", stem, pch_cfg.extension));
+    let pch_out = pch_dir.join(format!("{}{}", stem, extension));
 
     // Dirty check: skip if PCH is newer than the header.
     if pch_out.exists() {
@@ -55,7 +56,7 @@ pub fn compile_pch(
             .ok();
         if let (Some(hm), Some(pm)) = (header_mtime, pch_mtime) {
             if pm >= hm {
-                let use_flag    = expand_pch_use_flag(&pch_cfg.use_flag, &header_path, &pch_out);
+                let use_flag    = expand_pch_use_flag(use_template, &header_path, &pch_out);
                 let clangd_flag = format!("-include {}", header_path.display());
                 return Ok(Some(CompiledPch { use_flag, clangd_flag }));
             }
@@ -73,11 +74,21 @@ pub fn compile_pch(
     for f in extra_flags {
         cmd.arg(f);
     }
-    for flag in pch_cfg.compile.split_whitespace() {
-        cmd.arg(flag);
+
+    match pch_style {
+        PchStyle::Msvc => {
+            cmd.arg(compile_flag.replace("{header_path}", &header_path.to_string_lossy()));
+            cmd.arg(format!("/Fp{}", pch_out.display()));
+            cmd.arg(&header_path);
+        }
+        _ => {
+            for flag in compile_flag.split_whitespace() {
+                cmd.arg(flag);
+            }
+            cmd.arg(&header_path);
+            cmd.arg("-o").arg(&pch_out);
+        }
     }
-    cmd.arg(&header_path);
-    cmd.arg("-o").arg(&pch_out);
 
     let status = cmd
         .status()
@@ -89,7 +100,7 @@ pub fn compile_pch(
         ));
     }
 
-    let use_flag    = expand_pch_use_flag(&pch_cfg.use_flag, &header_path, &pch_out);
+    let use_flag    = expand_pch_use_flag(use_template, &header_path, &pch_out);
     let clangd_flag = format!("-include {}", header_path.display());
     Ok(Some(CompiledPch { use_flag, clangd_flag }))
 }

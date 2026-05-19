@@ -103,6 +103,7 @@ struct TomlToolchain {
     lto:               Option<String>,
     lto_link:          Option<String>,
     cpu_ext:           Option<String>,
+    pch_style:         Option<String>,
 
     structure:    Option<TomlStructure>,
     toolset:      Option<IndexMap<String, String>>,
@@ -522,6 +523,7 @@ fn merge(base: TomlToolchain, overlay: TomlToolchain) -> TomlToolchain {
         lto:                scalar!(lto),
         lto_link:           scalar!(lto_link),
         cpu_ext:            scalar!(cpu_ext),
+        pch_style:          scalar!(pch_style),
         structure:          merge_structure(base.structure, overlay.structure),
         toolset:            map!(toolset),
         arch_flags:         map!(arch_flags),
@@ -720,6 +722,7 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
         .map(|f| eval_expr(f, ctx))
         .unwrap_or_default();
     def.cpu_ext        = eval_opt_string(tc.cpu_ext.as_deref(), ctx);
+    def.pch_style      = tc.pch_style.clone();
 
     // Flag maps.
     def.flags_opt      = eval_map(tc.optimization.as_ref(), ctx);
@@ -794,11 +797,7 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
                 }
             }
         }
-        if let Some(pch) = lang_map.get("pch") {
-            for (k, v) in pch {
-                def.pch.insert(k.clone(), eval_expr(v, ctx));
-            }
-        }
+        // [language.pch] is no longer used — pch_style = "gcc"|"clang"|"msvc" replaces it.
     }
 
     // Defaults from [optimization] first key.

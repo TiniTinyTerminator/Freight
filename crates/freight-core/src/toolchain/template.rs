@@ -196,7 +196,7 @@ fn save_template_cache(path: &Path, cache: &TemplateCache) {
 fn template_cache_key(path: &Path, src: &str) -> Result<String, FreightError> {
     let file_hash = sha256_hex(src.as_bytes());
     let base_hash = included_base_hash(path, src)?;
-    Ok(format!("v1:{file_hash}:{base_hash}"))
+    Ok(format!("v2:{file_hash}:{base_hash}"))
 }
 
 fn included_base_hash(path: &Path, src: &str) -> Result<String, FreightError> {
@@ -379,16 +379,33 @@ pub struct PassthroughConfig {
     pub prefix: String,
 }
 
-/// Precompiled header (PCH) configuration for a compiler template.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct PchConfig {
-    /// Flag(s) to compile a header as a PCH, e.g. `"-x c++-header"`.
-    pub compile: String,
-    /// Flag template to inject the PCH into consumers.
-    /// Placeholders: `{header_path}` = original header, `{pch_path}` = compiled PCH output.
-    pub use_flag: String,
-    /// File extension for the PCH output, e.g. `".pch"` or `".gch"`.
-    pub extension: String,
+/// Precompiled header strategy. The compile/use flags and output extension are fixed per style.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum PchStyle {
+    Gcc,
+    Clang,
+    Msvc,
+}
+
+impl PchStyle {
+    /// Returns `(compile_flag, use_flag_template, extension)`.
+    /// `use_flag_template` supports `{header_path}` and `{pch_path}` placeholders.
+    pub fn flags(&self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            PchStyle::Gcc   => ("-x c++-header",    "-include {header_path}",            ".gch"),
+            PchStyle::Clang => ("-x c++-header",    "-include-pch {pch_path}",           ".pch"),
+            PchStyle::Msvc  => ("/Yc{header_path}", "/Yu{header_path} /FI{header_path}", ".pch"),
+        }
+    }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "gcc"   => Some(Self::Gcc),
+            "clang" => Some(Self::Clang),
+            "msvc"  => Some(Self::Msvc),
+            _       => None,
+        }
+    }
 }
 
 /// A fully-parsed compiler template loaded from a `.toml` file.
@@ -447,8 +464,8 @@ pub struct CompilerTemplate {
     pub arch_flags: HashMap<String, String>,
     /// Toolchain role → binary map (e.g. `"ar"` → `"ar"`, `"cc"` → `"gcc"`).
     pub toolset: HashMap<String, String>,
-    /// Precompiled header support configuration.
-    pub pch: PchConfig,
+    /// Precompiled header support — `None` if the compiler doesn't support PCH.
+    pub pch: Option<PchStyle>,
 
     // ── Option handler fields ──────────────────────────────────────────────────
     // Present only when the Rhai script registered `compiler_option` or
@@ -558,7 +575,7 @@ impl CompilerTemplate {
             requires_toolchain: vec![],
             arch_flags: raw.arch_flags,
             toolset: HashMap::new(),
-            pch: PchConfig::default(),
+            pch: None,
             linking,
             handler_engine: None,
             handler_ast: None,
@@ -707,12 +724,7 @@ impl CompilerTemplate {
 
         let always_flags = def.always_flags;
 
-        let get_pch = |k: &str| def.pch.get(k).cloned().unwrap_or_default();
-        let pch = PchConfig {
-            compile:     get_pch("compile"),
-            use_flag:    get_pch("use"),
-            extension:   get_pch("extension"),
-        };
+        let pch = def.pch_style.as_deref().and_then(PchStyle::from_str);
 
         Ok(Self {
             name:                  def.name,
@@ -1905,5 +1917,52 @@ mod tests {
         assert_eq!(gcc().system_lib_flag("pthread"), "-lpthread");
     }
 
+    // ── PchStyle ─────────────────────────────────────────────────────────────────
 
+    #[test]
+    fn pch_style_flags_are_correct() {
+        let (c, u, e) = PchStyle::Gcc.flags();
+        assert_eq!(c, "-x c++-header");
+        assert_eq!(u, "-include {header_path}");
+        assert_eq!(e, ".gch");
+
+        let (c, u, e) = PchStyle::Clang.flags();
+        assert_eq!(c, "-x c++-header");
+        assert_eq!(u, "-include-pch {pch_path}");
+        assert_eq!(e, ".pch");
+
+        let (c, u, e) = PchStyle::Msvc.flags();
+        assert_eq!(c, "/Yc{header_path}");
+        assert_eq!(u, "/Yu{header_path} /FI{header_path}");
+        assert_eq!(e, ".pch");
+    }
+
+    #[test]
+    fn pch_style_from_str_round_trips() {
+        assert_eq!(PchStyle::from_str("gcc"),   Some(PchStyle::Gcc));
+        assert_eq!(PchStyle::from_str("clang"), Some(PchStyle::Clang));
+        assert_eq!(PchStyle::from_str("msvc"),  Some(PchStyle::Msvc));
+        assert_eq!(PchStyle::from_str("other"), None);
+    }
+
+    #[test]
+    fn gpp_template_has_gcc_pch_style() {
+        assert_eq!(gcc().pch, Some(PchStyle::Gcc));
+    }
+
+    #[test]
+    fn clangpp_template_has_clang_pch_style() {
+        assert_eq!(clang().pch, Some(PchStyle::Clang));
+    }
+
+    #[test]
+    fn msvc_template_has_msvc_pch_style() {
+        let t = toml("msvc.toml");
+        assert_eq!(t.pch, Some(PchStyle::Msvc));
+    }
+
+    #[test]
+    fn gcc_c_template_has_no_pch_style() {
+        assert_eq!(gcc_c().pch, None);
+    }
 }
