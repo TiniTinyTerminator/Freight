@@ -8,18 +8,14 @@ always_flags = ["$(arch == 'x86_64' ? '-m64' : arch == 'x86' ? '-m32' : '')"]
 
 debug = "-g"
 lto      = "-flto"
-sanitize = "-fsanitize={values}"
 cpu_ext  = ""
 
 [version]
 argument = "--version"
 regex    = '\b(\d+\.\d+\.\d+)\b'
 
-[passthrough]
-enabled = false
-prefix  = ""
-
 [sanitizer]
+format  = "-fsanitize={values}"
 options = ["address", "undefined"]
 
 [toolset]

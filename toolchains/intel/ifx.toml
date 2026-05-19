@@ -18,10 +18,6 @@ extensions = [".f90", ".f95", ".f03", ".f08", ".f", ".F90"]
 argument = "--version"
 regex    = '(\d+\.\d+\.\d+)'
 
-[passthrough]
-enabled = false
-prefix  = ""
-
 [sanitizer]
 options = ["address", "undefined"]
 

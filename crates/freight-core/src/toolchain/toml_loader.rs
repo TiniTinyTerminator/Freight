@@ -70,13 +70,13 @@ struct TomlVersion {
 
 #[derive(Deserialize, Default, Clone, Debug)]
 struct TomlPassthrough {
-    enabled: Option<bool>,
-    prefix:  Option<String>,
+    prefix: Option<String>,
 }
 
 #[derive(Deserialize, Default, Clone, Debug)]
 struct TomlSanitizer {
     options: Option<Vec<String>>,
+    format:  Option<String>,
 }
 
 /// The full TOML toolchain document.
@@ -103,7 +103,6 @@ struct TomlToolchain {
     debug:             Option<String>,
     lto:               Option<String>,
     lto_link:          Option<String>,
-    sanitize:          Option<String>,
     cpu_ext:           Option<String>,
 
     structure:    Option<TomlStructure>,
@@ -504,14 +503,14 @@ fn merge(base: TomlToolchain, overlay: TomlToolchain) -> TomlToolchain {
         passthrough:        match (base.passthrough, overlay.passthrough) {
             (None, v) | (v, None) => v,
             (Some(b), Some(o)) => Some(TomlPassthrough {
-                enabled: o.enabled.or(b.enabled),
-                prefix:  o.prefix.or(b.prefix),
+                prefix: o.prefix.or(b.prefix),
             }),
         },
         sanitizer:          match (base.sanitizer, overlay.sanitizer) {
             (None, v) | (v, None) => v,
             (Some(b), Some(o)) => Some(TomlSanitizer {
                 options: o.options.or(b.options),
+                format:  o.format.or(b.format),
             }),
         },
         extensions:         arr!(extensions),
@@ -524,7 +523,6 @@ fn merge(base: TomlToolchain, overlay: TomlToolchain) -> TomlToolchain {
         debug:              scalar!(debug),
         lto:                scalar!(lto),
         lto_link:           scalar!(lto_link),
-        sanitize:           scalar!(sanitize),
         cpu_ext:            scalar!(cpu_ext),
         structure:          merge_structure(base.structure, overlay.structure),
         toolset:            map!(toolset),
@@ -724,7 +722,7 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
 
     def.version_arg         = tc.version.as_ref().and_then(|v| v.argument.clone()).unwrap_or_default();
     def.version_regex       = tc.version.as_ref().and_then(|v| v.regex.clone()).unwrap_or_default();
-    def.passthrough_enabled = tc.passthrough.as_ref().and_then(|p| p.enabled).unwrap_or(false);
+    def.passthrough_enabled = tc.passthrough.is_some();
     def.passthrough_prefix  = tc.passthrough.as_ref().and_then(|p| p.prefix.clone()).unwrap_or_default();
     def.sanitizer_options   = tc.sanitizer.as_ref().and_then(|s| s.options.clone()).unwrap_or_default();
 
@@ -750,7 +748,10 @@ fn build_def(tc: TomlToolchain, binary: &str, ctx: &EvalCtx<'_>) -> Result<DefWi
     def.flags_debug    = eval_opt_string(tc.debug.as_deref(), ctx);
     def.flags_lto      = eval_opt_string(tc.lto.as_deref(), ctx);
     def.flags_lto_link = eval_opt_string(tc.lto_link.as_deref(), ctx);
-    def.sanitize       = eval_opt_string(tc.sanitize.as_deref(), ctx);
+    def.sanitize       = tc.sanitizer.as_ref()
+        .and_then(|s| s.format.as_deref())
+        .map(|f| eval_expr(f, ctx))
+        .unwrap_or_default();
     def.cpu_ext        = eval_opt_string(tc.cpu_ext.as_deref(), ctx);
 
     // Flag maps.
@@ -1293,10 +1294,6 @@ debug = "-g"
 [version]
 argument = "--version"
 regex = '(\d+\.\d+)'
-
-[passthrough]
-enabled = false
-prefix  = ""
 
 [structure]
 include_dir  = "-I{path}"

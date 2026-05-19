@@ -14,10 +14,6 @@ lto = "-flto"
 argument = "--version"
 regex    = 'HIP version: (\d+\.\d+\.\d+)'
 
-[passthrough]
-enabled = false
-prefix  = ""
-
 [sanitizer]
 options = ["address", "undefined"]
 

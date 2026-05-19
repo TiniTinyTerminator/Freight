@@ -10,10 +10,6 @@ lto = ""
 argument = "--version"
 regex    = 'v(\d+\.\d+\.\d+)'
 
-[passthrough]
-enabled = false
-prefix  = ""
-
 [sanitizer]
 options = []
 

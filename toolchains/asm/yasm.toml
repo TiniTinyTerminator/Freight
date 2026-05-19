@@ -15,10 +15,6 @@ lto = ""
 argument = "--version"
 regex    = 'yasm (\d+\.\d+\.\d+)'
 
-[passthrough]
-enabled = false
-prefix  = ""
-
 [sanitizer]
 options = []
 

@@ -12,10 +12,6 @@ always_flags = ["-x", "cl"]
 argument = "--version"
 regex    = '\b(\d+\.\d+\.\d+)\b'
 
-[passthrough]
-enabled = false
-prefix  = ""
-
 [sanitizer]
 options = []
 

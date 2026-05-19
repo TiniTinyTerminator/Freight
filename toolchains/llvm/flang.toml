@@ -8,18 +8,14 @@ always_flags = []
 
 debug = "-g"
 lto      = "-flto"
-sanitize = "-fsanitize={values}"
 cpu_ext  = "-m{name}"
 
 [version]
 argument = "--version"
 regex    = 'flang(?:-new)? version (\d+\.\d+\.\d+)'
 
-[passthrough]
-enabled = false
-prefix  = ""
-
 [sanitizer]
+format  = "-fsanitize={values}"
 options = ["address", "undefined"]
 
 [toolset]

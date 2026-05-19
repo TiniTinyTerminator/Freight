@@ -8,7 +8,6 @@ always_flags = []
 
 debug = "-g"
 lto      = "-flto=full"
-sanitize = "-fsanitize={values}"
 cpu_ext  = "-m{name}"
 
 extensions = [".d"]
@@ -17,11 +16,8 @@ extensions = [".d"]
 argument = "--version"
 regex    = '\b(\d+\.\d+\.\d+)\b'
 
-[passthrough]
-enabled = false
-prefix  = ""
-
 [sanitizer]
+format  = "-fsanitize={values}"
 options = ["address", "thread", "memory", "undefined"]
 
 [toolset]

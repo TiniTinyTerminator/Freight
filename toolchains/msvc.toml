@@ -7,18 +7,14 @@ extensions    = [".cpp", ".cc", ".cxx", ".c++", ".c"]
 supported_os  = ["windows"]
 lto      = "/GL"
 lto_link = "/LTCG"
-sanitize = "/fsanitize={values}"
 cpu_ext  = ""
 
 [version]
 argument = ""
 regex    = 'Version (\d+\.\d+\.\d+\.\d+)'
 
-[passthrough]
-enabled = false
-prefix  = ""
-
 [sanitizer]
+format  = "/fsanitize={values}"
 options = ["address"]
 
 [toolset]

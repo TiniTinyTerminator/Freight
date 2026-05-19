@@ -16,10 +16,6 @@ cpu_ext = "-m{name}"
 argument = "--version"
 regex    = '(\d+\.\d+)'
 
-[passthrough]
-enabled = false
-prefix  = ""
-
 [sanitizer]
 options = ["address"]
 

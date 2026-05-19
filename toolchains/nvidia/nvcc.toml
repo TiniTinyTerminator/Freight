@@ -16,8 +16,7 @@ argument = "--version"
 regex    = 'release (\d+\.\d+)'
 
 [passthrough]
-enabled = true
-prefix  = "-Xcompiler"
+prefix = "-Xcompiler"
 
 [sanitizer]
 options = []
