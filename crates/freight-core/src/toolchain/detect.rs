@@ -669,9 +669,9 @@ mod tests {
     #[test]
     fn load_templates_finds_all() {
         let templates = load_templates(Path::new(TEMPLATES_DIR));
-        // 23 base templates + 6 versioned g++ (11–16) + 9 versioned clang++ (14–22) + aarch64 cross = 39
-        assert_eq!(templates.len(), 39,
-            "expected base set plus versioned g++/clang++ variants and aarch64 cross-compiler");
+        // 23 base templates + 6 versioned g++ (11–16) + 9 versioned clang++ (14–22) + 8 GNU cross-compilers = 46
+        assert_eq!(templates.len(), 46,
+            "expected base set plus versioned g++/clang++ variants and GNU cross-compilers");
     }
 
     #[test]

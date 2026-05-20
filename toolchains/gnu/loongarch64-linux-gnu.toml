@@ -1,0 +1,2 @@
+name = "loongarch64-linux-gnu-g++"
+base = "_gnu-cross-base"
