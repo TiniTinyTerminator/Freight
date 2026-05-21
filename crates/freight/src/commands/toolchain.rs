@@ -1,8 +1,6 @@
-use std::path::Path;
-
 use freight_core::toolchain::{
     backend_matches, detect_all_cached, detect_debuggers, group_into_toolchains, load_all_templates,
-    load_debugger_templates, toolchain_add, toolchain_use, user_templates_dir,
+    load_debugger_templates, toolchain_use,
 };
 use freight_core::toolchain::detect::DetectedCompiler;
 
@@ -109,18 +107,6 @@ pub fn cmd_toolchain_list() {
             })
             .collect();
         print_table(&["Debugger", "Version", "Path"], &debugger_rows);
-    }
-}
-
-pub fn cmd_toolchain_add(path: &str) {
-    match toolchain_add(Path::new(path)) {
-        Ok(dest) => {
-            print_success(&format!("template installed to {}", dest.display()));
-            if let Some(user_dir) = user_templates_dir() {
-                println!("  User templates directory: {}", user_dir.display());
-            }
-        }
-        Err(e) => print_error(&format!("failed to install template: {e}")),
     }
 }
 

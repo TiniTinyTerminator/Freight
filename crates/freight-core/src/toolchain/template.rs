@@ -1,15 +1,9 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-use sha2::{Digest, Sha256};
-use std::sync::Arc;
-
-use rhai::{AST, Engine};
 use serde::{Deserialize, Serialize};
 
 use crate::error::FreightError;
-use super::cache::freight_home;
-use super::script::{self, OptionHandler};
 
 // ── Raw deserialization structs (map directly to TOML layout) ─────────────────
 
@@ -136,117 +130,75 @@ struct RawLinking {
 }
 
 
-// ── Persistent Rhai template cache ───────────────────────────────────────────
+// ── Builtin template construction types ──────────────────────────────────────
 
-#[derive(Debug, Default, Serialize, Deserialize)]
-struct TemplateCache {
-    entries: HashMap<String, CompilerTemplate>,
+/// Callback type for `compiler_option` / `language_option` handlers.
+/// Arguments: (value, compiler_version, host_arch, host_os, compiler_name).
+/// Returns extra flags to inject, or `Err(msg)` to abort the build.
+pub(super) type OptionHandlerFn =
+    fn(&str, &str, &str, &str, &str) -> Result<Vec<String>, String>;
+
+#[derive(Clone, Debug)]
+pub(super) struct OptionHandler {
+    pub default_value: Option<String>,
+    pub callback: OptionHandlerFn,
 }
 
-/// Parse a compiler template from a Rhai file, using `~/.freight/template-cache.msgpack`
-/// for templates that do not declare runtime option handlers.
-///
-/// The cache key is derived from the file contents and the contents of directly
-/// included base files. Handler-bearing templates are evaluated every time so
-/// their Rhai `FnPtr` callbacks remain callable at build time.
-pub fn from_rhai_file_cached(path: &Path, src: &str) -> Result<CompilerTemplate, FreightError> {
-    if has_runtime_handlers(src) {
-        return CompilerTemplate::from_rhai_file(path);
-    }
-
-    let key = template_cache_key(path, src)?;
-    let Some(cache_path) = template_cache_path() else {
-        return CompilerTemplate::from_rhai_file(path);
-    };
-
-    let mut cache = load_template_cache(&cache_path);
-    if let Some(template) = cache.entries.get(&key).cloned() {
-        return Ok(template);
-    }
-
-    let template = CompilerTemplate::from_rhai_file(path)?;
-    if template.compiler_option_handlers.is_empty() && template.language_option_handlers.is_empty() {
-        cache.entries.insert(key, template.clone());
-        save_template_cache(&cache_path, &cache);
-    }
-    Ok(template)
+/// Flat description of a compiler template, used by builtin modules to
+/// construct a `CompilerTemplate` without going through a scripting engine.
+#[derive(Default)]
+pub(super) struct ToolchainDef {
+    pub name: String,
+    pub binary: String,
+    pub version_arg: String,
+    pub version_regex: String,
+    pub extensions: Vec<String>,
+    pub standards: HashMap<String, String>,
+    pub flags_opt: HashMap<String, String>,
+    pub flags_debug: String,
+    pub flags_warnings: HashMap<String, String>,
+    pub flags_lto: String,
+    pub flags_lto_link: String,
+    pub flags_stdlib: HashMap<String, String>,
+    pub sanitize: String,
+    pub cpu_ext: String,
+    /// Flat map of structure keys (include_dir, define, define_value, output,
+    /// output_obj, output_bin, compile_only, dep_file, dep_file_mode,
+    /// system_lib, target, sysroot).
+    pub structure: HashMap<String, String>,
+    /// `""`, `"gcc"`, or `"clang"`.
+    pub module_style: String,
+    pub module_params: HashMap<String, String>,
+    /// Ordered list so scripts declare linking in reading order.
+    pub linking: Vec<(String, LinkingParams)>,
+    pub passthrough_enabled: bool,
+    pub passthrough_prefix: String,
+    pub always_flags: Vec<String>,
+    pub arch_flags: HashMap<String, String>,
+    pub toolset: HashMap<String, String>,
+    pub supported_archs: Vec<String>,
+    pub supported_os: Vec<String>,
+    pub required_tools: Vec<String>,
+    pub required_env: Vec<String>,
+    pub min_version: Option<String>,
+    pub requires_toolchain: Vec<String>,
+    pub family: String,
+    pub alias: Option<String>,
+    pub sanitizer_options: Vec<String>,
+    pub pch: HashMap<String, String>,
+    pub defaults: HashMap<String, String>,
+    pub kind: String,
+    pub compiler_option_handlers: HashMap<String, OptionHandler>,
+    pub language_option_handlers: HashMap<String, OptionHandler>,
 }
 
-fn template_cache_path() -> Option<PathBuf> {
-    Some(freight_home()?.join("template-cache.msgpack"))
-}
-
-fn load_template_cache(path: &Path) -> TemplateCache {
-    std::fs::read(path)
-        .ok()
-        .and_then(|bytes| rmp_serde::from_slice(&bytes).ok())
-        .unwrap_or_default()
-}
-
-fn save_template_cache(path: &Path, cache: &TemplateCache) {
-    let Some(parent) = path.parent() else { return };
-    if std::fs::create_dir_all(parent).is_err() { return; }
-    let Ok(bytes) = rmp_serde::to_vec_named(cache) else { return };
-    let tmp = path.with_extension("msgpack.tmp");
-    if std::fs::write(&tmp, bytes).is_ok() {
-        let _ = std::fs::rename(tmp, path);
-    }
-}
-
-fn template_cache_key(path: &Path, src: &str) -> Result<String, FreightError> {
-    let file_hash = sha256_hex(src.as_bytes());
-    let base_hash = included_base_hash(path, src)?;
-    Ok(format!("v1:{file_hash}:{base_hash}"))
-}
-
-fn included_base_hash(path: &Path, src: &str) -> Result<String, FreightError> {
-    let dir = path.parent().unwrap_or(Path::new("."));
-    let mut included = include_paths(src)
-        .into_iter()
-        .map(|include| {
-            let p = dir.join(&include);
-            if p.extension().is_some() { p } else { p.with_extension("rhai") }
-        })
-        .collect::<Vec<_>>();
-    included.sort();
-
-    let mut hasher = Sha256::new();
-    for p in included {
-        hasher.update(p.to_string_lossy().as_bytes());
-        hasher.update([0]);
-        let bytes = std::fs::read(&p).map_err(FreightError::Io)?;
-        hasher.update(bytes);
-        hasher.update([0xff]);
-    }
-    Ok(format!("{:x}", hasher.finalize()))
-}
-
-fn include_paths(src: &str) -> Vec<String> {
-    src.lines()
-        .filter_map(|line| {
-            let trimmed = line.trim();
-            if trimmed.starts_with("//") || !trimmed.starts_with("include") { return None; }
-            let rest = trimmed.trim_start_matches("include").trim_start();
-            let rest = rest.strip_prefix('(').unwrap_or(rest).trim_start();
-            quoted_prefix(rest)
-        })
-        .collect()
-}
-
-fn quoted_prefix(input: &str) -> Option<String> {
-    let rest = input.strip_prefix('"')?;
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
-}
-
-fn has_runtime_handlers(src: &str) -> bool {
-    src.contains("compiler_option") || src.contains("language_option")
-}
-
-fn sha256_hex(bytes: &[u8]) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(bytes);
-    format!("{:x}", hasher.finalize())
+#[derive(Default)]
+pub(super) struct LinkingParams {
+    pub abi: String,
+    pub compatible: Vec<String>,
+    pub extensions: Vec<String>,
+    pub compile_binary: Option<String>,
+    pub linker: String,
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -455,18 +407,10 @@ pub struct CompilerTemplate {
     pub pch: PchConfig,
 
     // ── Option handler fields ──────────────────────────────────────────────────
-    // Present only when the Rhai script registered `compiler_option` or
-    // `language_option` callbacks. `None` when loaded from a TOML template.
-    /// Rhai engine used to call stored FnPtrs (kept alive so closures remain valid).
-    #[serde(skip)]
-    pub(super) handler_engine: Option<Arc<Engine>>,
-    /// AST of the script that declared the handlers (needed by Rhai closure calls).
-    #[serde(skip)]
-    pub(super) handler_ast: Option<AST>,
-    /// Handlers registered via `compiler_option(name, default, fn)` in the Rhai script.
+    /// Handlers registered via `compiler_option` in the builtin template.
     #[serde(skip)]
     pub(super) compiler_option_handlers: HashMap<String, OptionHandler>,
-    /// Handlers registered via `language_option(name, default, fn)` in the Rhai script.
+    /// Handlers registered via `language_option` in the builtin template.
     #[serde(skip)]
     pub(super) language_option_handlers: HashMap<String, OptionHandler>,
 
@@ -564,8 +508,6 @@ impl CompilerTemplate {
             toolset: HashMap::new(),
             pch: PchConfig::default(),
             linking,
-            handler_engine: None,
-            handler_ast: None,
             compiler_option_handlers: HashMap::new(),
             language_option_handlers: HashMap::new(),
             flags_opt: raw.flags.opt,
@@ -579,37 +521,15 @@ impl CompilerTemplate {
         })
     }
 
-    /// Parse a compiler template from a Rhai script (no include resolution).
-    pub fn from_rhai(src: &str) -> Result<Self, FreightError> {
-        let r = script::eval_script(src, None)?;
-        Self::from_eval_result(r)
+    /// Construct a `CompilerTemplate` from a `ToolchainDef` produced by a builtin module.
+    pub(super) fn from_def(mut def: ToolchainDef) -> Result<Self, FreightError> {
+        let compiler_option_handlers = std::mem::take(&mut def.compiler_option_handlers);
+        let language_option_handlers = std::mem::take(&mut def.language_option_handlers);
+        Self::from_def_inner(def, compiler_option_handlers, language_option_handlers)
     }
 
-    /// Read a `.rhai` file from disk and parse it, resolving any `include()`
-    /// directives relative to the file's directory.
-    pub fn from_rhai_file(path: &Path) -> Result<Self, FreightError> {
-        let src = std::fs::read_to_string(path).map_err(FreightError::Io)?;
-        let dir = path.parent().unwrap_or(Path::new("."));
-        let r = script::eval_script(&src, Some(dir))?;
-        Self::from_eval_result(r)
-    }
-
-    fn from_eval_result(r: script::EvalResult) -> Result<Self, FreightError> {
-        let script::EvalResult { def, engine, ast, compiler_option_handlers, language_option_handlers } = r;
-        let has_handlers = !compiler_option_handlers.is_empty() || !language_option_handlers.is_empty();
-        let (handler_engine, handler_ast) = if has_handlers {
-            (Some(Arc::new(engine)), Some(ast))
-        } else {
-            (None, None)
-        };
-        Self::from_def_inner(def, handler_engine, handler_ast, compiler_option_handlers, language_option_handlers)
-    }
-
-    #[allow(clippy::too_many_arguments)]
     fn from_def_inner(
-        def: script::ToolchainDef,
-        handler_engine: Option<Arc<Engine>>,
-        handler_ast: Option<AST>,
+        def: ToolchainDef,
         compiler_option_handlers: HashMap<String, OptionHandler>,
         language_option_handlers: HashMap<String, OptionHandler>,
     ) -> Result<Self, FreightError> {
@@ -728,8 +648,6 @@ impl CompilerTemplate {
             toolset:               def.toolset,
             pch,
             linking,
-            handler_engine,
-            handler_ast,
             compiler_option_handlers,
             language_option_handlers,
             flags_opt:             def.flags_opt,
@@ -1042,10 +960,7 @@ impl CompilerTemplate {
         arch: &str,
         os: &str,
     ) -> Result<Vec<String>, crate::error::FreightError> {
-        let (Some(engine), Some(ast)) = (&self.handler_engine, &self.handler_ast) else {
-            return Ok(vec![]);
-        };
-        script::run_handlers(engine, ast, &self.language_option_handlers, options, version, arch, os, &self.name)
+        run_option_handlers(&self.language_option_handlers, options, version, arch, os, &self.name)
     }
 
     /// Run `compiler_option` handlers for the given freeform options map.
@@ -1058,10 +973,7 @@ impl CompilerTemplate {
         arch: &str,
         os: &str,
     ) -> Result<Vec<String>, crate::error::FreightError> {
-        let (Some(engine), Some(ast)) = (&self.handler_engine, &self.handler_ast) else {
-            return Ok(vec![]);
-        };
-        script::run_handlers(engine, ast, &self.compiler_option_handlers, options, version, arch, os, &self.name)
+        run_option_handlers(&self.compiler_option_handlers, options, version, arch, os, &self.name)
     }
 
     /// Assemble flags for the **link step**.
@@ -1208,6 +1120,32 @@ fn build_module_style(raw: RawModules) -> ModuleStyle {
     }
 }
 
+fn run_option_handlers(
+    handlers: &HashMap<String, OptionHandler>,
+    options: &HashMap<String, String>,
+    version: &str,
+    arch: &str,
+    os: &str,
+    name: &str,
+) -> Result<Vec<String>, crate::error::FreightError> {
+    let mut flags = Vec::new();
+    for (key, handler) in handlers {
+        let value = match options.get(key) {
+            Some(v) => v.as_str(),
+            None => match handler.default_value.as_deref() {
+                Some(d) => d,
+                None => continue,
+            },
+        };
+        let result = (handler.callback)(value, version, arch, os, name)
+            .map_err(|e| crate::error::FreightError::TemplateError(
+                format!("option handler '{key}' failed: {e}")
+            ))?;
+        flags.extend(result);
+    }
+    Ok(flags)
+}
+
 fn push_flag_str(out: &mut Vec<String>, s: &str) {
     for part in push_flag_parts(s) {
         out.push(part);
@@ -1245,85 +1183,249 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    // Standalone templates (no include) — from_rhai is fine without a directory.
-    const NVCC_RHAI: &str   = include_str!("../../../../toolchains/nvidia/nvcc.rhai");
-    const OPENCL_RHAI: &str = include_str!("../../../../toolchains/opencl.rhai");
-    const HIPCC_RHAI: &str  = include_str!("../../../../toolchains/amd/hipcc.rhai");
-    const ISPC_RHAI: &str   = include_str!("../../../../toolchains/intel/ispc.rhai");
-    const TCC_RHAI: &str    = include_str!("../../../../toolchains/tcc.rhai");
-    const MSVC_RHAI: &str   = include_str!("../../../../toolchains/msvc.rhai");
-
-    const TOOLCHAINS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../toolchains");
-    fn rhai(rel: &str) -> CompilerTemplate {
-        CompilerTemplate::from_rhai_file(&std::path::Path::new(TOOLCHAINS).join(rel)).unwrap()
+    fn gcc() -> CompilerTemplate {
+        let mut def = ToolchainDef {
+            name: "g++".into(),
+            binary: "g++".into(),
+            family: "gnu".into(),
+            version_arg: "--version".into(),
+            version_regex: r"(\d+\.\d+\.\d+)".into(),
+            extensions: vec![".cpp".into(), ".cxx".into(), ".cc".into()],
+            flags_debug: "-g".into(),
+            flags_lto: "-flto".into(),
+            sanitize: "-fsanitize={values}".into(),
+            module_style: "gcc".into(),
+            ..Default::default()
+        };
+        def.standards.insert("c++14".into(), "-std=c++14".into());
+        def.standards.insert("c++17".into(), "-std=c++17".into());
+        def.standards.insert("c++20".into(), "-std=c++20".into());
+        def.standards.insert("c++23".into(), "-std=c++23".into());
+        def.defaults.insert("std".into(), "c++17".into());
+        def.flags_opt.insert("0".into(), "-O0".into());
+        def.flags_opt.insert("1".into(), "-O1".into());
+        def.flags_opt.insert("2".into(), "-O2".into());
+        def.flags_opt.insert("3".into(), "-O3".into());
+        def.flags_opt.insert("s".into(), "-Os".into());
+        def.flags_warnings.insert("all".into(), "-Wall -Wextra -Wpedantic".into());
+        def.flags_warnings.insert("error".into(), "-Werror".into());
+        def.flags_warnings.insert("none".into(), "".into());
+        def.structure.insert("include_dir".into(), "-I{path}".into());
+        def.structure.insert("define".into(), "-D{name}".into());
+        def.structure.insert("define_value".into(), "-D{name}={value}".into());
+        def.structure.insert("output".into(), "-o {path}".into());
+        def.structure.insert("compile_only".into(), "-c".into());
+        def.structure.insert("dep_file".into(), "-MMD -MF {path}".into());
+        def.structure.insert("sysroot".into(), "--sysroot={path}".into());
+        def.module_params.insert("enable_flag".into(), "-fmodules-ts".into());
+        def.module_params.insert("compile_miu".into(), "-fmodule-output={pcm_path}".into());
+        def.module_params.insert("import_module".into(), "-fmodule-file={name}={pcm_path}".into());
+        def.module_params.insert("header_unit".into(), "-fmodule-header".into());
+        def.toolset.insert("ar".into(), "ar".into());
+        def.toolset.insert("strip".into(), "strip".into());
+        def.linking.push(("cpp".into(), LinkingParams {
+            abi: "c++".into(),
+            compatible: vec!["c".into(), "fortran".into()],
+            extensions: vec![".cpp".into(), ".cxx".into(), ".cc".into()],
+            ..Default::default()
+        }));
+        CompilerTemplate::from_def(def).unwrap()
     }
-    fn gcc()   -> CompilerTemplate { rhai("gnu/g++.rhai") }
-    fn gcc_c() -> CompilerTemplate { rhai("gnu/gcc.rhai") }
-    fn clang() -> CompilerTemplate { rhai("llvm/clang++.rhai") }
-    fn nvcc()  -> CompilerTemplate { CompilerTemplate::from_rhai(NVCC_RHAI).unwrap() }
 
-    // ── Parsing ───────────────────────────────────────────────────────────────
-
-    #[test]
-    fn all_templates_parse() {
-        // GNU family
-        rhai("gnu/g++.rhai");
-        rhai("gnu/gcc.rhai");
-        rhai("gnu/gfortran.rhai");
-        rhai("gnu/gdc.rhai");
-        // LLVM family
-        rhai("llvm/clang++.rhai");
-        rhai("llvm/clang.rhai");
-        rhai("llvm/flang.rhai");
-        rhai("llvm/ldc2.rhai");
-        // Intel
-        rhai("intel/icpx.rhai");
-        rhai("intel/ifx.rhai");
-        CompilerTemplate::from_rhai(ISPC_RHAI).unwrap();
-        // AMD
-        CompilerTemplate::from_rhai(HIPCC_RHAI).unwrap();
-        // NVIDIA
-        CompilerTemplate::from_rhai(NVCC_RHAI).unwrap();
-        rhai("nvidia/nvc++.rhai");
-        rhai("nvidia/nvc.rhai");
-        rhai("nvidia/nvfortran.rhai");
-        // Assemblers
-        rhai("asm/nasm.rhai");
-        rhai("asm/yasm.rhai");
-        // Standalone
-        rhai("dmd.rhai");
-        CompilerTemplate::from_rhai(TCC_RHAI).unwrap();
-        CompilerTemplate::from_rhai(OPENCL_RHAI).unwrap();
-        CompilerTemplate::from_rhai(MSVC_RHAI).unwrap();
+    fn gcc_c() -> CompilerTemplate {
+        let mut def = ToolchainDef {
+            name: "gcc".into(),
+            binary: "gcc".into(),
+            family: "gnu".into(),
+            version_arg: "--version".into(),
+            version_regex: r"(\d+\.\d+\.\d+)".into(),
+            extensions: vec![".c".into()],
+            flags_debug: "-g".into(),
+            flags_lto: "-flto".into(),
+            sanitize: "-fsanitize={values}".into(),
+            ..Default::default()
+        };
+        def.standards.insert("c11".into(), "-std=c11".into());
+        def.standards.insert("c17".into(), "-std=c17".into());
+        def.defaults.insert("std".into(), "c11".into());
+        def.flags_opt.insert("0".into(), "-O0".into());
+        def.flags_opt.insert("2".into(), "-O2".into());
+        def.flags_opt.insert("3".into(), "-O3".into());
+        def.flags_warnings.insert("all".into(), "-Wall -Wextra".into());
+        def.structure.insert("include_dir".into(), "-I{path}".into());
+        def.structure.insert("define".into(), "-D{name}".into());
+        def.structure.insert("define_value".into(), "-D{name}={value}".into());
+        def.structure.insert("output".into(), "-o {path}".into());
+        def.structure.insert("compile_only".into(), "-c".into());
+        def.structure.insert("dep_file".into(), "-MMD -MF {path}".into());
+        def.structure.insert("sysroot".into(), "--sysroot={path}".into());
+        def.toolset.insert("ar".into(), "ar".into());
+        def.toolset.insert("strip".into(), "strip".into());
+        def.linking.push(("c".into(), LinkingParams {
+            abi: "c".into(),
+            compile_binary: Some("gcc".into()),
+            extensions: vec![".c".into()],
+            ..Default::default()
+        }));
+        CompilerTemplate::from_def(def).unwrap()
     }
+
+    fn clang() -> CompilerTemplate {
+        let mut def = ToolchainDef {
+            name: "clang++".into(),
+            binary: "clang++".into(),
+            family: "llvm".into(),
+            version_arg: "--version".into(),
+            version_regex: r"(\d+\.\d+\.\d+)".into(),
+            extensions: vec![".cpp".into(), ".cxx".into(), ".cc".into()],
+            flags_debug: "-g".into(),
+            flags_lto: "-flto".into(),
+            sanitize: "-fsanitize={values}".into(),
+            module_style: "clang".into(),
+            ..Default::default()
+        };
+        def.standards.insert("c++14".into(), "-std=c++14".into());
+        def.standards.insert("c++17".into(), "-std=c++17".into());
+        def.standards.insert("c++20".into(), "-std=c++20".into());
+        def.standards.insert("c++23".into(), "-std=c++23".into());
+        def.defaults.insert("std".into(), "c++17".into());
+        def.flags_opt.insert("0".into(), "-O0".into());
+        def.flags_opt.insert("2".into(), "-O2".into());
+        def.flags_opt.insert("3".into(), "-O3".into());
+        def.flags_warnings.insert("all".into(), "-Wall -Wextra -Wpedantic".into());
+        def.flags_warnings.insert("error".into(), "-Werror".into());
+        def.structure.insert("include_dir".into(), "-I{path}".into());
+        def.structure.insert("define".into(), "-D{name}".into());
+        def.structure.insert("define_value".into(), "-D{name}={value}".into());
+        def.structure.insert("output".into(), "-o {path}".into());
+        def.structure.insert("compile_only".into(), "-c".into());
+        def.structure.insert("dep_file".into(), "-MMD -MF {path}".into());
+        def.structure.insert("target".into(), "--target={triple}".into());
+        def.structure.insert("sysroot".into(), "--sysroot={path}".into());
+        def.module_params.insert("precompile".into(), "--precompile".into());
+        def.module_params.insert("import_module".into(), "-fmodule-file={name}={pcm_path}".into());
+        def.module_params.insert("header_unit".into(), "-x c++-header".into());
+        def.toolset.insert("ar".into(), "ar".into());
+        def.toolset.insert("strip".into(), "strip".into());
+        def.linking.push(("cpp".into(), LinkingParams {
+            abi: "c++".into(),
+            compatible: vec!["c".into(), "fortran".into()],
+            extensions: vec![".cpp".into()],
+            ..Default::default()
+        }));
+        def.linking.push(("c".into(), LinkingParams {
+            abi: "c".into(),
+            extensions: vec![".c".into()],
+            ..Default::default()
+        }));
+        CompilerTemplate::from_def(def).unwrap()
+    }
+
+    fn nvcc() -> CompilerTemplate {
+        let mut def = ToolchainDef {
+            name: "nvcc".into(),
+            binary: "nvcc".into(),
+            family: "nvidia".into(),
+            version_arg: "--version".into(),
+            version_regex: r"release (\d+\.\d+)".into(),
+            extensions: vec![".cu".into()],
+            passthrough_enabled: true,
+            passthrough_prefix: "-Xcompiler".into(),
+            always_flags: vec!["--expt-relaxed-constexpr".into(), "--extended-lambda".into()],
+            ..Default::default()
+        };
+        def.flags_opt.insert("0".into(), "-O0".into());
+        def.flags_opt.insert("2".into(), "-O2".into());
+        def.flags_opt.insert("3".into(), "-O3".into());
+        def.structure.insert("include_dir".into(), "-I{path}".into());
+        def.structure.insert("define".into(), "-D{name}".into());
+        def.structure.insert("define_value".into(), "-D{name}={value}".into());
+        def.structure.insert("output".into(), "-o {path}".into());
+        def.structure.insert("compile_only".into(), "-c".into());
+        def.linking.push(("cuda".into(), LinkingParams {
+            abi: "cuda".into(),
+            linker: "c++".into(),
+            extensions: vec![".cu".into()],
+            ..Default::default()
+        }));
+        CompilerTemplate::from_def(def).unwrap()
+    }
+
+    fn msvc() -> CompilerTemplate {
+        let mut def = ToolchainDef {
+            name: "msvc".into(),
+            binary: "cl.exe".into(),
+            family: "msvc".into(),
+            version_arg: "".into(),
+            version_regex: r"(\d+\.\d+)".into(),
+            extensions: vec![".cpp".into(), ".cxx".into(), ".c".into()],
+            flags_debug: "/Zi".into(),
+            flags_lto: "/GL".into(),
+            flags_lto_link: "/LTCG".into(),
+            ..Default::default()
+        };
+        def.flags_opt.insert("0".into(), "/Od".into());
+        def.flags_opt.insert("2".into(), "/O2".into());
+        def.flags_opt.insert("3".into(), "/O2".into());
+        def.structure.insert("include_dir".into(), "/I{path}".into());
+        def.structure.insert("define".into(), "/D{name}".into());
+        def.structure.insert("define_value".into(), "/D{name}={value}".into());
+        def.structure.insert("output".into(), "/Fo{path}".into());
+        def.structure.insert("output_obj".into(), "/Fo{path}".into());
+        def.structure.insert("output_bin".into(), "/Fe{path}".into());
+        def.structure.insert("compile_only".into(), "/c".into());
+        def.structure.insert("dep_file_mode".into(), "stdout".into());
+        def.structure.insert("system_lib".into(), "{name}.lib".into());
+        def.toolset.insert("ar".into(), "lib.exe".into());
+        def.linking.push(("cpp".into(), LinkingParams {
+            abi: "c++".into(),
+            compatible: vec!["c".into()],
+            extensions: vec![".cpp".into()],
+            ..Default::default()
+        }));
+        CompilerTemplate::from_def(def).unwrap()
+    }
+
+    // ── Option handlers ───────────────────────────────────────────────────────
 
     #[test]
     fn option_handlers_use_registered_defaults() {
-        let t = CompilerTemplate::from_rhai(r#"
-            name = "toy";
-            binary = "toycc";
-            version_arg = "--version";
-            version_regex = "(.*)";
-            extensions = [".toy"];
-
-            compiler_option("mode", "safe", |ctx| {
-                add_flag("--mode=" + ctx.value);
-            });
-
-            compiler_option("feature", |ctx| {
-                add_flag("--feature=" + ctx.value);
-            });
-
-            language_option("dialect", "portable", |ctx| {
-                add_flag("--dialect=" + ctx.value);
-            });
-        "#).unwrap();
+        fn mode_h(v: &str, _: &str, _: &str, _: &str, _: &str) -> Result<Vec<String>, String> {
+            Ok(vec![format!("--mode={v}")])
+        }
+        fn feature_h(v: &str, _: &str, _: &str, _: &str, _: &str) -> Result<Vec<String>, String> {
+            Ok(vec![format!("--feature={v}")])
+        }
+        fn dialect_h(v: &str, _: &str, _: &str, _: &str, _: &str) -> Result<Vec<String>, String> {
+            Ok(vec![format!("--dialect={v}")])
+        }
+        let mut def = ToolchainDef {
+            name: "toy".into(), binary: "toycc".into(),
+            version_arg: "--version".into(), version_regex: "(.*)".into(),
+            extensions: vec![".toy".into()],
+            ..Default::default()
+        };
+        def.structure.insert("output".into(), "-o {path}".into());
+        def.structure.insert("compile_only".into(), "-c".into());
+        def.structure.insert("include_dir".into(), "-I{path}".into());
+        def.structure.insert("define".into(), "-D{name}".into());
+        def.structure.insert("define_value".into(), "-D{name}={value}".into());
+        def.compiler_option_handlers.insert("mode".into(), OptionHandler {
+            default_value: Some("safe".into()), callback: mode_h,
+        });
+        def.compiler_option_handlers.insert("feature".into(), OptionHandler {
+            default_value: None, callback: feature_h,
+        });
+        def.language_option_handlers.insert("dialect".into(), OptionHandler {
+            default_value: Some("portable".into()), callback: dialect_h,
+        });
+        let t = CompilerTemplate::from_def(def).unwrap();
 
         let empty = HashMap::new();
         assert_eq!(
             t.run_compiler_option_handlers(&empty, "1.0", "x86_64", "linux").unwrap(),
             vec!["--mode=safe".to_string()],
-            "the defaulted handler runs, but the two-argument handler without a value does not"
+            "defaulted handler runs; handler without default and no value is skipped"
         );
         assert_eq!(
             t.run_language_option_handlers(&empty, "1.0", "x86_64", "linux").unwrap(),
@@ -1336,25 +1438,6 @@ mod tests {
         let mut flags = t.run_compiler_option_handlers(&overridden, "1.0", "x86_64", "linux").unwrap();
         flags.sort();
         assert_eq!(flags, vec!["--feature=on".to_string(), "--mode=fast".to_string()]);
-    }
-
-    #[test]
-    fn template_cache_round_trips_as_messagepack() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("template-cache.msgpack");
-        let mut cache = TemplateCache::default();
-        cache.entries.insert("gcc".to_string(), gcc());
-
-        save_template_cache(&path, &cache);
-
-        let bytes = std::fs::read(&path).unwrap();
-        assert_ne!(bytes.first().copied(), Some(b'{'), "cache must not be JSON text");
-        assert!(serde_json::from_slice::<TemplateCache>(&bytes).is_err());
-
-        let loaded = load_template_cache(&path);
-        let gcc = loaded.entries.get("gcc").expect("cached template should reload");
-        assert_eq!(gcc.name, "g++");
-        assert_eq!(gcc.binary, "g++");
     }
 
     #[test]
@@ -1478,7 +1561,16 @@ mod tests {
 
     #[test]
     fn gfortran_has_no_modules() {
-        let t = rhai("gnu/gfortran.rhai");
+        let def = ToolchainDef {
+            name: "gfortran".into(),
+            binary: "gfortran".into(),
+            family: "gnu".into(),
+            version_arg: "--version".into(),
+            version_regex: r"(\d+\.\d+\.\d+)".into(),
+            extensions: vec![".f90".into(), ".f95".into(), ".f03".into()],
+            ..Default::default()
+        };
+        let t = CompilerTemplate::from_def(def).unwrap();
         assert_eq!(t.modules, ModuleStyle::Unsupported);
         assert!(t.extensions.contains(&".f90".to_string()));
     }
@@ -1851,8 +1943,6 @@ mod tests {
     }
 
     // ── MSVC toolchain ────────────────────────────────────────────────────────
-
-    fn msvc() -> CompilerTemplate { CompilerTemplate::from_rhai(MSVC_RHAI).unwrap() }
 
     #[test]
     fn msvc_ar_is_lib_exe() {

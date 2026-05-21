@@ -4,9 +4,8 @@ use std::process::Command;
 use regex::Regex;
 use semver;
 
-use super::cache::{freight_home, ToolchainCache};
-use super::script::quick_kind;
-use super::template::{from_rhai_file_cached, CompilerTemplate};
+use super::cache::ToolchainCache;
+use super::template::CompilerTemplate;
 use crate::error::FreightError;
 
 /// A compiler found on this machine.
@@ -100,32 +99,9 @@ pub fn group_into_toolchains(detected: Vec<DetectedCompiler>) -> ToolchainGroups
     ToolchainGroups { toolchains, guests }
 }
 
-/// Load every `.rhai` file from `templates_dir` and return parsed templates.
-pub fn load_templates(templates_dir: &Path) -> Vec<CompilerTemplate> {
-    let mut templates = Vec::new();
-    for entry in walkdir::WalkDir::new(templates_dir)
-        .follow_links(false)
-        .into_iter()
-        .flatten()
-    {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("rhai") {
-            continue;
-        }
-        // Files starting with '_' are shared includes, not standalone templates.
-        if path.file_name().and_then(|n| n.to_str())
-            .map(|n| n.starts_with('_')).unwrap_or(false)
-        {
-            continue;
-        }
-        let Ok(src) = std::fs::read_to_string(path) else { continue };
-        if quick_kind(&src) != "compiler" { continue; }
-        match from_rhai_file_cached(path, &src) {
-            Ok(t) => templates.push(t),
-            Err(e) => eprintln!("warn: skipping {:?}: {e}", path.file_name().unwrap_or_default()),
-        }
-    }
-    templates
+/// Return all built-in compiler templates.
+pub fn load_templates(_templates_dir: &Path) -> Vec<CompilerTemplate> {
+    super::builtin::all_compiler_templates()
 }
 
 /// Probe PATH for every template's binary and return those that are present with their version.
@@ -581,8 +557,6 @@ fn query_version(template: &CompilerTemplate, path: &Path) -> Option<String> {
 mod tests {
     use super::*;
 
-    const TEMPLATES_DIR: &str =
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../../toolchains");
 
     #[test]
     fn required_tools_can_live_next_to_compiler() {
@@ -633,7 +607,7 @@ mod tests {
 
     #[test]
     fn load_templates_finds_all() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         assert_eq!(templates.len(), 23,
             "expected g++, gcc, gfortran, clang++, clang, flang, \
              gdc, icpx, ifx, ispc, hipcc, nvcc, nvc++, nvc, nvfortran, \
@@ -642,7 +616,7 @@ mod tests {
 
     #[test]
     fn all_templates_have_required_fields() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         for t in &templates {
             assert!(!t.name.is_empty(), "empty name");
             assert!(!t.binary.is_empty(), "{}: empty binary", t.name);
@@ -654,14 +628,8 @@ mod tests {
     }
 
     #[test]
-    fn load_templates_missing_dir_returns_empty() {
-        let templates = load_templates(Path::new("/nonexistent/path/toolchains"));
-        assert!(templates.is_empty());
-    }
-
-    #[test]
     fn detect_all_result_is_sorted_by_name() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         let detected = detect_all(&templates);
         let names: Vec<&str> = detected.iter().map(|d| d.template.name.as_str()).collect();
         let mut sorted = names.clone();
@@ -671,7 +639,7 @@ mod tests {
 
     #[test]
     fn guest_compilers_declare_requires_toolchain() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         for name in &["nvcc", "hipcc", "opencl", "ispc"] {
             let t = templates.iter().find(|t| t.name == *name)
                 .unwrap_or_else(|| panic!("{name} template not found"));
@@ -684,7 +652,7 @@ mod tests {
 
     #[test]
     fn detected_compilers_have_non_empty_version() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         for d in detect_all(&templates) {
             assert!(!d.version.is_empty(), "{} reported empty version", d.template.name);
             assert!(d.path.exists(), "{} path does not exist: {:?}", d.template.name, d.path);
@@ -704,7 +672,7 @@ mod tests {
 
     #[test]
     fn group_into_toolchains_merges_gnu_family() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         let detected = fake_detected_from_templates(&templates);
         let groups = group_into_toolchains(detected);
 
@@ -721,7 +689,7 @@ mod tests {
 
     #[test]
     fn group_into_toolchains_merges_llvm_family() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         let detected = fake_detected_from_templates(&templates);
         let groups = group_into_toolchains(detected);
 
@@ -738,7 +706,7 @@ mod tests {
 
     #[test]
     fn group_into_toolchains_guests_are_separated() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         let detected = fake_detected_from_templates(&templates);
         let groups = group_into_toolchains(detected);
 
@@ -759,7 +727,7 @@ mod tests {
 
     #[test]
     fn group_into_toolchains_standalone_primaries_own_entry() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         let detected = fake_detected_from_templates(&templates);
         let groups = group_into_toolchains(detected);
 
@@ -781,7 +749,7 @@ mod tests {
 
     #[test]
     fn group_into_toolchains_assemblers_are_extensions() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         let detected = fake_detected_from_templates(&templates);
         let groups = group_into_toolchains(detected);
 
@@ -800,7 +768,7 @@ mod tests {
 
     #[test]
     fn group_into_toolchains_sorted_by_name() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         let detected = fake_detected_from_templates(&templates);
         let groups = group_into_toolchains(detected);
         let names: Vec<&str> = groups.toolchains.iter().map(|tc| tc.name.as_str()).collect();
@@ -813,7 +781,7 @@ mod tests {
 
     #[test]
     fn toolchain_use_accepts_family_names() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         // Family names should be accepted (they reference a group, not a binary).
         // We can't actually persist without a real home dir, but we can check validation.
         // toolchain_use returns Ok only if name is valid, then tries to save — the save
@@ -831,7 +799,7 @@ mod tests {
 
     #[test]
     fn toolchain_use_rejects_individual_compiler_with_family() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         // "g++" has family "gnu", so it should be rejected — use "gnu" instead.
         let result = super::super::super::toolchain::toolchain_use("g++", &templates);
         assert!(result.is_err(), "'g++' (has family 'gnu') should not be a valid toolchain name");
@@ -839,7 +807,7 @@ mod tests {
 
     #[test]
     fn toolchain_use_accepts_standalone_primary() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         // "tcc" has family = "", requires_toolchain = [], role = Toolchain → valid.
         let err = super::super::super::toolchain::toolchain_use("tcc", &templates);
         if let Err(e) = err {
@@ -852,7 +820,7 @@ mod tests {
 
     #[test]
     fn toolchain_use_rejects_assembler() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         // Assemblers are auto-selected, not user-selectable.
         let result = super::super::super::toolchain::toolchain_use("nasm", &templates);
         assert!(result.is_err(), "'nasm' (assembler) should not be a valid toolchain use target");
@@ -862,7 +830,7 @@ mod tests {
 
     #[test]
     fn toolchain_use_rejects_unknown_name() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         let result = super::super::super::toolchain::toolchain_use("badname", &templates);
         assert!(result.is_err());
         assert!(format!("{}", result.unwrap_err()).contains("unknown toolchain"));
@@ -949,7 +917,7 @@ mod tests {
 
     #[test]
     fn backend_matches_family_and_versioned() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         let gcc = templates.iter().find(|t| t.name == "gcc").expect("gcc template");
         let detected = DetectedCompiler {
             template: gcc.clone(),
@@ -967,7 +935,7 @@ mod tests {
 
     #[test]
     fn toolchain_use_accepts_versioned_family_names() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         // "gnu-14" means family "gnu" with major version 14 — valid because "gnu" is a known family.
         let result = super::super::super::toolchain::toolchain_use("gnu-14", &templates);
         if let Err(e) = result {
@@ -980,68 +948,15 @@ mod tests {
 
     #[test]
     fn toolchain_use_rejects_versioned_unknown_family() {
-        let templates = load_templates(Path::new(TEMPLATES_DIR));
+        let templates = load_all_templates();
         let result = super::super::super::toolchain::toolchain_use("nofamily-14", &templates);
         assert!(result.is_err(), "'nofamily-14' (unknown family) should be rejected");
     }
 }
 
-/// Resolve the compiler templates directory.
-/// The user-local templates directory: `~/.freight/templates/`.
-///
-/// Returns `None` when the freight home directory cannot be determined. The
-/// directory does not need to exist — it is created by [`toolchain_add`].
-pub fn user_templates_dir() -> Option<PathBuf> {
-    Some(freight_home()?.join("templates"))
-}
-
-/// Load templates from both the system templates directory and the user's
-/// `~/.freight/templates/` directory. User templates override system templates
-/// with the same `name` field, enabling local customisation without touching
-/// the system installation.
+/// Return all built-in compiler templates.
 pub fn load_all_templates() -> Vec<CompilerTemplate> {
-    let mut templates: Vec<CompilerTemplate> = Vec::new();
-
-    if let Some(system_dir) = templates_dir() {
-        templates.extend(load_templates(&system_dir));
-    }
-
-    if let Some(user_dir) = user_templates_dir() {
-        for t in load_templates(&user_dir) {
-            if let Some(pos) = templates.iter().position(|s| s.name == t.name) {
-                templates[pos] = t; // user template overrides system template
-            } else {
-                templates.push(t);
-            }
-        }
-    }
-
-    templates
-}
-
-/// Install a compiler template from a local `.rhai` file into `~/.freight/templates/`.
-///
-/// The script is validated before copying. If a template with the same name
-/// already exists it is overwritten. Returns the path the template was written to.
-pub fn toolchain_add(rhai_path: &Path) -> Result<PathBuf, FreightError> {
-    if rhai_path.extension().and_then(|e| e.to_str()) != Some("rhai") {
-        return Err(FreightError::TemplateError(
-            "toolchain file must have a .rhai extension".into(),
-        ));
-    }
-
-    let src = std::fs::read_to_string(rhai_path).map_err(FreightError::Io)?;
-    let template = CompilerTemplate::from_rhai_file(rhai_path)?;
-
-    let user_dir = user_templates_dir()
-        .ok_or_else(|| FreightError::TemplateError("cannot determine ~/.freight directory".into()))?;
-
-    std::fs::create_dir_all(&user_dir).map_err(FreightError::Io)?;
-
-    let dest = user_dir.join(format!("{}.rhai", template.name));
-    std::fs::write(&dest, &src).map_err(FreightError::Io)?;
-
-    Ok(dest)
+    super::builtin::all_compiler_templates()
 }
 
 /// Set the global default compiler backend, stored in `~/.freight/config.toml`.

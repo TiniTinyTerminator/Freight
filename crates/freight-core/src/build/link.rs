@@ -321,21 +321,16 @@ mod tests {
     use std::path::PathBuf;
     use crate::toolchain::CompilerTemplate;
 
-    const TEMPLATES_DIR: &str =
-        concat!(env!("CARGO_MANIFEST_DIR"), "/../../toolchains");
-    const MSVC_RHAI: &str =
-        include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../toolchains/msvc.rhai"));
-
     fn templates() -> Vec<CompilerTemplate> {
-        crate::toolchain::load_templates(std::path::Path::new(TEMPLATES_DIR))
+        crate::toolchain::load_all_templates()
     }
 
     fn gcc() -> CompilerTemplate {
-        CompilerTemplate::from_rhai_file(
-            &std::path::Path::new(TEMPLATES_DIR).join("gnu/g++.rhai")
-        ).unwrap()
+        templates().into_iter().find(|t| t.name == "g++").unwrap()
     }
-    fn msvc() -> CompilerTemplate { CompilerTemplate::from_rhai(MSVC_RHAI).unwrap() }
+    fn msvc() -> CompilerTemplate {
+        templates().into_iter().find(|t| t.name == "msvc").unwrap()
+    }
 
     fn fake_detected(templates: &[CompilerTemplate]) -> Vec<DetectedCompiler> {
         templates.iter().map(|t| DetectedCompiler {

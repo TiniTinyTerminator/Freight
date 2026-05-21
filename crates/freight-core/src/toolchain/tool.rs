@@ -1,18 +1,11 @@
 //! Formatter and linter template loading and detection.
-//!
-//! Templates live alongside their compiler family in `toolchains/` and use
-//! `kind = "formatter"` or `kind = "linter"` to identify themselves.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use regex::Regex;
-use rhai::{Array, Dynamic, Engine, Map, Scope};
 
-use super::detect::templates_dir;
-use super::script::quick_kind;
-use crate::error::FreightError;
 use crate::manifest::types::{FormatterConfig, LinterConfig};
 
 // ── Template types ────────────────────────────────────────────────────────────
@@ -79,37 +72,59 @@ impl DetectedTool {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 pub fn load_formatter_templates() -> Vec<ToolTemplate> {
-    let Some(dir) = templates_dir() else { return vec![] };
-    load_tool_templates_from(&dir, "formatter")
+    vec![clang_format()]
 }
 
 pub fn load_linter_templates() -> Vec<ToolTemplate> {
-    let Some(dir) = templates_dir() else { return vec![] };
-    load_tool_templates_from(&dir, "linter")
+    vec![clang_tidy()]
 }
 
-pub fn load_tool_templates_from(dir: &Path, kind: &str) -> Vec<ToolTemplate> {
-    let mut templates = Vec::new();
-
-    for entry in walkdir::WalkDir::new(dir)
-        .follow_links(false)
-        .into_iter()
-        .flatten()
-    {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) != Some("rhai") { continue; }
-        if path.file_name().and_then(|n| n.to_str())
-            .map(|n| n.starts_with('_')).unwrap_or(false) { continue; }
-        let Ok(src) = std::fs::read_to_string(path) else { continue };
-        if quick_kind(&src) != kind { continue; }
-        match eval_tool_rhai(&src, path.parent()) {
-            Ok(t) => templates.push(t),
-            Err(e) => eprintln!("warn: skipping {} {:?}: {e}", kind, path.file_name().unwrap_or_default()),
-        }
+fn clang_format() -> ToolTemplate {
+    let mut run = HashMap::new();
+    run.insert("fix".into(), "-i".into());
+    run.insert("check".into(), "--dry-run --Werror".into());
+    let mut settings = HashMap::new();
+    settings.insert("style".into(), "--style={value}".into());
+    settings.insert("config".into(), "--style=file:{value}".into());
+    let mut values = HashMap::new();
+    values.insert("style".into(), vec![
+        "Google".into(), "LLVM".into(), "Mozilla".into(), "WebKit".into(),
+        "Chromium".into(), "Microsoft".into(), "GNU".into(), "file".into(),
+    ]);
+    ToolTemplate {
+        kind: "formatter".into(),
+        name: "clang-format".into(),
+        family: "llvm".into(),
+        binary: "clang-format".into(),
+        version_arg: "--version".into(),
+        version_regex: r"clang-format version (\d+\.\d+\.\d+)".into(),
+        extensions: vec![
+            ".cpp".into(), ".cc".into(), ".cxx".into(), ".c++".into(), ".cppm".into(),
+            ".c".into(), ".h".into(), ".hpp".into(), ".hxx".into(), ".cu".into(), ".hip".into(),
+        ],
+        run, settings, values,
     }
+}
 
-    templates.sort_by(|a, b| a.name.cmp(&b.name));
-    templates
+fn clang_tidy() -> ToolTemplate {
+    let mut run = HashMap::new();
+    run.insert("check".into(), "".into());
+    run.insert("fix".into(), "--fix --fix-errors".into());
+    let mut settings = HashMap::new();
+    settings.insert("checks".into(), "--checks={value}".into());
+    settings.insert("config".into(), "--config-file={value}".into());
+    ToolTemplate {
+        kind: "linter".into(),
+        name: "clang-tidy".into(),
+        family: "llvm".into(),
+        binary: "clang-tidy".into(),
+        version_arg: "--version".into(),
+        version_regex: r"LLVM version (\d+\.\d+\.\d+)".into(),
+        extensions: vec![
+            ".cpp".into(), ".cc".into(), ".cxx".into(), ".c++".into(), ".cppm".into(), ".c".into(),
+        ],
+        run, settings, values: HashMap::new(),
+    }
 }
 
 pub fn detect_tools(templates: &[ToolTemplate]) -> Vec<DetectedTool> {
@@ -160,100 +175,6 @@ pub fn collect_sources(src_dir: &Path, extensions: &[String]) -> Vec<PathBuf> {
         }
     }
     files
-}
-
-// ── Rhai evaluation ───────────────────────────────────────────────────────────
-
-fn eval_tool_rhai(src: &str, dir: Option<&Path>) -> Result<ToolTemplate, FreightError> {
-    let mut engine = Engine::new();
-
-    if let Some(base_dir) = dir.map(|d| d.to_path_buf()) {
-        engine.register_custom_syntax(
-            &["include", "$string$"],
-            true,
-            move |context: &mut rhai::EvalContext, inputs: &[rhai::Expression]| {
-                let rel = inputs[0]
-                    .get_string_value()
-                    .ok_or_else(|| -> Box<rhai::EvalAltResult> {
-                        "include: expected a string literal".into()
-                    })?;
-                let mut path = base_dir.join(rel);
-                if path.extension().is_none() { path.set_extension("rhai"); }
-                let src = std::fs::read_to_string(&path).map_err(|e| -> Box<rhai::EvalAltResult> {
-                    format!("include: cannot read {}: {e}", path.display()).into()
-                })?;
-                let ast = context.engine().compile(&src).map_err(|e| -> Box<rhai::EvalAltResult> {
-                    format!("include parse error: {e}").into()
-                })?;
-                let engine = context.engine();
-                let scope  = context.scope_mut();
-                engine.run_ast_with_scope(scope, &ast)?;
-                Ok(Dynamic::UNIT)
-            },
-        ).map_err(|e| FreightError::TemplateError(format!("custom syntax error: {e}")))?;
-    }
-
-    let ast = engine
-        .compile(src)
-        .map_err(|e| FreightError::TemplateError(format!("tool script compile error: {e}")))?;
-
-    let mut scope = Scope::new();
-    for key in &["kind", "name", "family", "binary", "version_arg", "version_regex"] {
-        scope.push(*key, String::new());
-    }
-    scope.push("extensions",  Array::new());
-    scope.push("run",         Map::new());
-    scope.push("settings",    Map::new());
-    scope.push("values",      Map::new());
-
-    engine
-        .run_ast_with_scope(&mut scope, &ast)
-        .map_err(|e| FreightError::TemplateError(format!("tool script error: {e}")))?;
-
-    macro_rules! str { ($k:expr) => { scope.get_value::<String>($k).unwrap_or_default() }; }
-    macro_rules! map { ($k:expr) => { scope.get_value::<Map>($k).unwrap_or_default() }; }
-
-    let kind = str!("kind");
-    if kind != "formatter" && kind != "linter" {
-        return Err(FreightError::TemplateError(format!("not a formatter or linter template (kind = {kind:?})")));
-    }
-
-    let extensions: Vec<String> = scope
-        .get_value::<Array>("extensions")
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|v| v.try_cast::<String>())
-        .collect();
-
-    fn str_map(m: Map) -> HashMap<String, String> {
-        m.into_iter()
-            .filter_map(|(k, v)| v.try_cast::<String>().map(|s| (k.to_string(), s)))
-            .collect()
-    }
-
-    fn values_map(m: Map) -> HashMap<String, Vec<String>> {
-        m.into_iter()
-            .filter_map(|(k, v)| {
-                v.try_cast::<Array>().map(|arr| {
-                    let vals = arr.into_iter().filter_map(|v| v.try_cast::<String>()).collect();
-                    (k.to_string(), vals)
-                })
-            })
-            .collect()
-    }
-
-    Ok(ToolTemplate {
-        kind,
-        name:          str!("name"),
-        family:        str!("family"),
-        binary:        str!("binary"),
-        version_arg:   str!("version_arg"),
-        version_regex: str!("version_regex"),
-        extensions,
-        run:      str_map(map!("run")),
-        settings: str_map(map!("settings")),
-        values:   values_map(map!("values")),
-    })
 }
 
 // ── Internals ─────────────────────────────────────────────────────────────────

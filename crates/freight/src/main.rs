@@ -24,7 +24,7 @@ use crate::commands::fmt::cmd_fmt;
 use crate::commands::install::{cmd_install, cmd_package};
 use crate::commands::lint::cmd_lint;
 use crate::commands::new::{cmd_init, cmd_new};
-use crate::commands::toolchain::{cmd_toolchain_add, cmd_toolchain_list, cmd_toolchain_use};
+use crate::commands::toolchain::{cmd_toolchain_list, cmd_toolchain_use};
 
 /// Returns the top-level [`clap::Command`] for this binary.
 pub(crate) fn cli_command() -> clap::Command {
@@ -368,8 +368,6 @@ enum Commands {
 enum ToolchainCommands {
     /// Show detected compilers
     List,
-    /// Install a compiler template
-    Add { name: String },
     /// Set the default compiler backend
     Use { name: String },
 }
@@ -539,7 +537,6 @@ fn main() -> Result<()> {
         Commands::Lint { fix } => cmd_lint(fix),
         Commands::Toolchain { command } => match command {
             ToolchainCommands::List => cmd_toolchain_list(),
-            ToolchainCommands::Add { name } => cmd_toolchain_add(&name),
             ToolchainCommands::Use { name } => cmd_toolchain_use(&name),
         },
         Commands::Complete { context } => print_completion_candidates(context),

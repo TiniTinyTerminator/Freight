@@ -8,7 +8,6 @@ pub mod header_units;
 pub mod link;
 pub mod modules;
 pub mod pch;
-pub mod script;
 
 pub use compile::{CompileResult, UNITY_SUPPORTED_LANGS, compile_sources, compile_sources_unity, emit_asm_sources, dep_file_path, object_path, primary_family, select_compiler, settings_for_lang};
 pub use deps::{ResolvedDep, check_slot_conflicts, resolve_dep_graph};
@@ -29,7 +28,7 @@ use crate::lock::LockFile;
 use crate::manifest::types::{Dependency, Manifest};
 use crate::manifest::validate::{validate, validate_dep_compat};
 use crate::manifest::{find_manifest_dir, load_manifest, load_workspace_manifest};
-use crate::toolchain::{CompilerTemplate, DetectedCompiler, GlobalConfig, backend_matches, check_manifest_version_bounds, detect_all_cached, load_templates, templates_dir};
+use crate::toolchain::{CompilerTemplate, DetectedCompiler, GlobalConfig, backend_matches, check_manifest_version_bounds, detect_all_cached, load_all_templates};
 use crate::manifest::types::Backend;
 
 // ── Public results ────────────────────────────────────────────────────────────
@@ -270,7 +269,7 @@ pub fn build_project_at(project_dir: &Path, profile: &str, features: &[String], 
         .filter(|d| !to_drop.contains(&d.name))
         .collect();
     let built = build_resolved_deps(manifest, project_dir, effective_backend, profile, templates, detected, &resolved_deps, progress)?;
-    let (foreign_built, pkg_configs) = crate::meta::build_foreign_deps(project_dir, manifest, profile, progress)?;
+    let (foreign_built, _pkg_configs) = crate::meta::build_foreign_deps(project_dir, manifest, profile, progress)?;
 
     let mut all_libs = built.libs.clone();
     let mut all_dep_includes = built.include_dirs.clone();
@@ -285,33 +284,8 @@ pub fn build_project_at(project_dir: &Path, profile: &str, features: &[String], 
     let mut include_dirs = found.include_dirs.clone();
     include_dirs.extend(all_dep_includes.iter().cloned());
 
-    // Run build.freight (if present) and collect extra settings.
-    let script_out = script::run_build_script(project_dir, manifest, effective_backend, profile, detected, &pkg_configs, progress)?;
-    include_dirs.extend(script_out.include_dirs.iter().cloned());
-    let mut compile_defines = feature_defines.clone();
-    compile_defines.extend(script_out.to_defines());
-    compile_defines.extend(script_out.extra_flags.iter().cloned());
-    for lib in &script_out.link_libs {
-        all_raw_link_flags.push(format!("-l{lib}"));
-    }
-    all_raw_link_flags.extend(script_out.link_flags.iter().cloned());
-
-    // Merge script-generated sources (add_source / compile_proto) into the
-    // source list.  Language key is derived from file extension via ext_map.
-    let mut all_sources = found.sources.clone();
-    if !script_out.extra_sources.is_empty() {
-        let ext_map = discover::build_ext_map(manifest, templates);
-        for src_path in &script_out.extra_sources {
-            let rel = src_path.strip_prefix(project_dir).unwrap_or(src_path).to_path_buf();
-            let ext = rel.extension().and_then(|e| e.to_str())
-                .map(|e| format!(".{e}")).unwrap_or_default();
-            if let Some(lang_key) = ext_map.get(ext.as_str()) {
-                if !all_sources.iter().any(|s| s.path == rel) {
-                    all_sources.push(SourceFile { path: rel, lang_key: lang_key.clone() });
-                }
-            }
-        }
-    }
+    let compile_defines = feature_defines.clone();
+    let all_sources = found.sources.clone();
 
     // When the project uses C++20+, precompile dep headers as header units so
     // consumers can write `import "dep.h";` instead of `#include "dep.h"`.
@@ -528,7 +502,7 @@ pub fn test_project_at(project_dir: &Path, profile: &str, filter: Option<&str>, 
         .filter(|d| !to_drop.contains(&d.name))
         .collect();
     let built = build_resolved_deps(manifest, project_dir, effective_backend, profile, templates, detected, &resolved_deps, progress)?;
-    let (foreign_built, pkg_configs) = crate::meta::build_foreign_deps(project_dir, manifest, profile, progress)?;
+    let (foreign_built, _pkg_configs) = crate::meta::build_foreign_deps(project_dir, manifest, profile, progress)?;
 
     let mut all_libs = built.libs.clone();
     let mut all_dep_includes = built.include_dirs.clone();
@@ -542,30 +516,8 @@ pub fn test_project_at(project_dir: &Path, profile: &str, filter: Option<&str>, 
     let mut include_dirs = found.include_dirs.clone();
     include_dirs.extend(all_dep_includes.iter().cloned());
 
-    let script_out = script::run_build_script(project_dir, manifest, effective_backend, profile, detected, &pkg_configs, progress)?;
-    include_dirs.extend(script_out.include_dirs.iter().cloned());
-    let mut compile_defines = feature_defines.clone();
-    compile_defines.extend(script_out.to_defines());
-    compile_defines.extend(script_out.extra_flags.iter().cloned());
-    for lib in &script_out.link_libs {
-        all_raw_link_flags.push(format!("-l{lib}"));
-    }
-    all_raw_link_flags.extend(script_out.link_flags.iter().cloned());
-
-    let mut all_sources = found.sources.clone();
-    if !script_out.extra_sources.is_empty() {
-        let ext_map = discover::build_ext_map(manifest, templates);
-        for src_path in &script_out.extra_sources {
-            let rel = src_path.strip_prefix(project_dir).unwrap_or(src_path).to_path_buf();
-            let ext = rel.extension().and_then(|e| e.to_str())
-                .map(|e| format!(".{e}")).unwrap_or_default();
-            if let Some(lang_key) = ext_map.get(ext.as_str()) {
-                if !all_sources.iter().any(|s| s.path == rel) {
-                    all_sources.push(SourceFile { path: rel, lang_key: lang_key.clone() });
-                }
-            }
-        }
-    }
+    let compile_defines = feature_defines.clone();
+    let all_sources = found.sources.clone();
 
     // PCH injection for test builds (same logic as build_project_at).
     let pch_extra_test: Vec<String> = if let Some(ref pch_header) = manifest.compiler.pch.clone() {
@@ -1104,11 +1056,7 @@ fn load_project_at(project_dir: &Path, _profile: &str) -> Result<ProjectContext,
         .or_else(|| global.sysroot.clone());
     manifest.compiler.auto_cpu_tuning = global.auto_cpu_tuning.unwrap_or(true);
 
-    let tdir = templates_dir()
-        .ok_or_else(|| FreightError::CompilerNotFound(
-            "toolchains directory not found; set FREIGHT_TEMPLATES_DIR".into(),
-        ))?;
-    let templates = load_templates(&tdir);
+    let templates = load_all_templates();
 
     validate_or_fail(&manifest, project_dir, &templates)?;
 
