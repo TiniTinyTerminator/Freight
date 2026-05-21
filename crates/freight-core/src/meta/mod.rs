@@ -82,14 +82,31 @@ pub fn build_foreign_deps(
 
     let all_stubs = load_system_lib_stubs();
 
+    // Collect OS-family deps first so we can deduplicate across families.
+    // e.g. `unix = { features = ["pthread"] }` + `linux = { features = ["pthread", "rt"] }`
+    // should only produce one -lpthread on Linux.
+    let mut os_link_flags: std::collections::HashSet<String> = std::collections::HashSet::new();
     for (name, dep) in &manifest.dependencies {
-        // OS-family pseudo-dep: `windows = { features = ["ws2_32", "kernel32"] }`
         if OS_FAMILIES.contains(&name.as_str()) {
             if let Dependency::Detailed(d) = dep {
-                results.extend(expand_os_family_dep(name, d, &all_stubs));
+                for built in expand_os_family_dep(name, d, &all_stubs) {
+                    for flag in built.raw_link_flags {
+                        if os_link_flags.insert(flag.clone()) {
+                            results.push(ForeignBuilt {
+                                name: built.name.clone(),
+                                libs: vec![],
+                                include_dirs: vec![],
+                                raw_link_flags: vec![flag],
+                            });
+                        }
+                    }
+                }
             }
-            continue;
         }
+    }
+
+    for (name, dep) in &manifest.dependencies {
+        if OS_FAMILIES.contains(&name.as_str()) { continue; }
 
         if let Some(version) = package_dep_version(dep) {
             let query    = package_query(name, version);
