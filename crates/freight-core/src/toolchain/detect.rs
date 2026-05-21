@@ -251,10 +251,16 @@ fn requirements_met(template: &CompilerTemplate, compiler_path: &Path) -> bool {
 }
 
 fn find_required_tool(tool: &str, compiler_path: &Path) -> Option<PathBuf> {
-    which(tool).or_else(|| {
-        let sibling = compiler_path.parent()?.join(executable_name(tool));
-        sibling.is_file().then_some(sibling)
-    })
+    // Prefer a co-located tool (same directory as the compiler) so that a
+    // toolchain installation in a non-default prefix takes priority over
+    // whatever happens to be on PATH.
+    if let Some(parent) = compiler_path.parent() {
+        let sibling = parent.join(executable_name(tool));
+        if sibling.is_file() {
+            return Some(sibling);
+        }
+    }
+    which(tool)
 }
 
 fn executable_name(binary: &str) -> String {
@@ -608,10 +614,17 @@ mod tests {
     #[test]
     fn load_templates_finds_all() {
         let templates = load_all_templates();
-        assert_eq!(templates.len(), 23,
-            "expected g++, gcc, gfortran, clang++, clang, flang, \
-             gdc, icpx, ifx, ispc, hipcc, nvcc, nvc++, nvc, nvfortran, \
-             gas, nasm, yasm, dmd, ldc2, msvc, opencl, tcc");
+        assert_eq!(templates.len(), 34,
+            "expected g++, gcc, gfortran, gdc, gas, \
+             clang++, clang, flang, ldc2, \
+             nvcc, nvc++, nvc, nvfortran, \
+             icpx, ifx, ispc, \
+             hipcc, \
+             nasm, yasm, \
+             msvc, clang-cl, masm, \
+             zig-c, zig-c++, \
+             emcc, em++, wasi-clang, \
+             tcc, dmd, opencl, circle, nagfor, gnat, swiftc");
     }
 
     #[test]

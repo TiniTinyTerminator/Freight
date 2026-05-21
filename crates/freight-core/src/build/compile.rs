@@ -994,13 +994,3 @@ src  = "src/main.cpp"
     }
 }
 
-    #[test]
-    fn debug_gcc_templates() {
-        let ts = templates();
-        for t in &ts {
-            if t.family == "gnu" {
-                eprintln!("name={:?} binary={:?} linking_keys={:?}", 
-                    t.name, t.binary, t.linking.keys().collect::<Vec<_>>());
-            }
-        }
-    }

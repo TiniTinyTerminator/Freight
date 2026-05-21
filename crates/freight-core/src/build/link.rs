@@ -364,13 +364,13 @@ mod tests {
     }
 
     #[test]
-    fn cuda_project_picks_cpp_linker_via_required_linker_field() {
+    fn cuda_project_picks_nvcc_linker() {
         let ts = templates();
         let detected = fake_detected(&ts);
         let m = manifest("cuda");
         let linker = select_linker(&m, &Backend::default(), &detected, &ts).unwrap();
-        assert!(linker.template.linking.values().any(|l| l.abi == "c++"),
-            "CUDA should use C++ linker, got: {}", linker.template.name);
+        assert!(linker.template.linking.values().any(|l| l.abi == "cuda"),
+            "CUDA should use nvcc as linker, got: {}", linker.template.name);
     }
 
     #[test]
