@@ -131,7 +131,7 @@ impl DetectedDebugger {
 // ── Public API ────────────────────────────────────────────────────────────────
 
 pub fn load_debugger_templates() -> Vec<DebuggerTemplate> {
-    vec![gdb(), lldb()]
+    vec![gdb(), lldb(), rr(), cdb(), windbg()]
 }
 
 fn gdb() -> DebuggerTemplate {
@@ -171,6 +171,70 @@ fn lldb() -> DebuggerTemplate {
             mi_mode: "lldb".into(),
         },
         settings,
+        default_args: vec![],
+    }
+}
+
+/// `rr` — Mozilla Record & Replay debugger. Records program execution for
+/// deterministic replay. Linux x86-64 only. Use `freight debug --record` to
+/// record, then `freight debug --replay` to replay (CLI support pending).
+fn rr() -> DebuggerTemplate {
+    let mut settings = HashMap::new();
+    settings.insert("chaos".into(), "-chaos".into());
+    settings.insert("no_syscall_buffer".into(), "--no-syscall-buffer".into());
+    DebuggerTemplate {
+        name: "rr".into(),
+        binary: "rr".into(),
+        version_arg: "--version".into(),
+        version_regex: r"rr version (\d+\.\d+\.\d+)".into(),
+        // rr takes the program as first positional arg; no separator token
+        launch: LaunchConfig { separator: "replay".into() },
+        dap: DapConfig {
+            binaries: vec![],
+            vscode_type: "cppdbg".into(),
+            mi_mode: "gdb".into(),
+        },
+        settings,
+        default_args: vec![],
+    }
+}
+
+/// `cdb` — Windows Console Debugger (part of Debugging Tools for Windows).
+/// Compatible with WinDbg command set; useful in CI/headless environments.
+fn cdb() -> DebuggerTemplate {
+    let mut settings = HashMap::new();
+    settings.insert("nologo".into(), "-nologo".into());
+    settings.insert("lines".into(), "-lines".into());
+    DebuggerTemplate {
+        name: "cdb".into(),
+        binary: "cdb.exe".into(),
+        version_arg: "".into(),
+        version_regex: r"(\d+\.\d+\.\d+\.\d+)".into(),
+        launch: LaunchConfig { separator: "-o".into() },
+        dap: DapConfig {
+            binaries: vec![],
+            vscode_type: "cppdbg".into(),
+            mi_mode: "".into(),
+        },
+        settings,
+        default_args: vec!["-nologo".into()],
+    }
+}
+
+/// `windbg` — Windows Debugger GUI (Debugging Tools for Windows).
+fn windbg() -> DebuggerTemplate {
+    DebuggerTemplate {
+        name: "windbg".into(),
+        binary: "windbg.exe".into(),
+        version_arg: "".into(),
+        version_regex: r"(\d+\.\d+\.\d+\.\d+)".into(),
+        launch: LaunchConfig { separator: "--".into() },
+        dap: DapConfig {
+            binaries: vec![],
+            vscode_type: "cppdbg".into(),
+            mi_mode: "".into(),
+        },
+        settings: HashMap::new(),
         default_args: vec![],
     }
 }

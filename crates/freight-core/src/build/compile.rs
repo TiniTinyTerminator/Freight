@@ -483,9 +483,12 @@ pub(crate) fn compile_one(
     let mut cmd = if let Some(wrapper) = cache_wrapper() {
         let mut c = Command::new(wrapper);
         c.arg(compile_bin);
+        if let Some(sub) = compiler.template.subcommand.as_deref() { c.arg(sub); }
         c
     } else {
-        Command::new(compile_bin)
+        let mut c = Command::new(compile_bin);
+        if let Some(sub) = compiler.template.subcommand.as_deref() { c.arg(sub); }
+        c
     };
     cmd.args(compiler.template.assemble_flags(settings));
     cmd.args(module_flags);
@@ -641,9 +644,12 @@ pub fn emit_asm_sources(
         let mut cmd = if let Some(wrapper) = cache_wrapper() {
             let mut c = Command::new(wrapper);
             c.arg(&compile_bin);
+            if let Some(sub) = compiler.template.subcommand.as_deref() { c.arg(sub); }
             c
         } else {
-            Command::new(&compile_bin)
+            let mut c = Command::new(&compile_bin);
+            if let Some(sub) = compiler.template.subcommand.as_deref() { c.arg(sub); }
+            c
         };
         cmd.args(compiler.template.assemble_flags(&settings));
         cmd.arg("-S");

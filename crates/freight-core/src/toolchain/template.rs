@@ -174,6 +174,9 @@ pub(super) struct ToolchainDef {
     pub passthrough_enabled: bool,
     pub passthrough_prefix: String,
     pub always_flags: Vec<String>,
+    /// Sub-command to insert as the first argument after the binary.
+    /// Used by multi-mode binaries like `zig`: binary=`zig`, subcommand=`cc`.
+    pub subcommand: Option<String>,
     pub arch_flags: HashMap<String, String>,
     pub toolset: HashMap<String, String>,
     pub supported_archs: Vec<String>,
@@ -376,6 +379,10 @@ pub struct CompilerTemplate {
     pub modules: ModuleStyle,
     pub passthrough: PassthroughConfig,
     pub always_flags: Vec<String>,
+    /// Sub-command inserted as the first argument after the binary.
+    /// E.g. `zig` uses `subcommand = "cc"` / `"c++"` to dispatch to its embedded compiler.
+    #[serde(default)]
+    pub subcommand: Option<String>,
     /// Linking metadata keyed by the language key (e.g. `"cpp"`, `"c"`, `"cuda"`).
     /// A template may handle multiple language keys (e.g. gcc handles `"cpp"` and `"c"`).
     pub linking: HashMap<String, LinkingInfo>,
@@ -498,6 +505,7 @@ impl CompilerTemplate {
                 prefix: raw.passthrough.prefix,
             },
             always_flags: raw.extra.always,
+            subcommand: None,
             supported_archs: vec![],
             supported_os: vec![],
             required_tools: vec![],
@@ -638,6 +646,7 @@ impl CompilerTemplate {
                 prefix:            def.passthrough_prefix,
             },
             always_flags,
+            subcommand:            def.subcommand,
             supported_archs:       def.supported_archs,
             supported_os:          def.supported_os,
             required_tools:        def.required_tools,
