@@ -1,0 +1,27 @@
+[package]
+name        = "zig-cpp-hello"
+version     = "0.1.0"
+description = "Zig binary calling a C++ math library — cross-language linking"
+
+[language.zig]
+
+[language.cpp]
+std = "c++17"
+
+[[bin]]
+name = "zig-cpp-hello"
+src  = "src/main.zig"
+
+[compiler]
+warnings = "all"
+# Force zig build-exe as the linker so the Zig runtime is included.
+# Without this, the C++ linker is picked (higher priority) and conflicts
+# with Zig's own _start from std/start.zig.
+backend  = "zig"
+
+[profile.dev]
+opt-level = 0
+
+[profile.release]
+opt-level = 3
+strip     = true

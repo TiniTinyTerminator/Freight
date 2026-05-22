@@ -307,8 +307,25 @@ pub fn select_compiler<'a>(
             }
         }
 
-        // 3. Exact template-name match (standalone compilers with no family).
-        detected.iter().find(|d| d.template.name == name)
+        // 3. Exact template-name match (standalone compilers with no family)
+        //    that also handles this lang_key.
+        if let Some(c) = detected.iter().find(|d| {
+            d.template.name == name && d.template.linking.contains_key(lang_key)
+        }) {
+            return Some(c);
+        }
+
+        // 4. Fallback: backend is recognised but doesn't compile this language.
+        //    (e.g. backend="zig" for .cpp files → fall through to g++/clang++).
+        //    Unknown backends (no detected compiler at all) return None so the
+        //    caller can emit a proper "backend not found" error.
+        let backend_exists = detected.iter()
+            .any(|d| d.template.family == name || d.template.name == name);
+        if backend_exists {
+            return detected.iter().find(|d| d.template.linking.contains_key(lang_key));
+        }
+
+        None
     }
 }
 
