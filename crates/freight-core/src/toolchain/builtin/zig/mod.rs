@@ -26,6 +26,7 @@ const BASE_ZIG: TemplateDef = TemplateDef {
 pub fn zig_c() -> CompilerTemplate {
     TemplateDef {
         name: "zig-c",
+        family: "zig",
         subcommand: Some("cc"),
         extensions: &[".c",".s",".S"],
         standards: &[("c11","-std=c11"),("c17","-std=c17"),("c23","-std=c23")],
@@ -42,6 +43,7 @@ pub fn zig_c() -> CompilerTemplate {
 pub fn zig_cxx() -> CompilerTemplate {
     TemplateDef {
         name: "zig-c++",
+        family: "zig",
         subcommand: Some("c++"),
         extensions: &[".cpp",".cc",".cxx",".c++"],
         standards: &[("c++17","-std=c++17"),("c++20","-std=c++20"),("c++23","-std=c++23")],

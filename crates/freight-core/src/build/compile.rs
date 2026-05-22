@@ -821,6 +821,19 @@ mod tests {
     }
 
     #[test]
+    fn zig_backend_uses_zig_cxx_for_cpp_files() {
+        // backend="zig" must compile .cpp with zig c++ (same family),
+        // not fall through to g++/clang++ from step 4.
+        let ts = templates();
+        let detected = fake_detected(&ts);
+        let backend = Backend("zig".into());
+        let found = select_compiler("cpp", &backend, &detected, None);
+        assert!(found.is_some(), "should find a C++ compiler for zig backend");
+        assert_eq!(found.unwrap().template.name, "zig-c++",
+            "zig backend must compile C++ with zig c++, not g++/clang++");
+    }
+
+    #[test]
     fn auto_backend_for_cuda_picks_nvcc() {
         let ts = templates();
         let detected = fake_detected(&ts);
