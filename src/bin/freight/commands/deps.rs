@@ -1329,7 +1329,14 @@ fn is_outdated(current: &str, latest: &str) -> bool {
 // ── Registry commands ────────────────────────────────────────────────────────
 
 pub fn cmd_search(query: &str, repo: Option<&str>) {
-    let config = GlobalConfig::load();
+    let config = {
+        let mut cfg = GlobalConfig::load();
+        let cwd = std::env::current_dir().unwrap_or_default();
+        if let Some(proj) = freight_core::manifest::find_manifest_dir(&cwd) {
+            if let Some(local) = GlobalConfig::load_local(&proj) { cfg.apply_local(local); }
+        }
+        cfg
+    };
 
     let repos: Vec<Box<dyn freight_core::registry::PackageRepo>> = if let Some(rname) = repo {
         match repo_by_name(rname, &config) {
@@ -1375,7 +1382,14 @@ pub fn cmd_search(query: &str, repo: Option<&str>) {
 
 pub fn cmd_info(package: Option<&str>, repo: Option<&str>) {
     if let Some(package) = package {
-        let config = GlobalConfig::load();
+        let config = {
+            let mut cfg = GlobalConfig::load();
+            let cwd = std::env::current_dir().unwrap_or_default();
+            if let Some(proj) = freight_core::manifest::find_manifest_dir(&cwd) {
+                if let Some(local) = GlobalConfig::load_local(&proj) { cfg.apply_local(local); }
+            }
+            cfg
+        };
         let repos: Vec<Box<dyn freight_core::registry::PackageRepo>> = if let Some(rname) = repo {
             match repo_by_name(rname, &config) {
                 Ok(r) => vec![r],

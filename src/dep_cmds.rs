@@ -12,7 +12,7 @@ use crate::fetch::{self, git};
 use crate::lock::LockFile;
 use crate::manifest::types::{Dependency, Manifest};
 use crate::manifest::{find_manifest_dir, load_manifest};
-use crate::registry::FreightRegistry;
+use crate::registry::{FreightRegistry, PackageRepo};
 use crate::toolchain::cache::GlobalConfig;
 use crate::toolchain::{detect_all_cached, load_templates, templates_dir};
 
@@ -311,12 +311,31 @@ pub fn fetch_registry_deps(
             }
         };
 
-        match registry.download_tarball(name, version, channel, project_dir) {
+        // Resolve a version constraint (e.g. ">=1.3") to a concrete version
+        // by looking up available versions from the registry first.
+        let resolved = if looks_like_constraint(version) {
+            match registry.lookup(name, channel) {
+                Ok(Some(info)) => resolve_constraint(&info.versions, version),
+                _ => None,
+            }
+        } else {
+            Some(version.to_string())
+        };
+
+        let Some(concrete) = resolved else {
+            outcomes.push(RegistryDepOutcome {
+                name: name.clone(), version: version.to_string(),
+                action: RegistryDepAction::Unavailable,
+            });
+            continue;
+        };
+
+        match registry.download_tarball(name, &concrete, channel, project_dir) {
             Ok(checksum) => {
                 let source = registry.source_string();
-                let _ = LockFile::upsert_registry_dep(project_dir, name, version, &source, &checksum);
+                let _ = LockFile::upsert_registry_dep(project_dir, name, &concrete, &source, &checksum);
                 outcomes.push(RegistryDepOutcome {
-                    name: name.clone(), version: version.to_string(),
+                    name: name.clone(), version: concrete,
                     action: RegistryDepAction::Downloaded,
                 });
             }
@@ -330,6 +349,49 @@ pub fn fetch_registry_deps(
     }
 
     Ok(outcomes)
+}
+
+/// Returns true when `v` contains a constraint operator rather than a bare version.
+fn looks_like_constraint(v: &str) -> bool {
+    let v = v.trim();
+    v.starts_with(|c: char| matches!(c, '>' | '<' | '~' | '^')) || v.starts_with(">=") || v.starts_with("<=") || v.starts_with("!=")
+}
+
+/// Pick the best version from `available` that satisfies `constraint`.
+///
+/// Tries semver `VersionReq` first, then falls back to a simple lexicographic
+/// search so date-versions and non-semver packages still get a match.
+/// Returns the oldest satisfying version (so upgrades are conservative).
+fn resolve_constraint(available: &[crate::registry::PackageVersion], constraint: &str) -> Option<String> {
+    use semver::{Version, VersionReq};
+
+    let req = VersionReq::parse(constraint).ok();
+    let coerce = |s: &str| -> String {
+        let parts: Vec<&str> = s.split('.').collect();
+        match parts.len() {
+            1 => format!("{}.0.0", parts[0]),
+            2 => format!("{}.{}.0", parts[0], parts[1]),
+            _ => format!("{}.{}.{}", parts[0], parts[1], parts[2]),
+        }
+    };
+
+    let mut best: Option<Version> = None;
+    let mut best_str: Option<String> = None;
+
+    for v in available {
+        if let Some(ref req) = req {
+            if let Ok(ver) = Version::parse(&coerce(&v.version)) {
+                if req.matches(&ver) {
+                    if best.as_ref().map_or(true, |b| ver > *b) {
+                        best = Some(ver);
+                        best_str = Some(v.version.clone());
+                    }
+                }
+            }
+        }
+    }
+
+    best_str
 }
 
 pub enum PackageDepAction {

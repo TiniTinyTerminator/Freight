@@ -13,8 +13,8 @@ src  = "src/main.cpp"
 # Registry deps — freight looks up each name in the configured registries
 # (in order) and fetches the matching version.  Run `freight fetch` first.
 [dependencies]
-fmt           = "10.2.0"
-nlohmann-json = "3.10.2"
+fmt  = "10.2.0"
+zlib = "1.3.1"
 
 [profile.dev]
 opt-level = 0

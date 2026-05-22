@@ -1,42 +1,44 @@
-#include <fmt/core.h>           // registry dep: fmt 10.2.0
-#include <nlohmann/json.hpp>    // registry dep: nlohmann-json 3.10.2
+#include <fmt/core.h>    // registry dep: fmt  10.2.0
+#include <zlib.h>        // registry dep: zlib 1.3.1
 
 #include <string>
 #include <vector>
 
-struct Package {
-    std::string name;
-    std::string version;
-    std::vector<std::string> deps;
-};
+static std::string compress_string(const std::string& src) {
+    uLong bound = compressBound(static_cast<uLong>(src.size()));
+    std::vector<Bytef> dst(bound);
+    uLong dst_len = bound;
+    if (compress(dst.data(), &dst_len,
+                 reinterpret_cast<const Bytef*>(src.data()),
+                 static_cast<uLong>(src.size())) != Z_OK) {
+        return {};
+    }
+    return std::string(reinterpret_cast<char*>(dst.data()), dst_len);
+}
 
 int main() {
-    std::vector<Package> packages = {
-        { "fmt",           "10.2.0", {} },
-        { "nlohmann-json", "3.10.2", {} },
-        { "zlib",          "1.3.2",  { "vcpkg-cmake", "vcpkg-cmake-config" } },
-        { "openssl",       "3.3.0",  { "zlib" } },
+    // Registry metadata we'd find via `freight info`.
+    struct Pkg { const char* name; const char* version; const char* desc; };
+    constexpr Pkg packages[] = {
+        { "fmt",  "10.2.0", "Formatting library for C++" },
+        { "zlib", "1.3.1",  "A compression library"      },
     };
 
-    // Build a JSON object using nlohmann-json and render it with fmt.
-    nlohmann::json registry;
-    for (const auto& pkg : packages) {
-        nlohmann::json entry;
-        entry["version"] = pkg.version;
-        if (!pkg.deps.empty()) {
-            entry["dependencies"] = pkg.deps;
-        }
-        registry[pkg.name] = entry;
+    fmt::print("Packages resolved from local registry:\n\n");
+    for (const auto& p : packages) {
+        fmt::print("  {:<16} {}  — {}\n", p.name, p.version, p.desc);
     }
 
-    fmt::print("Freight registry snapshot ({} packages):\n\n", packages.size());
-    fmt::print("{}\n", registry.dump(2));
+    // Exercise zlib: compress a string and report the ratio.
+    std::string payload = fmt::format(
+        "freight registry example — {} packages, zlib {}", 2, zlibVersion());
 
-    // Show how version constraints would be written in freight.toml.
-    fmt::print("\nEquivalent freight.toml [dependencies]:\n");
-    for (const auto& pkg : packages) {
-        fmt::print("  {:25s} = \"{}\"\n", pkg.name, pkg.version);
-    }
+    auto compressed = compress_string(payload);
+    fmt::print("\nzlib {}: compressed {} → {} bytes ({:.0f}%)\n",
+               zlibVersion(),
+               payload.size(),
+               compressed.size(),
+               100.0 * compressed.size() / payload.size());
 
     return 0;
 }
