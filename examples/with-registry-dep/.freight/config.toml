@@ -1,0 +1,6 @@
+# Local registry configuration for this example.
+# Copy the [[registries]] block to ~/.freight/config.toml to use it globally,
+# or leave it here to scope it only to this project.
+[[registries]]
+name = "local"
+url  = "http://localhost:7878"

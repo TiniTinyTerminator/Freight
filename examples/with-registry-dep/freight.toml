@@ -1,0 +1,21 @@
+[package]
+name        = "with-registry-dep"
+version     = "0.1.0"
+description = "Example: pulling dependencies from a freight registry"
+
+[language.cpp]
+std = "c++17"
+
+[[bin]]
+name = "with-registry-dep"
+src  = "src/main.cpp"
+
+# Registry deps — freight looks up each name in the configured registries
+# (in order) and fetches the matching version.  Run `freight fetch` first.
+[dependencies]
+fmt           = "10.2.0"
+nlohmann-json = "3.10.2"
+
+[profile.dev]
+opt-level = 0
+debug     = true

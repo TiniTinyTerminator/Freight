@@ -85,6 +85,8 @@ those prerequisites when they matter.
 | [`doc-example/`](doc-example/) | C, C++, and Fortran doc comments rendered by `freight doc` | `freight doc --format all` |
 | [`migrated-from-cmake/`](migrated-from-cmake/) | Same project expressed as CMake and as `freight.toml` | `freight run` |
 | [`workspace-demo/`](workspace-demo/) | Workspace root with two members and a path-linked library | `freight build`, `freight run` from `app/` |
+| [`with-registry-dep/`](with-registry-dep/) | Pull C++ deps (`fmt`, `nlohmann-json`) from a self-hosted freight registry | `freight fetch`, `freight run` |
+| [`with-registry-versions/`](with-registry-versions/) | Version constraints (`=`, `>=`) and `repo` pinning for registry deps | `freight info`, `freight fetch`, `freight run` |
 
 ## Workflows by capability
 
@@ -247,3 +249,33 @@ freight package
 
 Use `--destdir` for packaging or CI dry runs so files are staged under the
 project's `target/` directory instead of written directly to a system prefix.
+
+### 12. Resolve dependencies from a freight registry
+
+These examples require a running freight registry.  The included
+`.freight/config.toml` points to `http://localhost:7878`; change the `url`
+to match your registry or copy the block to `~/.freight/config.toml` to apply
+it globally.
+
+```sh
+# Start a local registry (see freight-registry repo for setup).
+# Then search and inspect packages before adding them:
+freight search zlib --repo local
+freight info fmt --repo local
+freight info sqlite3 --repo local
+
+# with-registry-dep: C++17, fmt + nlohmann-json from the registry.
+cd examples/with-registry-dep
+freight fetch          # resolves versions, downloads source archives
+freight build
+freight run
+
+# with-registry-versions: C11, exact + minimum version constraints, repo pin.
+cd examples/with-registry-versions
+freight fetch
+freight tree           # shows resolved versions
+freight run
+```
+
+Registry deps behave exactly like any other version dep once fetched — freight
+caches the source archive, builds the library, and links it automatically.

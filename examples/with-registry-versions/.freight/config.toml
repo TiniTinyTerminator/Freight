@@ -1,0 +1,5 @@
+# Local registry — prepended before freight.dev so it is tried first.
+# Copy this block to ~/.freight/config.toml to apply it globally.
+[[registries]]
+name = "local"
+url  = "http://localhost:7878"
