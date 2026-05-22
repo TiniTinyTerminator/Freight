@@ -1,5 +1,7 @@
 **/target
 *.mod
+*.ali
+*.o
 .vscode/
 .claude/
 CLAUDE.md

@@ -220,12 +220,15 @@ fn link_executable(
     let mut cmd = Command::new(&linker.path);
 
     if is_whole_program {
-        cmd.args(linker.template.assemble_link_flags(&link_settings(manifest, profile)));
-        cmd.args(objects);
-        // Direct intermediate files (ALI, bind sources) into the obj tree.
+        // Run from the obj dir so gnatmake's bind phase writes b~*.adb/o there too,
+        // not into the project root. The source paths must be absolute.
         let obj_dir = out.parent().map(|p| p.join("objs")).unwrap_or_default();
         let _ = std::fs::create_dir_all(&obj_dir);
-        cmd.arg(format!("-D{}/", obj_dir.display()));
+        cmd.current_dir(&obj_dir);
+        cmd.args(linker.template.assemble_link_flags(&link_settings(manifest, profile)));
+        cmd.args(objects);
+        cmd.args(linker.template.output_bin_flag(out));
+        return run_cmd(cmd, out);
     } else {
         let link_sub = linker.template.link_subcommand.as_deref()
             .or(linker.template.subcommand.as_deref());
