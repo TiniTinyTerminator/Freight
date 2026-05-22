@@ -156,7 +156,8 @@ pub fn select_linker<'a>(
         for &lang in PRIORITY {
             if manifest.language.contains_key(lang) {
                 let found = detected.iter()
-                    .find(|d| d.template.linking.contains_key(lang) && d.template.family == family);
+                    .find(|d| d.template.linking.contains_key(lang)
+                        && (d.template.family == family || d.template.name == family));
                 if found.is_some() { return found; }
             }
         }
@@ -415,6 +416,30 @@ src  = "src/main.cpp"
             "mixed C/C++ project should use a C++ linker, got: {}",
             linker.template.name
         );
+    }
+
+    #[test]
+    fn named_backend_matches_linker_by_template_name_not_just_family() {
+        // When backend = "ldc2", select_linker must pick ldc2 (family "llvm"),
+        // not dmd (family ""), even though "ldc2" != "llvm".
+        let ts = templates();
+        let detected = fake_detected(&ts);
+        let manifest_src = r#"
+[package]
+name    = "p"
+version = "0.1.0"
+[language.d]
+[[bin]]
+name = "p"
+src  = "src/main.d"
+[compiler]
+backend = "ldc2"
+"#;
+        let m = crate::manifest::load_manifest_str(manifest_src).unwrap();
+        let backend = m.compiler.backend.clone();
+        let linker = select_linker(&m, &backend, &detected, &ts).unwrap();
+        assert_eq!(linker.template.name, "ldc2",
+            "ldc2 backend must use ldc2 as the linker, not '{}'", linker.template.name);
     }
 
     // ── collect_system_lib_flags ──────────────────────────────────────────────

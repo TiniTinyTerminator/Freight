@@ -151,10 +151,11 @@ pub fn nagfor() -> CompilerTemplate {
 
 pub fn gnat() -> CompilerTemplate {
     TemplateDef {
-        name: "gnat", binary: "gnat",
+        name: "gnat", binary: "gnatmake",
         family: "gnu",
-        // "GNAT Community Edition 2021 (20210519-103)" or "GNAT 13.2.0"
-        version_regex: r"(?:GNAT.*?(\d{4})|GNAT \w+ (\d+\.\d+))",
+        // "GNATMAKE 16.1.1" or "GNAT Community Edition 2021"
+        version_regex: r"(?:GNAT\w*\s+(\d+\.\d+\.\d+)|GNAT.*?(\d{4}))",
+        version_arg: "--version",
         extensions: &[".adb",".ads"],
         debug: "-g",
         lto:   "-flto",
@@ -171,10 +172,10 @@ pub fn gnat() -> CompilerTemplate {
             ("include_dir","-I{path}"),("define","-D{name}"),("define_value","-D{name}={value}"),
             ("output","-o {path}"),("compile_only","-c"),("dep_file_mode","none"),
         ],
-        toolset: &[("ld","gnat"),("ar","ar")],
+        toolset: &[("ld","gnatmake"),("ar","ar")],
         linking: &[LinkDef {
             lang: "ada", abi: "ada", compatible: &["c"],
-            extensions: &[".adb",".ads"], linker: "", compile_binary: Some("gnat"),
+            extensions: &[".adb",".ads"], linker: "", compile_binary: Some("gnatmake"),
         }],
         ..EMPTY
     }.build(&[], &[])

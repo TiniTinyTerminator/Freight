@@ -11,9 +11,9 @@ import std.array   : array;
 struct Vec2 {
     double x, y;
 
-    Vec2 opAdd(Vec2 rhs) const { return Vec2(x + rhs.x, y + rhs.y); }
-    Vec2 opSub(Vec2 rhs) const { return Vec2(x - rhs.x, y - rhs.y); }
-    Vec2 opMul(double s) const { return Vec2(x * s, y * s); }
+    Vec2 opBinary(string op : "+")(Vec2 rhs) const { return Vec2(x + rhs.x, y + rhs.y); }
+    Vec2 opBinary(string op : "-")(Vec2 rhs) const { return Vec2(x - rhs.x, y - rhs.y); }
+    Vec2 opBinary(string op : "*")(double s) const { return Vec2(x * s, y * s); }
 
     double length() const @property { return sqrt(x*x + y*y); }
     Vec2   normalized() const @property { return this * (1.0 / length); }

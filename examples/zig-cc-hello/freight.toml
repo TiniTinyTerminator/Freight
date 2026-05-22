@@ -1,0 +1,23 @@
+[package]
+name        = "zig-cc-hello"
+version     = "0.1.0"
+description = "C compiled via zig cc — cross-compilation-ready C with Zig's compiler frontend"
+
+[language.c]
+std = "c11"
+backend = "zig-c"
+
+[[bin]]
+name = "zig-cc-hello"
+src  = "src/main.c"
+
+[compiler]
+warnings = "all"
+
+[profile.dev]
+opt-level = 0
+debug     = true
+
+[profile.release]
+opt-level = 3
+strip     = true

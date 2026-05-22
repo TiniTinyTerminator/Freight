@@ -11,6 +11,7 @@ src  = "src/main.d"
 
 [compiler]
 warnings = "all"
+backend   = "ldc2"
 
 [profile.dev]
 opt-level = 1
