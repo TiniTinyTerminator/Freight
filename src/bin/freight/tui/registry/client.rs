@@ -224,10 +224,10 @@ impl Client {
         );
 
         let pkg_body = Self::check(pkg_resp?).await?;
-        let own_body = own_resp.ok()
-            .and_then(|r| tokio::runtime::Handle::current()
-                .block_on(async { r.json::<serde_json::Value>().await.ok() }))
-            .unwrap_or_default();
+        let own_body = match own_resp {
+            Ok(r)  => r.json::<serde_json::Value>().await.unwrap_or_default(),
+            Err(_) => serde_json::Value::default(),
+        };
 
         let versions: Vec<VersionInfo> =
             serde_json::from_value(pkg_body["versions"].clone()).unwrap_or_default();
