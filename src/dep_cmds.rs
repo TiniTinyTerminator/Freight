@@ -52,6 +52,9 @@ pub fn manifest_add_dep(
             if let Some(p) = &d.path {
                 inline.insert("path", Value::from(p.as_str()));
             }
+            if let Some(u) = &d.url {
+                inline.insert("url", Value::from(u.as_str()));
+            }
             if let Some(g) = &d.git {
                 inline.insert("git", Value::from(g.as_str()));
             }
