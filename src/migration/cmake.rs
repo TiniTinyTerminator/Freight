@@ -250,7 +250,7 @@ fn walk_nodes(nodes: &[Node], ex: &mut Extracted, scope: Option<&str>, warnings:
             }
             // Function and macro definitions: skip the body (they define callable
             // templates, not direct build targets — calls appear elsewhere)
-            Node::Function(_) | Node::Macro(_) => {}
+            Node::Function(_) | Node::Macro(_) | Node::Comment(_) => {}
             Node::Block(b) => walk_nodes(&b.body, ex, scope, warnings),
         }
     }
