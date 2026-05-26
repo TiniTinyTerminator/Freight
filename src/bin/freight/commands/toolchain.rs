@@ -6,6 +6,29 @@ use freight_core::toolchain::detect::DetectedCompiler;
 
 use crate::output::{print_error, print_success, print_warning};
 
+#[derive(clap::Args)]
+pub struct Args {
+    #[command(subcommand)]
+    pub command: ToolchainCmd,
+}
+
+#[derive(clap::Subcommand)]
+pub enum ToolchainCmd {
+    /// Show detected compilers
+    List,
+    /// Set the default compiler backend
+    Use { name: String },
+}
+
+impl Args {
+    pub fn run(self) {
+        match self.command {
+            ToolchainCmd::List => cmd_toolchain_list(),
+            ToolchainCmd::Use { name } => cmd_toolchain_use(&name),
+        }
+    }
+}
+
 pub fn cmd_toolchain_list() {
     let templates = load_all_templates();
     if templates.is_empty() {

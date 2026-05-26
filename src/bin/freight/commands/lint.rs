@@ -2,6 +2,19 @@
 
 use std::path::Path;
 
+#[derive(clap::Args)]
+pub struct Args {
+    /// Apply auto-fixes where possible
+    #[arg(long)]
+    pub fix: bool,
+}
+
+impl Args {
+    pub fn run(self) {
+        cmd_lint(self.fix);
+    }
+}
+
 use freight_core::manifest::{find_manifest_dir, load_manifest, load_workspace_manifest};
 use freight_core::manifest::types::Manifest;
 use freight_core::toolchain::{

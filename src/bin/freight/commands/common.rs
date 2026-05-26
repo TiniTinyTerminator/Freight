@@ -1,0 +1,114 @@
+use std::path::{Path, PathBuf};
+
+use freight_core::dep_cmds::{regen_lock, RegenLockOutcome};
+use freight_core::manifest::find_manifest_dir;
+
+use crate::output::{print_error, print_warning};
+
+pub fn locate_project_dir() -> Option<PathBuf> {
+    let cwd = match std::env::current_dir() {
+        Ok(d) => d,
+        Err(e) => { print_error(&format!("cannot read cwd: {e}")); return None; }
+    };
+    match find_manifest_dir(&cwd) {
+        Some(d) => Some(d),
+        None => { print_error("no freight.toml found"); None }
+    }
+}
+
+pub fn refresh_lock(project_dir: &Path) {
+    match regen_lock(project_dir) {
+        Ok(RegenLockOutcome::Wrote) => {}
+        Ok(RegenLockOutcome::Skipped) => {
+            print_warning("freight.lock not updated — run `freight fetch` after downloading dependencies");
+        }
+        Err(e) => {
+            print_error(&format!("cannot write freight.lock: {e}"));
+        }
+    }
+}
+
+/// Resolve the registry URL from the explicit flag, first configured registry,
+/// or the default freight.dev URL.
+pub fn resolve_registry_url(registry: Option<&str>) -> String {
+    use freight_core::toolchain::cache::GlobalConfig;
+    registry
+        .map(str::to_string)
+        .or_else(|| GlobalConfig::load().registries.into_iter().next().map(|r| r.url))
+        .unwrap_or_else(|| "https://freight.dev".to_string())
+}
+
+/// Return the configured registry name for a URL, falling back to "freight".
+pub fn registry_name_for(url: &str) -> String {
+    use freight_core::toolchain::cache::GlobalConfig;
+    GlobalConfig::load()
+        .registries
+        .iter()
+        .find(|r| r.url == url)
+        .map(|r| r.name.clone())
+        .unwrap_or_else(|| "freight".to_string())
+}
+
+/// Call /api/v1/users/login with username + password and save the resulting token.
+/// Used by `freight login --username NAME --password PASS` (non-TUI path).
+pub fn login_with_credentials(
+    registry_url: Option<&str>,
+    username:     Option<&str>,
+    password:     Option<&str>,
+) {
+    use freight_core::toolchain::cache::GlobalConfig;
+
+    let url  = resolve_registry_url(registry_url);
+    let name = registry_name_for(&url);
+
+    let username = match username {
+        Some(u) => u.to_string(),
+        None => {
+            use std::io::{self, Write};
+            print!("Username: ");
+            io::stdout().flush().ok();
+            let mut u = String::new();
+            io::stdin().read_line(&mut u).ok();
+            u.trim().to_string()
+        }
+    };
+    let password = match password {
+        Some(p) => p.to_string(),
+        None => {
+            use std::io::{self, Write};
+            print!("Password: ");
+            io::stdout().flush().ok();
+            let mut p = String::new();
+            io::stdin().read_line(&mut p).ok();
+            p.trim().to_string()
+        }
+    };
+
+    if username.is_empty() {
+        crate::output::print_error("username cannot be empty");
+        std::process::exit(1);
+    }
+
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(r) => r,
+        Err(e) => { crate::output::print_error(&e.to_string()); std::process::exit(1); }
+    };
+    let client = crate::tui::registry::client::Client::new(url.clone(), None);
+    let token = match rt.block_on(client.login(&username, &password)) {
+        Ok(resp) => resp.token,
+        Err(e) => {
+            crate::output::print_error(&format!("login failed: {e}"));
+            std::process::exit(1);
+        }
+    };
+
+    match GlobalConfig::save_credential(&url, &name, &token) {
+        Ok(()) => crate::output::print_success(
+            &format!("logged in as `{username}` — token saved to ~/.freight/credentials.toml")
+        ),
+        Err(e) => {
+            crate::output::print_error(&e.to_string());
+            std::process::exit(1);
+        }
+    }
+}

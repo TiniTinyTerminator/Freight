@@ -3,6 +3,27 @@
 
 use std::path::{Path, PathBuf};
 
+#[derive(clap::Args)]
+pub struct Args {
+    /// Binary to debug (required when the project has multiple [[bin]] targets)
+    pub binary: Option<String>,
+    /// Debugger to use (e.g. lldb, gdb); auto-selected when omitted
+    #[arg(long, value_name = "NAME")]
+    pub debugger: Option<String>,
+    /// Generate .vscode/launch.json instead of launching a debugger
+    #[arg(long)]
+    pub launch_json: bool,
+    /// Arguments passed to the debugged program
+    #[arg(last = true)]
+    pub args: Vec<String>,
+}
+
+impl Args {
+    pub fn run(self) {
+        cmd_debug(self.binary.as_deref(), self.debugger.as_deref(), &self.args, self.launch_json);
+    }
+}
+
 use freight_core::build::{build_project_with, BuildOutput};
 use freight_core::event::silent;
 use freight_core::manifest::{find_manifest_dir, load_manifest};

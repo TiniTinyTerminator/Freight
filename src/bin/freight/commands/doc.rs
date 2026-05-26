@@ -1,6 +1,25 @@
 use std::io::{self, IsTerminal};
 use std::path::{Path, PathBuf};
 
+#[derive(clap::Args)]
+pub struct Args {
+    /// Generate Markdown docs for this project (output format: md)
+    #[arg(long, short, value_name = "FORMAT")]
+    pub format: Option<String>,
+    /// Generate man pages for all freight subcommands
+    #[arg(long)]
+    pub man: bool,
+    /// Output directory for man pages (default: target/man/)
+    #[arg(long, value_name = "DIR", requires = "man")]
+    pub out_dir: Option<String>,
+}
+
+impl Args {
+    pub fn run(self) {
+        cmd_doc(self.format.as_deref(), self.man, self.out_dir.as_deref());
+    }
+}
+
 use freight_core::manifest::types::{Dependency, Manifest};
 use freight_core::manifest::{find_manifest_dir, load_manifest};
 use freight_core::toolchain::freight_home;

@@ -2,6 +2,19 @@
 
 use std::path::Path;
 
+#[derive(clap::Args)]
+pub struct Args {
+    /// Check formatting without modifying files
+    #[arg(long)]
+    pub check: bool,
+}
+
+impl Args {
+    pub fn run(self) {
+        cmd_fmt(self.check);
+    }
+}
+
 use freight_core::manifest::{find_manifest_dir, load_manifest, load_workspace_manifest};
 use freight_core::manifest::types::Manifest;
 use freight_core::toolchain::{

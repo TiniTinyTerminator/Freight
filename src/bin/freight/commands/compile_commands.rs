@@ -3,6 +3,18 @@ use freight_core::manifest::{find_manifest_dir, load_workspace_manifest};
 
 use crate::output::{print_error, print_success};
 
+#[derive(clap::Args)]
+pub struct Args {
+    #[arg(long)]
+    pub release: bool,
+}
+
+impl Args {
+    pub fn run(self) {
+        cmd_compile_commands(self.release);
+    }
+}
+
 pub fn cmd_compile_commands(release: bool) {
     let profile = if release { "release" } else { "dev" };
     let cwd = match std::env::current_dir() {

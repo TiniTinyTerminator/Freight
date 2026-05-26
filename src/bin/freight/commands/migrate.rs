@@ -6,6 +6,59 @@ use freight_core::migration::make::{import_make, purge_make};
 
 use crate::output::{print_error, print_status, print_warning};
 
+#[derive(clap::Args)]
+pub struct Args {
+    #[command(subcommand)]
+    pub command: MigrateCmd,
+}
+
+#[derive(clap::Subcommand)]
+pub enum MigrateCmd {
+    /// Import a Make/Makefile project
+    Make {
+        /// Path to the project directory or Makefile
+        input: String,
+        /// Write generated freight.toml files here instead of next to the Makefile
+        #[arg(long, value_name = "DIR")]
+        out_dir: Option<String>,
+        /// Remove the Makefile(s) after successful import
+        #[arg(long)]
+        purge: bool,
+    },
+    /// Import a CMake project (CMakeLists.txt)
+    Cmake {
+        /// Path to the project directory or CMakeLists.txt
+        input: String,
+        /// Write generated freight.toml files here instead of next to CMakeLists.txt
+        #[arg(long, value_name = "DIR")]
+        out_dir: Option<String>,
+        /// Remove CMakeLists.txt and CMake artefacts after successful import
+        #[arg(long)]
+        purge: bool,
+    },
+    /// Import an Autotools project (configure.ac + Makefile.am)
+    Autotools {
+        /// Path to the project directory
+        input: String,
+        /// Write the generated freight.toml here instead of next to configure.ac
+        #[arg(long, value_name = "DIR")]
+        out_dir: Option<String>,
+        /// Remove autotools files after successful import
+        #[arg(long)]
+        purge: bool,
+    },
+}
+
+impl Args {
+    pub fn run(self) {
+        match self.command {
+            MigrateCmd::Make { input, out_dir, purge } => cmd_migrate_make(&input, out_dir.as_deref(), purge),
+            MigrateCmd::Cmake { input, out_dir, purge } => cmd_migrate_cmake(&input, out_dir.as_deref(), purge),
+            MigrateCmd::Autotools { input, out_dir, purge } => cmd_migrate_autotools(&input, out_dir.as_deref(), purge),
+        }
+    }
+}
+
 pub fn cmd_migrate_make(input: &str, out_dir: Option<&str>, purge: bool) {
     let input_path = Path::new(input);
     let out = out_dir.map(Path::new);

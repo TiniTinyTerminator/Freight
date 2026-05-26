@@ -1,6 +1,15 @@
 use std::path::Path;
 
 use freight_core::error::FreightError;
+
+#[derive(clap::Args)]
+pub struct Args {}
+
+impl Args {
+    pub fn run(self) {
+        cmd_check();
+    }
+}
 use freight_core::manifest::{
     find_manifest_dir, load_manifest, load_workspace_manifest, validate, validate_dep_compat,
     Manifest,

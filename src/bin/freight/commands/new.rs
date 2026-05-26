@@ -2,6 +2,31 @@ use freight_core::new::{init_project, scaffold_project, ScaffoldOutcome};
 
 use crate::output::{print_error, print_success};
 
+#[derive(clap::Args)]
+pub struct Args {
+    pub name: String,
+    #[arg(long, default_value = "c++")]
+    pub lang: String,
+}
+
+impl Args {
+    pub fn run(self) {
+        cmd_new(&self.name, &self.lang);
+    }
+}
+
+#[derive(clap::Args)]
+pub struct InitArgs {
+    #[arg(long)]
+    pub lang: Option<String>,
+}
+
+impl InitArgs {
+    pub fn run(self) {
+        cmd_init(self.lang.as_deref());
+    }
+}
+
 pub fn cmd_new(name: &str, lang: &str) {
     match scaffold_project(name, lang) {
         Ok(out) => print_created(&out, true),

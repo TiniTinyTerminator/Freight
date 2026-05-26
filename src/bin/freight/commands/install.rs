@@ -5,6 +5,48 @@ use freight_core::manifest::{find_manifest_dir, load_workspace_manifest};
 
 use crate::output::{print_error, print_status, print_success, print_warning};
 
+#[derive(clap::Args)]
+pub struct Args {
+    /// Installation prefix (default: /usr/local)
+    #[arg(long, value_name = "PATH", default_value = "/usr/local")]
+    pub prefix: String,
+    /// Staging root prepended before prefix (for package managers / fakeroot)
+    #[arg(long, value_name = "PATH")]
+    pub destdir: Option<String>,
+    /// Install release build (default: true)
+    #[arg(long, default_value_t = true)]
+    pub release: bool,
+    /// Skip the build step; install from existing target/ outputs
+    #[arg(long)]
+    pub no_build: bool,
+    /// Cross-compilation target triple (e.g. aarch64-linux-gnu)
+    #[arg(long, value_name = "TRIPLE")]
+    pub target: Option<String>,
+}
+
+impl Args {
+    pub fn run(self) {
+        cmd_install(Some(&self.prefix), self.destdir.as_deref(), self.release, self.no_build, self.target.as_deref());
+    }
+}
+
+#[derive(clap::Args)]
+pub struct PackageArgs {
+    /// Package the release build (default: true)
+    #[arg(long, default_value_t = true)]
+    pub release: bool,
+    /// Target triples to package, comma-separated (e.g. aarch64-linux-gnu,x86_64-linux-gnu).
+    /// Omit for a native build. Unsupported combinations are skipped with a warning.
+    #[arg(long, value_name = "TRIPLES", value_delimiter = ',')]
+    pub target: Vec<String>,
+}
+
+impl PackageArgs {
+    pub fn run(self) {
+        cmd_package(self.release, &self.target);
+    }
+}
+
 pub fn cmd_install(prefix: Option<&str>, destdir: Option<&str>, release: bool, no_build: bool, target: Option<&str>) {
     let cwd = std::env::current_dir().expect("cannot read cwd");
 
