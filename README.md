@@ -4,6 +4,8 @@ A Cargo-inspired build tool and package manager for compiled languages that targ
 
 Freight handles C, C++, Fortran, CUDA, HIP, OpenCL, ISPC, and assembly — with a single declarative `freight.toml`, no Makefile or CMake required.
 
+![freight new, build, and run](https://raw.githubusercontent.com/TiniTinyTerminator/freight-workspace/main/tapes/freight-new.gif)
+
 ## Features
 
 - **One file, one command** — describe your project in `freight.toml`, run `freight build`
@@ -53,6 +55,8 @@ cargo install --path crates/freight
 ```
 
 ## Quick start
+
+![freight fetch and build with a registry dependency](https://raw.githubusercontent.com/TiniTinyTerminator/freight-workspace/main/tapes/freight-fetch-build.gif)
 
 ```sh
 # Scaffold a new C++ project
@@ -261,6 +265,10 @@ freight doc                           browse installed dependency docs in a TUI
 freight doc --format md|json|msgpack|all  generate extracted API docs
 freight doc --man [--out-dir DIR]     generate man pages
 ```
+
+## Package browser
+
+![freight add TUI — search, add, and remove packages interactively](https://raw.githubusercontent.com/TiniTinyTerminator/freight-workspace/main/tapes/freight-add-tui.gif)
 
 ## Examples
 
