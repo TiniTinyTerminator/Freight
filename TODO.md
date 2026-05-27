@@ -72,19 +72,21 @@ per-platform define syntax).
 
 See `AGENTS.md` for full detail. Summary of what's missing:
 
-| Example         | Blocker                              |
-|-----------------|--------------------------------------|
-| ObjC / ObjC++   | GNUstep setup; macOS native trivial  |
-| HIP             | Requires ROCm hardware               |
-| OpenCL          | ICD loader + any OpenCL platform     |
-| ISPC            | `ispc` on `$PATH`                    |
-| GDC             | `libgphobos` vs `libphobos2` check   |
-| MSVC            | Windows machine needed               |
-| nvfortran       | NVIDIA HPC SDK needed                |
+| Example         | Status / Blocker                                      |
+|-----------------|-------------------------------------------------------|
+| OpenCL          | ✓ Done — `examples/opencl-hello/`                    |
+| CUDA            | ✓ Done — `examples/cuda-hello/`                      |
+| D               | ✓ Done — `examples/d-hello/` (ldc2 + dmd)            |
+| ObjC / ObjC++   | GNUstep setup required; trivial on macOS              |
+| HIP             | Requires ROCm hardware                                |
+| ISPC            | `ispc` not installed on dev machine                   |
+| GDC             | `gdc` not installed; `libgphobos` vs `libphobos2`     |
+| MSVC            | Windows machine needed                                |
+| nvfortran       | NVIDIA HPC SDK needed                                 |
 
 ---
 
 ## Documentation
 
 - `docs/manifest-reference.md`: add `[language.ada]` section.
-- `examples/README.md`: add rows for ObjC, HIP, OpenCL, ISPC once created.
+- `examples/README.md`: add rows for ObjC, HIP, ISPC once created.
