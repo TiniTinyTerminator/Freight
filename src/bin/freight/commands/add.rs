@@ -303,14 +303,11 @@ pub fn cmd_add(
     super::common::refresh_lock(&project_dir);
 }
 
-/// Interactive `freight add` (no package name given).
+/// Interactive `freight add` (no package name given) — opens the package browser.
+/// Packages are added to freight.toml directly from within the browser; the
+/// browser stays open until the user presses Esc.
 pub fn cmd_add_interactive(repo: Option<&str>, dev: bool) {
-    match crate::tui::run_package_browser(repo) {
-        Ok(Some(selection)) => {
-            cmd_add(&format!("{}@{}", selection.name, selection.version),
-                None, None, None, None, None, repo, dev);
-        }
-        Ok(None) => {}
-        Err(e) => print_warning(&format!("TUI error: {e}")),
+    if let Err(e) = crate::tui::run_package_browser(repo, dev) {
+        print_warning(&format!("TUI error: {e}"));
     }
 }

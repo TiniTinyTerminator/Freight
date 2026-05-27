@@ -63,10 +63,6 @@ enum FocusPane {
     Versions,
 }
 
-pub struct BrowserResult {
-    pub name: String,
-    pub version: String,
-}
 
 struct App {
     // Search
@@ -115,6 +111,13 @@ struct App {
 
     // Names of packages already in the project's [dependencies].
     installed: std::collections::HashSet<String>,
+
+    // Project manifest path and whether we're adding to dev-deps.
+    manifest_path: Option<std::path::PathBuf>,
+    dev: bool,
+
+    // Last install outcome — shown in the status bar.
+    status: Option<String>,
 }
 
 impl App {
@@ -123,6 +126,8 @@ impl App {
         tx: Sender<BrowserResponse>,
         rx: Receiver<BrowserResponse>,
         installed: std::collections::HashSet<String>,
+        manifest_path: Option<std::path::PathBuf>,
+        dev: bool,
     ) -> Self {
         Self {
             query: String::new(),
@@ -160,6 +165,9 @@ impl App {
             detail_area: Rect::default(),
             versions_area: Rect::default(),
             installed,
+            manifest_path,
+            dev,
+            status: None,
         }
     }
 
@@ -452,12 +460,32 @@ impl App {
         }
     }
 
-    fn selected_package(&self) -> Option<BrowserResult> {
-        let info = self.detail.as_ref()?;
-        Some(BrowserResult {
-            name: info.name.clone(),
-            version: info.latest.clone(),
-        })
+    /// Add the currently highlighted package to freight.toml without leaving the browser.
+    fn install_selected(&mut self) {
+        use freight_core::dep_cmds::manifest_add_dep;
+        use freight_core::manifest::types::Dependency;
+
+        let Some(info) = &self.detail else { return };
+        let name = info.name.clone();
+        let version = info.latest.clone();
+
+        let Some(ref manifest_path) = self.manifest_path else {
+            self.error = Some("no freight.toml found in current directory".into());
+            return;
+        };
+
+        let dep = Dependency::Simple(version.clone());
+        match manifest_add_dep(manifest_path, &name, &dep, self.dev) {
+            Ok(()) => {
+                let section = if self.dev { "dev-dependencies" } else { "dependencies" };
+                self.status = Some(format!("✓ added `{name}@{version}` to [{section}]"));
+                self.error = None;
+                self.installed.insert(name);
+            }
+            Err(e) => {
+                self.error = Some(format!("add failed: {e}"));
+            }
+        }
     }
 }
 
@@ -577,12 +605,12 @@ fn fetch_package_readme(repo: Option<&str>, name: &str) -> anyhow::Result<Option
     Ok(repos.iter().find_map(|r| r.fetch_readme(name)))
 }
 
-pub fn run_package_browser(repo: Option<&str>) -> anyhow::Result<Option<BrowserResult>> {
+pub fn run_package_browser(repo: Option<&str>, dev: bool) -> anyhow::Result<()> {
     let mut terminal = enter_tui()?;
     // Enable mouse capture on top of the standard alternate-screen setup.
     execute!(terminal.backend_mut(), EnableMouseCapture)?;
 
-    let result = run_loop(&mut terminal, repo);
+    let result = run_loop(&mut terminal, repo, dev);
 
     execute!(terminal.backend_mut(), DisableMouseCapture)?;
     leave_tui(&mut terminal)?;
@@ -593,13 +621,18 @@ pub fn run_package_browser(repo: Option<&str>) -> anyhow::Result<Option<BrowserR
 fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<std::io::Stdout>>,
     repo: Option<&str>,
-) -> anyhow::Result<Option<BrowserResult>> {
+    dev: bool,
+) -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel();
 
     // Collect names of deps already in the project's freight.toml.
     let installed = load_installed_deps();
+    let manifest_path = freight_core::manifest::find_manifest_dir(
+        &std::env::current_dir().unwrap_or_default(),
+    )
+    .map(|d| d.join("freight.toml"));
 
-    let mut app = App::new(repo.map(String::from), tx, rx, installed);
+    let mut app = App::new(repo.map(String::from), tx, rx, installed, manifest_path, dev);
     app.do_search(); // initial load (empty query = all packages)
 
     loop {
@@ -610,13 +643,11 @@ fn run_loop(
                 Event::Key(key) => match (key.code, key.modifiers) {
                     // Quit
                     (KeyCode::Esc, _) | (KeyCode::Char('c'), KeyModifiers::CONTROL) => {
-                        return Ok(None);
+                        return Ok(());
                     }
-                    // Confirm selection
+                    // Install selected package (stay in browser)
                     (KeyCode::Enter, _) => {
-                        if let Some(pkg) = app.selected_package() {
-                            return Ok(Some(pkg));
-                        }
+                        app.install_selected();
                     }
                     // Navigation
                     (KeyCode::Up, _) | (KeyCode::Char('k'), KeyModifiers::NONE) => app.move_up(),
@@ -703,11 +734,9 @@ fn run_loop(
                             }
                         }
                     }
-                    // Double-click → select + confirm
+                    // Double-click → install without leaving
                     MouseEventKind::Down(MouseButton::Middle) => {
-                        if let Some(pkg) = app.selected_package() {
-                            return Ok(Some(pkg));
-                        }
+                        app.install_selected();
                     }
                     _ => {}
                 },
@@ -990,6 +1019,8 @@ fn version_lines(pkg: &PackageInfo) -> Vec<Line<'_>> {
 fn render_statusbar(f: &mut Frame, app: &App, area: Rect) {
     let content = if let Some(err) = &app.error {
         Span::styled(format!("⚠ {err}"), Style::default().fg(Color::Red))
+    } else if let Some(status) = &app.status {
+        Span::styled(status.clone(), Style::default().fg(Color::Green))
     } else {
         let focus = match app.focus {
             FocusPane::Packages => "packages",
@@ -998,7 +1029,7 @@ fn render_statusbar(f: &mut Frame, app: &App, area: Rect) {
         };
         Span::styled(
             format!(
-                " focus: {focus}   ↑↓ packages   wheel/PgUp/PgDn scroll focus   Enter select   Esc cancel   ←→ page"
+                " focus: {focus}   ↑↓/jk navigate   wheel/PgUp/PgDn scroll   Enter add   Esc close   ←→ page"
             ),
             Style::default().fg(Color::DarkGray),
         )
