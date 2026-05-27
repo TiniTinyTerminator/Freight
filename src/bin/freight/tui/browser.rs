@@ -89,6 +89,9 @@ struct App {
     version_scroll: u16,
     focus: FocusPane,
 
+    // Version selection — which row in the sorted versions list is selected.
+    version_list_state: ListState,
+
     // State
     loading: bool,
     last_keystroke: Instant,
@@ -161,6 +164,7 @@ impl App {
             active_readme_id: None,
             detail_request_id: 0,
             active_detail_id: None,
+            version_list_state: ListState::default(),
             list_area: Rect::default(),
             detail_area: Rect::default(),
             versions_area: Rect::default(),
@@ -198,6 +202,52 @@ impl App {
         self.detail = Some(detail);
         self.scroll = 0;
         self.version_scroll = 0;
+        // Reset version selection to the first (latest) entry.
+        self.version_list_state = ListState::default();
+        self.version_list_state.select(Some(0));
+    }
+
+    /// The version string currently selected in the Versions panel.
+    /// Falls back to `latest` if no explicit selection has been made.
+    fn selected_version(&self) -> Option<String> {
+        let pkg = self.detail.as_ref()?;
+        if pkg.versions.is_empty() {
+            return Some(pkg.latest.clone());
+        }
+        let mut sorted: Vec<&PackageVersion> = pkg.versions.iter().collect();
+        sorted.sort_by(|a, b| cmp_version(&b.version, &a.version));
+        let idx = self.version_list_state.selected().unwrap_or(0);
+        Some(
+            sorted
+                .get(idx)
+                .map(|v| v.version.clone())
+                .unwrap_or_else(|| pkg.latest.clone()),
+        )
+    }
+
+    fn version_count(&self) -> usize {
+        self.detail
+            .as_ref()
+            .map(|p| p.versions.len())
+            .unwrap_or(0)
+    }
+
+    fn move_version_up(&mut self) {
+        let cur = self.version_list_state.selected().unwrap_or(0);
+        if cur > 0 {
+            self.version_list_state.select(Some(cur - 1));
+        }
+    }
+
+    fn move_version_down(&mut self) {
+        let count = self.version_count();
+        if count == 0 {
+            return;
+        }
+        let cur = self.version_list_state.selected().unwrap_or(0);
+        if cur + 1 < count {
+            self.version_list_state.select(Some(cur + 1));
+        }
     }
 
     fn load_pending_readme(&mut self) {
@@ -354,7 +404,16 @@ impl App {
                         if let Some(detail) = &mut self.detail {
                             if detail.name == name {
                                 detail.versions = info.versions;
-                                detail.latest = info.latest;
+                                detail.latest = info.latest.clone();
+                                // Select the row that corresponds to `latest`.
+                                let mut sorted: Vec<&PackageVersion> =
+                                    detail.versions.iter().collect();
+                                sorted.sort_by(|a, b| cmp_version(&b.version, &a.version));
+                                let latest_idx = sorted
+                                    .iter()
+                                    .position(|v| v.version == info.latest)
+                                    .unwrap_or(0);
+                                self.version_list_state.select(Some(latest_idx));
                             }
                         }
                     }
@@ -467,7 +526,9 @@ impl App {
 
         let Some(info) = &self.detail else { return };
         let name = info.name.clone();
-        let version = info.latest.clone();
+        let version = self
+            .selected_version()
+            .unwrap_or_else(|| info.latest.clone());
 
         let Some(ref manifest_path) = self.manifest_path else {
             self.error = Some("no freight.toml found in current directory".into());
@@ -665,16 +726,36 @@ fn run_loop(
                     (KeyCode::Enter, _) => {
                         app.install_selected();
                     }
-                    // Navigation — vim aliases only fire when the search box is
-                    // empty so that letters in package names (l, h, j, k) are
-                    // not stolen from the search input.
-                    (KeyCode::Up, _) => app.move_up(),
-                    (KeyCode::Char('k'), KeyModifiers::NONE) if app.query.is_empty() => {
-                        app.move_up()
+                    // Tab cycles focus: Packages → Versions → Details → Packages
+                    (KeyCode::Tab, _) => {
+                        app.focus = match app.focus {
+                            FocusPane::Packages => FocusPane::Versions,
+                            FocusPane::Versions => FocusPane::Details,
+                            FocusPane::Details => FocusPane::Packages,
+                        };
                     }
-                    (KeyCode::Down, _) => app.move_down(),
+                    // Navigation — Up/Down move selection in the focused pane.
+                    // Vim aliases only fire when the search box is empty so that
+                    // letters in package names (l, h, j, k) are not stolen.
+                    (KeyCode::Up, _) => match app.focus {
+                        FocusPane::Versions => app.move_version_up(),
+                        _ => app.move_up(),
+                    },
+                    (KeyCode::Char('k'), KeyModifiers::NONE) if app.query.is_empty() => {
+                        match app.focus {
+                            FocusPane::Versions => app.move_version_up(),
+                            _ => app.move_up(),
+                        }
+                    }
+                    (KeyCode::Down, _) => match app.focus {
+                        FocusPane::Versions => app.move_version_down(),
+                        _ => app.move_down(),
+                    },
                     (KeyCode::Char('j'), KeyModifiers::NONE) if app.query.is_empty() => {
-                        app.move_down()
+                        match app.focus {
+                            FocusPane::Versions => app.move_version_down(),
+                            _ => app.move_down(),
+                        }
                     }
                     // Scroll the focused panel.
                     (KeyCode::PageUp, _) => app.page_focused_up(),
@@ -1006,9 +1087,10 @@ fn build_detail_lines<'a>(
 
 fn render_versions(f: &mut Frame, app: &mut App, area: Rect) {
     app.versions_area = area;
+    let focused = app.focus == FocusPane::Versions;
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(panel_border_style(app.focus == FocusPane::Versions))
+        .border_style(panel_border_style(focused))
         .title(Span::styled(
             " Versions ",
             Style::default().fg(Color::White),
@@ -1021,12 +1103,56 @@ fn render_versions(f: &mut Frame, app: &mut App, area: Rect) {
         return;
     };
 
-    let para = Paragraph::new(version_lines(pkg))
-        .wrap(Wrap { trim: false })
-        .scroll((app.version_scroll, 0));
-    f.render_widget(para, inner);
+    if pkg.versions.is_empty() {
+        let para = Paragraph::new(Line::styled(
+            "No versions returned.",
+            Style::default().fg(Color::DarkGray),
+        ));
+        f.render_widget(para, inner);
+        return;
+    }
+
+    let mut sorted: Vec<&PackageVersion> = pkg.versions.iter().collect();
+    sorted.sort_by(|a, b| cmp_version(&b.version, &a.version));
+
+    let selected_idx = app.version_list_state.selected().unwrap_or(0);
+
+    let items: Vec<ListItem> = sorted
+        .iter()
+        .enumerate()
+        .map(|(i, ver)| {
+            let radio = if i == selected_idx { "◉" } else { "○" };
+            let is_latest = ver.version == pkg.latest;
+            let style = if i == selected_idx {
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD)
+            } else if is_latest {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+            let label = if is_latest {
+                format!("{radio} {} (latest)", ver.version)
+            } else {
+                format!("{radio} {}", ver.version)
+            };
+            ListItem::new(Line::styled(label, style))
+        })
+        .collect();
+
+    let list = List::new(items)
+        .highlight_style(
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        )
+        .highlight_symbol("");
+
+    f.render_stateful_widget(list, inner, &mut app.version_list_state);
 }
 
+/// Compact inline version list used by `render_detail` in narrow-screen mode.
 fn version_lines(pkg: &PackageInfo) -> Vec<Line<'_>> {
     if pkg.versions.is_empty() {
         return vec![Line::styled(
@@ -1034,21 +1160,19 @@ fn version_lines(pkg: &PackageInfo) -> Vec<Line<'_>> {
             Style::default().fg(Color::DarkGray),
         )];
     }
-
     let mut sorted: Vec<&PackageVersion> = pkg.versions.iter().collect();
     sorted.sort_by(|a, b| cmp_version(&b.version, &a.version));
-
     sorted
         .into_iter()
-        .map(|version| {
-            let style = if version.version == pkg.latest {
+        .map(|ver| {
+            let style = if ver.version == pkg.latest {
                 Style::default()
                     .fg(Color::Green)
                     .add_modifier(Modifier::BOLD)
             } else {
                 Style::default().fg(Color::Gray)
             };
-            Line::styled(version.version.as_str(), style)
+            Line::styled(ver.version.as_str(), style)
         })
         .collect()
 }
@@ -1074,17 +1198,11 @@ fn render_statusbar(f: &mut Frame, app: &App, area: Rect) {
     } else if let Some(status) = &app.status {
         Span::styled(status.clone(), Style::default().fg(Color::Green))
     } else {
-        let focus = match app.focus {
-            FocusPane::Packages => "packages",
-            FocusPane::Details => "details",
-            FocusPane::Versions => "versions",
+        let hint = match app.focus {
+            FocusPane::Versions => " Tab focus   ↑↓ select version   Enter add selected   Esc close",
+            _ => " Tab focus   ↑↓/jk navigate   wheel/PgUp/PgDn scroll   Enter add   Esc close   ←→ page",
         };
-        Span::styled(
-            format!(
-                " focus: {focus}   ↑↓/jk navigate   wheel/PgUp/PgDn scroll   Enter add   Esc close   ←→ page"
-            ),
-            Style::default().fg(Color::DarkGray),
-        )
+        Span::styled(hint, Style::default().fg(Color::DarkGray))
     };
     f.render_widget(Paragraph::new(Line::from(content)), area);
 }
