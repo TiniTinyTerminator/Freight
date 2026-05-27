@@ -73,6 +73,7 @@ those prerequisites when they matter.
 | [`ada-hello/`](ada-hello/) | Pure Ada binary: `Vec2` record, insertion sort, subtype constraints, exception handling | `freight run` |
 | [`cuda-hello/`](cuda-hello/) | CUDA `vec_add` and `vec_scale` kernels — requires a CUDA-capable GPU to run | `freight run` |
 | [`opencl-hello/`](opencl-hello/) | OpenCL `vec_add` and `vec_scale` — requires an OpenCL platform (NVIDIA / Intel / AMD / POCL) | `freight run` |
+| [`ispc-hello/`](ispc-hello/) | ISPC SPMD kernels auto-vectorised for AVX2/NEON — requires `ispc` on `$PATH` | `freight run` |
 | [`multi-bin/`](multi-bin/) | Multiple `[[bin]]` targets in one manifest | `freight run --bin encode`, `freight run --bin decode` |
 | [`features-demo/`](features-demo/) | `[features]`, defaults, transitive feature activation | `freight run --features tls`, `freight run --no-default-features` |
 | [`platform-deps/`](platform-deps/) | `[os.*]` / `[arch.*]` defines and platform dependencies | `freight run`, `freight graph` |

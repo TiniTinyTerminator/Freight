@@ -1,4 +1,9 @@
-use crate::toolchain::template::{CompilerTemplate, LinkDef, TemplateDef, EMPTY};
+use crate::toolchain::template::{CompilerTemplate, LinkDef, OptionHandlerFn, TemplateDef, EMPTY};
+
+/// `[language.ispc] target = "avx2-i32x8"` → `--target=avx2-i32x8`
+fn ispc_target_h(v: &str, _: &str, _: &str, _: &str, _: &str) -> Result<Vec<String>, String> {
+    if v.is_empty() { Ok(vec![]) } else { Ok(vec![format!("--target={v}")]) }
+}
 
 const BASE_INTEL: TemplateDef = TemplateDef {
     family:        "intel",
@@ -94,7 +99,10 @@ pub fn ispc() -> CompilerTemplate {
             whole_program:  false,
         }],
         ..EMPTY
-    }.build(&[], &[])
+    }.build(
+        &[],
+        &[("target", ispc_target_h as OptionHandlerFn, None)],
+    )
 }
 
 pub fn templates() -> Vec<CompilerTemplate> {

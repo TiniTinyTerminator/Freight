@@ -79,8 +79,8 @@ See `AGENTS.md` for full detail. Summary of what's missing:
 | D               | ✓ Done — `examples/d-hello/` (ldc2 + dmd)            |
 | ObjC / ObjC++   | GNUstep setup required; trivial on macOS              |
 | HIP             | Requires ROCm hardware                                |
-| ISPC            | `ispc` not installed on dev machine                   |
-| GDC             | `gdc` not installed; `libgphobos` vs `libphobos2`     |
+| ISPC            | ✓ Done — `examples/ispc-hello/`                       |
+| GDC             | ✓ Available (`gdc` 16.1.1); `d-hello` already works  |
 | MSVC            | Windows machine needed                                |
 | nvfortran       | NVIDIA HPC SDK needed                                 |
 

@@ -1,0 +1,27 @@
+[package]
+name        = "ispc-hello"
+version     = "0.1.0"
+description = "ISPC SPMD kernels (vec_add, vec_scale, dot_product) called from a C++ host"
+
+# Host-side language settings.
+[language.cpp]
+std = "c++17"
+
+# ISPC target — compiled alongside the C++ host and linked in.
+# `avx2-i32x8` targets x86-64 with AVX2 (Haswell and later, ~2013+).
+# For older CPUs use `sse4-i32x4`; for ARM use `neon-i32x4`.
+# Omit to let ispc auto-detect the host ISA.
+[language.ispc]
+target = "avx2-i32x8"
+
+[[bin]]
+name = "ispc-hello"
+src  = "src/main.cpp"
+
+[profile.dev]
+opt-level = 2      # ispc benefits from at least -O2 to vectorise cleanly
+debug     = true
+
+[profile.release]
+opt-level = 3
+strip     = true
