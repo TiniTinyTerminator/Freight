@@ -19,4 +19,8 @@ currently not exposed — kept for reference.
 - [x] tui-markdown README rendering (wide layout, middle column)
 - [x] 3-column layout at ≥ 100 cols: package list | README | info + versions
 - [x] Info pane: name, latest version, description, dep count
-- [ ] Show package license in the Info pane (needs registry API field)
+- [x] Info pane: Tags (keywords) + Owners — fetched alongside package detail
+- [x] Info pane height = 50% of right column; description truncated to fit
+- [x] Versions panel tab toggle: Versions | Dependencies (`t` key)
+- [x] Dependencies tab: shows `dep  @version` for selected version
+- [ ] Show package license in the Info pane (needs registry API field to be wired)
