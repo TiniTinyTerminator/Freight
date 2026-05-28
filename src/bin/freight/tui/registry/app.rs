@@ -1,4 +1,5 @@
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use ratatui::layout::Rect;
 use ratatui::widgets::{ListState, TableState};
 use tokio::sync::mpsc::Sender;
 
@@ -144,6 +145,11 @@ pub struct App {
     pub ver_state:     ListState,
     pub publish:       Option<PublishForm>,
     pub add_owner:     Option<AddOwnerForm>,
+    /// Vertical scroll offset for the README pane (visual lines).
+    pub readme_scroll: u16,
+    /// Set by ui.rs during draw — used by handle_mouse for hit-testing.
+    pub ver_list_rect: Rect,
+    pub readme_rect:   Rect,
 
     // Users tab
     pub users:     Vec<UserInfo>,
@@ -198,6 +204,9 @@ impl App {
             ver_state:     ListState::default(),
             publish:       None,
             add_owner:     None,
+            readme_scroll: 0,
+            ver_list_rect: Rect::default(),
+            readme_rect:   Rect::default(),
             users:         Vec::new(),
             usr_state:     TableState::default(),
             tokens:        Vec::new(),
@@ -237,6 +246,7 @@ impl App {
             }
             DataEvent::PackageDetail(d) => {
                 self.ver_state.select(Some(0));
+                self.readme_scroll = 0;
                 self.pkg_detail = Some(d);
             }
             DataEvent::Users(u) => {
@@ -634,6 +644,16 @@ impl App {
 
     fn handle_packages(&mut self, key: KeyEvent, tx: &Sender<DataEvent>) {
         match key.code {
+            KeyCode::PageDown => {
+                if self.pkg_detail.is_some() {
+                    self.readme_scroll = self.readme_scroll.saturating_add(10);
+                }
+            }
+            KeyCode::PageUp => {
+                if self.pkg_detail.is_some() {
+                    self.readme_scroll = self.readme_scroll.saturating_sub(10);
+                }
+            }
             KeyCode::Char('/') => { self.pkg_search_on = true; }
             KeyCode::Char('r') | KeyCode::F(5) => self.load_packages(tx.clone()),
             KeyCode::Char('P') => {
@@ -708,6 +728,45 @@ impl App {
                         message: format!("Hard-delete package {name} and ALL versions?"),
                         action: ConfirmAction::DeletePkg { name },
                     });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    pub fn handle_mouse(&mut self, ev: MouseEvent, _tx: &Sender<DataEvent>) {
+        if self.pkg_detail.is_none() { return; }
+
+        let col = ev.column;
+        let row = ev.row;
+
+        let in_rect = |r: Rect| col >= r.x && col < r.x + r.width
+                              && row >= r.y && row < r.y + r.height;
+
+        match ev.kind {
+            // Click on a version row: select it
+            MouseEventKind::Down(MouseButton::Left) => {
+                let r = self.ver_list_rect;
+                if in_rect(r) && row > r.y {
+                    let idx = (row - r.y - 1) as usize; // -1 for top border
+                    let len = self.pkg_detail.as_ref().map(|d| d.versions.len()).unwrap_or(0);
+                    if idx < len { self.ver_state.select(Some(idx)); }
+                }
+            }
+            // Scroll wheel: README if over readme pane, versions list otherwise
+            MouseEventKind::ScrollDown => {
+                if in_rect(self.readme_rect) {
+                    self.readme_scroll = self.readme_scroll.saturating_add(3);
+                } else if in_rect(self.ver_list_rect) {
+                    let len = self.pkg_detail.as_ref().map(|d| d.versions.len()).unwrap_or(0);
+                    list_next(&mut self.ver_state, len);
+                }
+            }
+            MouseEventKind::ScrollUp => {
+                if in_rect(self.readme_rect) {
+                    self.readme_scroll = self.readme_scroll.saturating_sub(3);
+                } else if in_rect(self.ver_list_rect) {
+                    list_prev(&mut self.ver_state);
                 }
             }
             _ => {}

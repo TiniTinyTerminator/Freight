@@ -1,9 +1,9 @@
 use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span},
+    text::{Line, Span, Text},
     widgets::{
-        Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Row, Sparkline, Table, Tabs,
+        Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Row, Table, Tabs,
         Wrap,
     },
     Frame,
@@ -79,6 +79,10 @@ fn draw_body(frame: &mut Frame, area: Rect, app: &mut App) {
 
 // ── Packages tab ──────────────────────────────────────────────────────────────
 
+/// Minimum terminal width to use the 3-column layout (pkg list | README | detail).
+/// Below this, README and right panel are stacked vertically.
+const WIDE_THRESHOLD: u16 = 120;
+
 fn draw_packages(frame: &mut Frame, area: Rect, app: &mut App) {
     let [search_area, list_area] = Layout::vertical([
         Constraint::Length(3),
@@ -95,12 +99,31 @@ fn draw_packages(frame: &mut Frame, area: Rect, app: &mut App) {
     frame.render_widget(Paragraph::new(app.pkg_search.as_str()).block(search_block), search_area);
 
     if app.pkg_detail.is_some() {
-        let [left, right] = Layout::horizontal([
-            Constraint::Percentage(35),
-            Constraint::Percentage(65),
-        ]).areas(list_area);
-        draw_package_list(frame, left, app);
-        draw_package_detail(frame, right, app);
+        if area.width >= WIDE_THRESHOLD {
+            // Wide: three columns side by side
+            let [left, middle, right] = Layout::horizontal([
+                Constraint::Percentage(28),
+                Constraint::Percentage(44),
+                Constraint::Percentage(28),
+            ]).areas(list_area);
+            draw_package_list(frame, left, app);
+            draw_readme(frame, middle, app);
+            draw_package_detail(frame, right, app);
+        } else {
+            // Narrow: pkg list on left, README+detail stacked on right
+            let [left, right_col] = Layout::horizontal([
+                Constraint::Percentage(35),
+                Constraint::Percentage(65),
+            ]).areas(list_area);
+            draw_package_list(frame, left, app);
+
+            let [readme_area, detail_area] = Layout::vertical([
+                Constraint::Percentage(55),
+                Constraint::Percentage(45),
+            ]).areas(right_col);
+            draw_readme(frame, readme_area, app);
+            draw_package_detail(frame, detail_area, app);
+        }
     } else {
         draw_package_list(frame, list_area, app);
     }
@@ -129,68 +152,220 @@ fn draw_package_list(frame: &mut Frame, area: Rect, app: &mut App) {
     frame.render_stateful_widget(list, area, &mut app.pkg_state);
 }
 
+fn draw_readme(frame: &mut Frame, area: Rect, app: &mut App) {
+    app.readme_rect = area;
+
+    let content = app.pkg_detail.as_ref()
+        .and_then(|d| d.readme.as_deref())
+        .unwrap_or("*No README available.*");
+
+    let md = render_markdown(content);
+    let para = Paragraph::new(md)
+        .block(Block::default()
+            .title(" README  (PgUp/PgDn or scroll) ")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded))
+        .wrap(Wrap { trim: false })
+        .scroll((app.readme_scroll, 0));
+    frame.render_widget(para, area);
+}
+
 fn draw_package_detail(frame: &mut Frame, area: Rect, app: &mut App) {
-    let Some(detail) = &app.pkg_detail else { return };
+    if app.pkg_detail.is_none() { return; }
 
-    let has_spark  = detail.versions.len() >= 2;
-    let spark_h    = if has_spark { 3 } else { 0 };
+    let n_owners  = app.pkg_detail.as_ref().map(|d| d.owners.len()).unwrap_or(0);
+    // owners pane: border(2) + rows, capped at 5 visible rows
+    let owners_h  = (n_owners.min(5) + 2) as u16;
 
-    let [info_area, ver_area, spark_area, hint_area] = Layout::vertical([
-        Constraint::Length(5),
+    let [info_area, owners_area, ver_area, hint_area] = Layout::vertical([
+        Constraint::Length(6),
+        Constraint::Length(owners_h),
         Constraint::Min(4),
-        Constraint::Length(spark_h),
         Constraint::Length(1),
     ]).areas(area);
 
-    // Info block — name, description, owners
-    let owners_str = if detail.owners.is_empty() { "—".to_string() } else { detail.owners.join(", ") };
-    let desc       = detail.description.as_deref().unwrap_or("—");
+    // ── Info pane ─────────────────────────────────────────────────────────────
+    let detail   = app.pkg_detail.as_ref().unwrap();
+    let latest   = detail.versions.first().map(|v| v.version.as_str()).unwrap_or("—");
+    let lic      = detail.license.as_deref().unwrap_or("—");
+    let total_dl: i64 = detail.versions.iter().map(|v| v.downloads).sum();
+
     let info = Paragraph::new(vec![
-        Line::from(vec![Span::styled("Name:  ", HDR_STYLE), Span::raw(&detail.name)]),
-        Line::from(vec![Span::styled("Desc:  ", HDR_STYLE), Span::raw(desc)]),
-        Line::from(vec![Span::styled("Owners:", HDR_STYLE), Span::raw(format!(" {owners_str}"))]),
+        Line::from(vec![Span::styled("Name    ", HDR_STYLE), Span::raw(detail.name.clone())]),
+        Line::from(vec![Span::styled("Version ", HDR_STYLE), Span::raw(latest.to_string())]),
+        Line::from(vec![Span::styled("License ", HDR_STYLE), Span::raw(lic.to_string())]),
+        Line::from(vec![Span::styled("Downloads ", HDR_STYLE), Span::raw(total_dl.to_string())]),
     ])
-    .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(" Detail "));
+    .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded).title(" Info "));
     frame.render_widget(info, info_area);
 
-    // Versions list
-    let items: Vec<ListItem> = detail.versions.iter().map(|v| {
-        let tag  = if v.yanked { Span::styled(" [yanked]", ERR_STYLE) }
-                   else        { Span::styled(" [active]", OK_STYLE) };
-        let pb   = if v.prebuilt_triples.is_empty() { String::new() }
-                   else { format!(" 📦{}", v.prebuilt_triples.len()) };
+    // ── Owners pane ───────────────────────────────────────────────────────────
+    let detail = app.pkg_detail.as_ref().unwrap();
+    let owner_items: Vec<ListItem> = if detail.owners.is_empty() {
+        vec![ListItem::new(Span::styled("  —", DIM_STYLE))]
+    } else {
+        detail.owners.iter()
+            .map(|o| ListItem::new(Line::from(vec![
+                Span::styled("  ", Style::default()),
+                Span::raw(o.clone()),
+            ])))
+            .collect()
+    };
+    let owners_block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded)
+        .title(format!(" Owners ({}) ", detail.owners.len()));
+    frame.render_widget(List::new(owner_items).block(owners_block), owners_area);
+
+    // ── Versions pane — store Rect for mouse ──────────────────────────────────
+    app.ver_list_rect = ver_area;
+
+    let detail = app.pkg_detail.as_ref().unwrap();
+    let ver_items: Vec<ListItem> = detail.versions.iter().map(|v| {
+        let tag = if v.yanked { Span::styled(" [yanked]", ERR_STYLE) }
+                  else        { Span::styled(" [active]", OK_STYLE) };
+        let pb  = if v.prebuilt_triples.is_empty() { String::new() }
+                  else { format!(" 📦{}", v.prebuilt_triples.len()) };
         ListItem::new(Line::from(vec![
-            Span::raw(format!("{:<14}", v.version)),
-            Span::styled(format!("↓{:<8}", v.downloads), DIM_STYLE),
+            Span::raw(format!("{:<12}", v.version)),
+            Span::styled(format!(" ↓{:<6}", v.downloads), DIM_STYLE),
             tag,
             Span::styled(pb, Style::default().fg(Color::Magenta)),
         ]))
     }).collect();
 
-    let ver_list = List::new(items)
-        .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded)
-            .title(" Versions (j/k  y=yank  u=unyank  📦=has prebuilts) "))
-        .highlight_style(SELECTED_STYLE)
+    let ver_block = Block::default().borders(Borders::ALL).border_type(BorderType::Rounded)
+        .title(" Versions  j/k · click ");
+    let ver_list = List::new(ver_items)
+        .block(ver_block)
+        .highlight_style(Style::new().add_modifier(Modifier::REVERSED))
         .highlight_symbol("► ");
     frame.render_stateful_widget(ver_list, ver_area, &mut app.ver_state);
 
-    if has_spark {
-        let spark_data: Vec<u64> = detail.versions.iter().rev()
-            .map(|v| v.downloads.max(0) as u64)
-            .collect();
-        let sparkline = Sparkline::default()
-            .block(Block::default().borders(Borders::ALL).border_type(BorderType::Rounded)
-                .title(" Downloads (oldest → newest) "))
-            .data(&spark_data)
-            .style(Style::default().fg(Color::Cyan));
-        frame.render_widget(sparkline, spark_area);
+    // ── Hint bar ──────────────────────────────────────────────────────────────
+    let mut hints = vec![Span::raw(" [y] yank  [u] unyank  [a] owner  [Esc] back")];
+    if app.is_admin { hints.push(Span::styled("  [d] del", ERR_STYLE)); }
+    frame.render_widget(Paragraph::new(Line::from(hints)).style(DIM_STYLE), hint_area);
+}
+
+// ── Markdown renderer ─────────────────────────────────────────────────────────
+//
+// Converts a Markdown string into styled ratatui `Text`.
+// Supports: headings (H1-H3), bold/italic, inline code, fenced code blocks,
+// unordered lists, paragraphs, horizontal rules.
+fn render_markdown(source: &str) -> Text<'static> {
+    use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut spans: Vec<Span<'static>> = Vec::new();
+    let mut bold:        bool = false;
+    let mut in_code:     bool = false;
+    let mut heading_lvl: u8   = 0;  // 0 = not in heading
+    let mut list_depth:  u32  = 0;
+
+    // Drain `spans` into a Line and push to `lines` if non-empty.
+    macro_rules! flush {
+        () => {
+            if !spans.is_empty() {
+                lines.push(Line::from(std::mem::take(&mut spans)));
+            }
+        };
     }
 
-    let mut hints = vec![
-        Span::raw(" [Esc] back  [y] yank  [u] unyank  [a] add owner  [O] remove owner"),
-    ];
-    if app.is_admin { hints.push(Span::styled("  [d] delete pkg", ERR_STYLE)); }
-    frame.render_widget(Paragraph::new(Line::from(hints)), hint_area);
+    for event in Parser::new_ext(source, Options::all()) {
+        match event {
+            // ── Headings ──────────────────────────────────────────────────────
+            Event::Start(Tag::Heading { level, .. }) => {
+                heading_lvl = match level {
+                    HeadingLevel::H1 => 1,
+                    HeadingLevel::H2 => 2,
+                    _ => 3,
+                };
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                flush!();
+                lines.push(Line::default());
+                heading_lvl = 0;
+            }
+            // ── Emphasis / Strong ─────────────────────────────────────────────
+            Event::Start(Tag::Strong) | Event::Start(Tag::Emphasis) => bold = true,
+            Event::End(TagEnd::Strong) | Event::End(TagEnd::Emphasis) => bold = false,
+            // ── Inline code ───────────────────────────────────────────────────
+            Event::Code(c) => {
+                spans.push(Span::styled(
+                    format!("`{}`", c.as_ref()),
+                    Style::new().fg(Color::Yellow),
+                ));
+            }
+            // ── Fenced code block ─────────────────────────────────────────────
+            Event::Start(Tag::CodeBlock(_)) => {
+                flush!();
+                in_code = true;
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                in_code = false;
+                lines.push(Line::default());
+            }
+            // ── Lists ─────────────────────────────────────────────────────────
+            Event::Start(Tag::List(_)) => { list_depth += 1; }
+            Event::End(TagEnd::List(_)) => {
+                list_depth = list_depth.saturating_sub(1);
+                if list_depth == 0 { lines.push(Line::default()); }
+            }
+            Event::Start(Tag::Item) => {
+                let indent = "  ".repeat(list_depth.saturating_sub(1) as usize);
+                spans.push(Span::styled(
+                    format!("{indent}● "),
+                    Style::new().fg(Color::Cyan),
+                ));
+            }
+            Event::End(TagEnd::Item) => { flush!(); }
+            // ── Paragraphs ────────────────────────────────────────────────────
+            Event::Start(Tag::Paragraph) => {}
+            Event::End(TagEnd::Paragraph) => {
+                flush!();
+                lines.push(Line::default());
+            }
+            // ── Text ──────────────────────────────────────────────────────────
+            Event::Text(t) => {
+                if in_code {
+                    // Each logical line of code gets its own Line
+                    for code_line in t.as_ref().trim_end_matches('\n').split('\n') {
+                        lines.push(Line::from(Span::styled(
+                            format!("  {code_line}"),
+                            Style::new().fg(Color::Yellow),
+                        )));
+                    }
+                } else {
+                    let style = if heading_lvl > 0 {
+                        match heading_lvl {
+                            1 => Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                            2 => Style::new().fg(Color::Blue).add_modifier(Modifier::BOLD),
+                            _ => Style::new().fg(Color::Cyan),
+                        }
+                    } else if bold {
+                        Style::new().add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default()
+                    };
+                    spans.push(Span::styled(t.to_string(), style));
+                }
+            }
+            Event::SoftBreak => {
+                if !spans.is_empty() { spans.push(Span::raw(" ")); }
+            }
+            Event::HardBreak => { flush!(); }
+            Event::Rule => {
+                flush!();
+                lines.push(Line::from(Span::styled(
+                    "─".repeat(60),
+                    Style::new().fg(Color::DarkGray),
+                )));
+                lines.push(Line::default());
+            }
+            _ => {}
+        }
+    }
+    flush!();
+    Text::from(lines)
 }
 
 // ── Users tab ─────────────────────────────────────────────────────────────────

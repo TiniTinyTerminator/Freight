@@ -32,8 +32,10 @@ pub struct VersionInfo {
 pub struct PackageDetail {
     pub name:        String,
     pub description: Option<String>,
+    pub license:     Option<String>,
     pub versions:    Vec<VersionInfo>,
     pub owners:      Vec<String>,
+    pub readme:      Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -185,16 +187,22 @@ impl Client {
         let enc        = Self::encode_pkg(name);
         let url_pkg    = self.url(&format!("/api/v1/packages/{enc}"));
         let url_owners = self.url(&format!("/api/v1/packages/{enc}/owners"));
+        let url_readme = self.url(&format!("/api/v1/packages/{enc}/readme"));
 
-        let (pkg_resp, own_resp) = tokio::join!(
+        let (pkg_resp, own_resp, rdme_resp) = tokio::join!(
             self.inner.get(&url_pkg).send(),
             self.inner.get(&url_owners).send(),
+            self.inner.get(&url_readme).send(),
         );
 
         let pkg_body = Self::check(pkg_resp?).await?;
         let own_body = match own_resp {
             Ok(r)  => r.json::<serde_json::Value>().await.unwrap_or_default(),
             Err(_) => serde_json::Value::default(),
+        };
+        let readme = match rdme_resp {
+            Ok(r) if r.status().is_success() => r.text().await.ok(),
+            _ => None,
         };
 
         let versions: Vec<VersionInfo> =
@@ -209,8 +217,10 @@ impl Client {
         Ok(PackageDetail {
             name:        pkg_body["name"].as_str().unwrap_or(name).to_string(),
             description: pkg_body["description"].as_str().map(str::to_string),
+            license:     pkg_body["license"].as_str().map(str::to_string),
             versions,
             owners,
+            readme,
         })
     }
 

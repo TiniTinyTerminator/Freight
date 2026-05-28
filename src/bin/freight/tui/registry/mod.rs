@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow::Result;
 use crossterm::{
-    event::{self, Event},
+    event::{self, DisableMouseCapture, EnableMouseCapture, Event},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
@@ -41,7 +41,7 @@ async fn run_async(url: String, token: Option<String>) -> Result<()> {
     // Set up terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let backend  = CrosstermBackend::new(stdout);
     let mut term = Terminal::new(backend)?;
 
@@ -49,7 +49,7 @@ async fn run_async(url: String, token: Option<String>) -> Result<()> {
 
     // Restore terminal unconditionally
     disable_raw_mode()?;
-    execute!(term.backend_mut(), LeaveAlternateScreen)?;
+    execute!(term.backend_mut(), LeaveAlternateScreen, DisableMouseCapture)?;
     term.show_cursor()?;
 
     result
@@ -60,16 +60,19 @@ async fn event_loop(
     app:  &mut App,
 ) -> Result<()> {
     let (data_tx, mut data_rx) = mpsc::channel::<DataEvent>(64);
-    let (key_tx,  mut key_rx)  = mpsc::channel::<crossterm::event::KeyEvent>(32);
+    let (ev_tx,   mut ev_rx)   = mpsc::channel::<Event>(64);
 
-    // Blocking key-reader in a dedicated OS thread so we don't stall the tokio executor.
-    let key_tx2 = key_tx.clone();
+    // Blocking event reader — forwards Key and Mouse events; ignores resize/focus.
+    let ev_tx2 = ev_tx.clone();
     tokio::task::spawn_blocking(move || {
         loop {
             if event::poll(Duration::from_millis(100)).unwrap_or(false) {
-                if let Ok(Event::Key(k)) = event::read() {
-                    if key_tx2.blocking_send(k).is_err() {
-                        break;
+                if let Ok(ev) = event::read() {
+                    match ev {
+                        Event::Key(_) | Event::Mouse(_) => {
+                            if ev_tx2.blocking_send(ev).is_err() { break; }
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -84,9 +87,15 @@ async fn event_loop(
         term.draw(|f| ui::draw(f, app))?;
 
         tokio::select! {
-            key = key_rx.recv() => {
-                if let Some(k) = key {
-                    if app.handle_key(k, &data_tx) { break; }
+            ev = ev_rx.recv() => {
+                match ev {
+                    Some(Event::Key(k)) => {
+                        if app.handle_key(k, &data_tx) { break; }
+                    }
+                    Some(Event::Mouse(m)) => {
+                        app.handle_mouse(m, &data_tx);
+                    }
+                    _ => {}
                 }
             }
             data = data_rx.recv() => {
