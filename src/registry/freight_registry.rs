@@ -14,14 +14,14 @@
 //! The default registry is `https://freight.dev`. Additional registries are
 //! configured via `[[registries]]` entries in `~/.freight/config.toml`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use curl::easy::{Easy, List};
 use serde::Deserialize;
 
+use super::{PackageInfo, PackageRepo, PackageVersion, DEFAULT_REGISTRY_URL};
 use crate::error::FreightError;
-use crate::toolchain::cache::RegistryConfig;
-use super::{DEFAULT_REGISTRY_URL, PackageInfo, PackageVersion, PackageRepo};
+use crate::toolchain::cache::{freight_home, RegistryConfig};
 
 // ── Public client ─────────────────────────────────────────────────────────────
 
@@ -30,15 +30,21 @@ pub struct FreightRegistry {
     name: String,
     base_url: String,
     token: Option<String>,
+    /// Root of the on-disk metadata cache for this registry.
+    /// `~/.freight/cache/<slug>/pkg/`
+    cache_dir: Option<PathBuf>,
 }
 
 impl FreightRegistry {
     /// Build from a [`RegistryConfig`] entry.
     pub fn from_config(cfg: &RegistryConfig) -> Self {
+        let base_url = cfg.url.trim_end_matches('/').to_string();
+        let cache_dir = pkg_cache_dir(&base_url);
         Self {
             name: cfg.name.clone(),
-            base_url: cfg.url.trim_end_matches('/').to_string(),
+            base_url,
             token: cfg.token.clone(),
+            cache_dir,
         }
     }
 
@@ -47,10 +53,13 @@ impl FreightRegistry {
     pub fn default_registry() -> Self {
         let url = std::env::var("FREIGHT_REGISTRY_URL")
             .unwrap_or_else(|_| DEFAULT_REGISTRY_URL.to_string());
+        let base_url = url.trim_end_matches('/').to_string();
+        let cache_dir = pkg_cache_dir(&base_url);
         Self {
             name: String::new(),
-            base_url: url.trim_end_matches('/').to_string(),
+            base_url,
             token: None,
+            cache_dir,
         }
     }
 }
@@ -59,18 +68,59 @@ impl PackageRepo for FreightRegistry {
     fn repo_key(&self) -> &str {
         // Empty string → stored as a plain version string in freight.toml (default registry).
         // Named registries → stored as `repo = "<name>"`.
-        if self.name.is_empty() || self.name == "freight" { "" } else { &self.name }
+        if self.name.is_empty() || self.name == "freight" {
+            ""
+        } else {
+            &self.name
+        }
     }
 
-    fn lookup(&self, name: &str, channel: Option<&str>) -> Result<Option<PackageInfo>, FreightError> {
+    fn lookup(
+        &self,
+        name: &str,
+        channel: Option<&str>,
+    ) -> Result<Option<PackageInfo>, FreightError> {
         let url = match channel {
-            Some(ch) => format!("{}/api/v1/packages/{}?channel={}", self.base_url, name, url_encode(ch)),
-            None     => format!("{}/api/v1/packages/{}", self.base_url, name),
+            Some(ch) => format!(
+                "{}/api/v1/packages/{}?channel={}",
+                self.base_url,
+                name,
+                url_encode(ch)
+            ),
+            None => format!("{}/api/v1/packages/{}", self.base_url, name),
         };
-        match http_get_json::<ApiPackage>(&url, self.token.as_deref()) {
-            Ok(pkg)                              => Ok(Some(pkg.into())),
+
+        // Read cached ETag (if any) and send it as If-None-Match.
+        let cached = self.cache_dir.as_ref().and_then(|d| cache_read(d, name));
+        let cached_etag = cached.as_ref().and_then(|(etag, _)| etag.as_deref());
+
+        match http_get_with_etag(&url, self.token.as_deref(), cached_etag) {
+            Ok(GetResult::Body(body, etag)) => {
+                // Fresh response — update cache and parse.
+                if let Some(ref dir) = self.cache_dir {
+                    cache_write(dir, name, etag.as_deref(), &body);
+                }
+                let pkg: ApiPackage = serde_json::from_str(&body)
+                    .map_err(|e| FreightError::RegistryError(format!("invalid JSON from registry: {e}")))?;
+                Ok(Some(pkg.into()))
+            }
+            Ok(GetResult::NotModified) => {
+                // Server confirmed our cached copy is current.
+                if let Some((_, body)) = cached {
+                    let pkg: ApiPackage = serde_json::from_str(&body)
+                        .map_err(|e| FreightError::RegistryError(format!("invalid cached JSON: {e}")))?;
+                    Ok(Some(pkg.into()))
+                } else {
+                    // 304 but no cache — shouldn't happen; re-fetch without ETag.
+                    match http_get_json::<ApiPackage>(&url, self.token.as_deref()) {
+                        Ok(pkg) => Ok(Some(pkg.into())),
+                        Err(FreightError::RegistryNotFound(_)) => Ok(None),
+                        Err(e) => Err(e),
+                    }
+                }
+            }
             Err(FreightError::RegistryNotFound(_)) => Ok(None),
-            Err(e)                               => Err(e),
+            Err(e) => Err(e),
         }
     }
 
@@ -106,9 +156,13 @@ impl PackageRepo for FreightRegistry {
     fn fetch_owners(&self, name: &str) -> Vec<String> {
         let url = format!("{}/api/v1/packages/{}/owners", self.base_url, name);
         #[derive(serde::Deserialize)]
-        struct OwnersResp { users: Vec<OwnerEntry> }
+        struct OwnersResp {
+            users: Vec<OwnerEntry>,
+        }
         #[derive(serde::Deserialize)]
-        struct OwnerEntry { login: String }
+        struct OwnerEntry {
+            login: String,
+        }
         match http_get_json::<OwnersResp>(&url, self.token.as_deref()) {
             Ok(r) => r.users.into_iter().map(|u| u.login).collect(),
             Err(_) => vec![],
@@ -119,9 +173,9 @@ impl PackageRepo for FreightRegistry {
 // ── Write API (publish / yank / download) ────────────────────────────────────
 
 impl FreightRegistry {
-    /// Download a specific version's tarball to `.deps/<name>/`.
+    /// Download a specific version's tarball to `target/deps/<name>/`.
     ///
-    /// Skips if `.deps/<name>/.freight-fetched` already exists.
+    /// Skips if `target/deps/<name>/.freight-fetched` already exists.
     /// Returns the SHA-256 checksum (hex) of the downloaded tarball.
     pub fn download_tarball(
         &self,
@@ -130,7 +184,7 @@ impl FreightRegistry {
         channel: Option<&str>,
         project_dir: &Path,
     ) -> Result<String, FreightError> {
-        let deps_dir = project_dir.join(".deps").join(name);
+        let deps_dir = project_dir.join("target").join("deps").join(name);
         let sentinel = deps_dir.join(".freight-fetched");
         if sentinel.exists() {
             // Already fetched — read checksum from sentinel if available.
@@ -141,13 +195,25 @@ impl FreightRegistry {
         }
 
         let url = match channel {
-            Some(ch) => format!("{}/api/v1/packages/{}/{}/download?channel={}", self.base_url, name, version, url_encode(ch)),
-            None     => format!("{}/api/v1/packages/{}/{}/download", self.base_url, name, version),
+            Some(ch) => format!(
+                "{}/api/v1/packages/{}/{}/download?channel={}",
+                self.base_url,
+                name,
+                version,
+                url_encode(ch)
+            ),
+            None => format!(
+                "{}/api/v1/packages/{}/{}/download",
+                self.base_url, name, version
+            ),
         };
         let (bytes, checksum_header) = http_get_bytes(&url, self.token.as_deref())?;
 
-        std::fs::create_dir_all(project_dir.join(".deps"))?;
-        let archive = project_dir.join(".deps").join(format!("{name}-{version}.tar.gz"));
+        std::fs::create_dir_all(project_dir.join("target").join("deps"))?;
+        let archive = project_dir
+            .join("target")
+            .join("deps")
+            .join(format!("{name}-{version}.tar.gz"));
         std::fs::write(&archive, &bytes)?;
 
         std::fs::create_dir_all(&deps_dir)?;
@@ -245,7 +311,10 @@ impl FreightRegistry {
                 "no token configured for this registry — run `freight login`".into(),
             )
         })?;
-        let url = format!("{}/api/v1/packages/{}/{}/yank", self.base_url, name, version);
+        let url = format!(
+            "{}/api/v1/packages/{}/{}/yank",
+            self.base_url, name, version
+        );
         if yanked {
             http_delete(&url, token)?;
         } else {
@@ -279,9 +348,11 @@ impl FreightRegistry {
         let resp = http_post(&url, None, "application/json", json_bytes)?;
         let v: serde_json::Value = serde_json::from_str(&resp)
             .map_err(|e| FreightError::RegistryError(format!("invalid JSON: {e}")))?;
-        let id = v["id"].as_i64()
+        let id = v["id"]
+            .as_i64()
             .ok_or_else(|| FreightError::RegistryError("missing id in response".into()))?;
-        let token = v["token"].as_str()
+        let token = v["token"]
+            .as_str()
             .ok_or_else(|| FreightError::RegistryError("missing token in response".into()))?
             .to_string();
         Ok((id, token))
@@ -297,45 +368,59 @@ impl FreightRegistry {
     /// List the target triples for which a prebuilt tarball is available.
     pub fn list_prebuilt_triples(
         &self,
-        name:    &str,
+        name: &str,
         version: &str,
         channel: Option<&str>,
     ) -> Result<Vec<String>, FreightError> {
         let url = match channel {
             Some(ch) => format!(
                 "{}/api/v1/packages/{}/{}/prebuilts?channel={}",
-                self.base_url, name, version, url_encode(ch)
+                self.base_url,
+                name,
+                version,
+                url_encode(ch)
             ),
-            None => format!("{}/api/v1/packages/{}/{}/prebuilts", self.base_url, name, version),
+            None => format!(
+                "{}/api/v1/packages/{}/{}/prebuilts",
+                self.base_url, name, version
+            ),
         };
         #[derive(Deserialize)]
-        struct ListResp { prebuilts: Vec<PrebuiltEntry> }
+        struct ListResp {
+            prebuilts: Vec<PrebuiltEntry>,
+        }
         #[derive(Deserialize)]
-        struct PrebuiltEntry { triple: String }
+        struct PrebuiltEntry {
+            triple: String,
+        }
         match http_get_json::<ListResp>(&url, self.token.as_deref()) {
-            Ok(r)                                => Ok(r.prebuilts.into_iter().map(|e| e.triple).collect()),
+            Ok(r) => Ok(r.prebuilts.into_iter().map(|e| e.triple).collect()),
             Err(FreightError::RegistryNotFound(_)) => Ok(vec![]),
-            Err(e)                               => Err(e),
+            Err(e) => Err(e),
         }
     }
 
-    /// Download a prebuilt tarball for `triple` to `.deps/<name>/`.
+    /// Download a prebuilt tarball for `triple` to `target/deps/<name>/`.
     ///
     /// Returns the SHA-256 checksum of the downloaded tarball.
     /// The prebuilt tarball is expected to contain `include/`, `lib/`, and
-    /// `lib/pkgconfig/` directories that are extracted into `.deps/<name>/`.
+    /// `lib/pkgconfig/` directories that are extracted into `target/deps/<name>/`.
     pub fn download_prebuilt(
         &self,
-        name:    &str,
+        name: &str,
         version: &str,
         channel: Option<&str>,
-        triple:  &str,
+        triple: &str,
         project_dir: &Path,
     ) -> Result<String, FreightError> {
         let url = match channel {
             Some(ch) => format!(
                 "{}/api/v1/packages/{}/{}/prebuilt/{}/download?channel={}",
-                self.base_url, name, version, triple, url_encode(ch)
+                self.base_url,
+                name,
+                version,
+                triple,
+                url_encode(ch)
             ),
             None => format!(
                 "{}/api/v1/packages/{}/{}/prebuilt/{}/download",
@@ -344,14 +429,23 @@ impl FreightRegistry {
         };
         let (bytes, checksum_header) = http_get_bytes(&url, self.token.as_deref())?;
 
-        let deps_dir = project_dir.join(".deps").join(name);
+        let deps_dir = project_dir.join("target").join("deps").join(name);
         std::fs::create_dir_all(&deps_dir)?;
 
-        let archive = project_dir.join(".deps").join(format!("{name}-{version}-{triple}.tar.gz"));
+        let archive = project_dir
+            .join("target")
+            .join("deps")
+            .join(format!("{name}-{version}-{triple}.tar.gz"));
         std::fs::write(&archive, &bytes)?;
 
         let ok = std::process::Command::new("tar")
-            .args(["-xf", &archive.to_string_lossy(), "-C", &deps_dir.to_string_lossy(), "--strip-components=1"])
+            .args([
+                "-xf",
+                &archive.to_string_lossy(),
+                "-C",
+                &deps_dir.to_string_lossy(),
+                "--strip-components=1",
+            ])
             .status()
             .map_err(|e| FreightError::RegistryError(format!("tar not found: {e}")))?
             .success();
@@ -366,7 +460,10 @@ impl FreightRegistry {
             Some(h) => h,
             None => {
                 use sha2::{Digest, Sha256};
-                Sha256::digest(&bytes).iter().map(|b| format!("{b:02x}")).collect()
+                Sha256::digest(&bytes)
+                    .iter()
+                    .map(|b| format!("{b:02x}"))
+                    .collect()
             }
         };
 
@@ -379,10 +476,10 @@ impl FreightRegistry {
     /// Upload a prebuilt tarball for `triple`.
     pub fn upload_prebuilt(
         &self,
-        name:    &str,
+        name: &str,
         version: &str,
         channel: Option<&str>,
-        triple:  &str,
+        triple: &str,
         tarball: &[u8],
     ) -> Result<(), FreightError> {
         let token = self.token.as_deref().ok_or_else(|| {
@@ -393,7 +490,11 @@ impl FreightRegistry {
         let url = match channel {
             Some(ch) => format!(
                 "{}/api/v1/packages/{}/{}/prebuilt/{}?channel={}",
-                self.base_url, name, version, triple, url_encode(ch)
+                self.base_url,
+                name,
+                version,
+                triple,
+                url_encode(ch)
             ),
             None => format!(
                 "{}/api/v1/packages/{}/{}/prebuilt/{}",
@@ -434,6 +535,8 @@ struct ApiVersion {
     prebuilt_triples: Vec<String>,
     #[serde(default)]
     dependencies: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    downloads: u64,
 }
 
 #[derive(Deserialize)]
@@ -449,28 +552,141 @@ impl From<ApiPackage> for PackageInfo {
             name: a.name,
             description: a.description,
             latest: a.latest,
-            versions: a.versions.into_iter().map(|v| PackageVersion {
-                version: v.version,
-                checksum: v.checksum,
-                download_url: v.download_url,
-                upstream_url: v.upstream_url,
-                build_system: v.build_system,
-                prebuilt_triples: v.prebuilt_triples,
-                dependencies: v.dependencies,
-            }).collect(),
+            versions: a
+                .versions
+                .into_iter()
+                .map(|v| PackageVersion {
+                    version: v.version,
+                    checksum: v.checksum,
+                    download_url: v.download_url,
+                    upstream_url: v.upstream_url,
+                    build_system: v.build_system,
+                    prebuilt_triples: v.prebuilt_triples,
+                    dependencies: v.dependencies,
+                    downloads: v.downloads,
+                })
+                .collect(),
             keywords: a.keywords,
             owners: vec![],
         }
     }
 }
 
+// ── Metadata cache ────────────────────────────────────────────────────────────
+
+/// Derive a filesystem-safe slug from a registry URL.
+/// `http://localhost:7878` → `localhost-7878`
+/// `https://freight.dev`   → `freight.dev`
+fn url_slug(url: &str) -> String {
+    let stripped = url
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+    // Replace characters invalid in directory names.
+    stripped.replace(['/', ':', '?', '#', '&', '='], "-")
+}
+
+/// Returns `~/.freight/cache/<slug>/pkg/` for the given registry base URL.
+fn pkg_cache_dir(base_url: &str) -> Option<PathBuf> {
+    Some(freight_home()?.join("cache").join(url_slug(base_url)).join("pkg"))
+}
+
+/// On-disk cache entry: `(etag, json_body_string)`.
+/// Stored as a JSON file `{"etag":"...","body":"..."}`.
+fn cache_read(dir: &Path, name: &str) -> Option<(Option<String>, String)> {
+    let path = dir.join(format!("{name}.json"));
+    let raw = std::fs::read_to_string(&path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let body = v["body"].as_str()?.to_string();
+    let etag = v["etag"].as_str().map(str::to_string);
+    Some((etag, body))
+}
+
+fn cache_write(dir: &Path, name: &str, etag: Option<&str>, body: &str) {
+    let _ = std::fs::create_dir_all(dir);
+    let entry = serde_json::json!({ "etag": etag, "body": body });
+    if let Ok(s) = serde_json::to_string(&entry) {
+        let _ = std::fs::write(dir.join(format!("{name}.json")), s);
+    }
+}
+
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
 
-fn http_get_json<T: for<'de> Deserialize<'de>>(url: &str, token: Option<&str>) -> Result<T, FreightError> {
+enum GetResult {
+    /// 200 OK — fresh body + optional ETag from server.
+    Body(String, Option<String>),
+    /// 304 Not Modified — cached copy is still valid.
+    NotModified,
+}
+
+/// GET with optional `If-None-Match` header; handles 200 and 304.
+fn http_get_with_etag(
+    url: &str,
+    token: Option<&str>,
+    if_none_match: Option<&str>,
+) -> Result<GetResult, FreightError> {
+    let mut body = Vec::new();
+    let mut etag_out: Option<String> = None;
+    let mut easy = Easy::new();
+
+    easy.url(url).map_err(|e| FreightError::RegistryError(format!("curl url: {e}")))?;
+    easy.follow_location(true).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.fail_on_error(false).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.connect_timeout(std::time::Duration::from_secs(5))
+        .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.timeout(std::time::Duration::from_secs(30))
+        .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.useragent(&format!("freight/{}", env!("CARGO_PKG_VERSION")))
+        .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+
+    let mut hdrs = List::new();
+    if let Some(tok) = token {
+        hdrs.append(&format!("Authorization: Bearer {tok}"))
+            .map_err(|e| FreightError::RegistryError(format!("curl header: {e}")))?;
+    }
+    if let Some(inm) = if_none_match {
+        hdrs.append(&format!("If-None-Match: {inm}"))
+            .map_err(|e| FreightError::RegistryError(format!("curl header: {e}")))?;
+    }
+    easy.http_headers(hdrs).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+
+    {
+        let mut transfer = easy.transfer();
+        transfer.header_function(|header| {
+            let s = String::from_utf8_lossy(header).to_lowercase();
+            if let Some(rest) = s.strip_prefix("etag:") {
+                etag_out = Some(rest.trim().to_string());
+            }
+            true
+        }).map_err(|e| FreightError::RegistryError(format!("curl header fn: {e}")))?;
+        transfer.write_function(|data| {
+            body.extend_from_slice(data);
+            Ok(data.len())
+        }).map_err(|e| FreightError::RegistryError(format!("curl write: {e}")))?;
+        transfer.perform().map_err(|e| FreightError::RegistryError(format!("request failed: {e}")))?;
+    }
+
+    let code = easy.response_code()
+        .map_err(|e| FreightError::RegistryError(format!("curl code: {e}")))?;
+
+    match code {
+        200 => {
+            let s = String::from_utf8(body)
+                .map_err(|_| FreightError::RegistryError("non-UTF-8 response".into()))?;
+            Ok(GetResult::Body(s, etag_out))
+        }
+        304 => Ok(GetResult::NotModified),
+        404 => Err(FreightError::RegistryNotFound(url.to_string())),
+        _   => Err(FreightError::RegistryError(format!("registry HTTP {code} for {url}"))),
+    }
+}
+
+fn http_get_json<T: for<'de> Deserialize<'de>>(
+    url: &str,
+    token: Option<&str>,
+) -> Result<T, FreightError> {
     let body = http_get(url, token)?;
-    serde_json::from_str(&body).map_err(|e| {
-        FreightError::RegistryError(format!("invalid JSON from registry: {e}"))
-    })
+    serde_json::from_str(&body)
+        .map_err(|e| FreightError::RegistryError(format!("invalid JSON from registry: {e}")))
 }
 
 fn http_get(url: &str, token: Option<&str>) -> Result<String, FreightError> {
@@ -492,7 +708,8 @@ fn http_get(url: &str, token: Option<&str>) -> Result<String, FreightError> {
 
     if let Some(tok) = token {
         let mut headers = curl::easy::List::new();
-        headers.append(&format!("Authorization: Bearer {tok}"))
+        headers
+            .append(&format!("Authorization: Bearer {tok}"))
             .map_err(|e| FreightError::RegistryError(format!("curl header: {e}")))?;
         easy.http_headers(headers)
             .map_err(|e| FreightError::RegistryError(format!("curl option: {e}")))?;
@@ -500,21 +717,29 @@ fn http_get(url: &str, token: Option<&str>) -> Result<String, FreightError> {
 
     {
         let mut transfer = easy.transfer();
-        transfer.write_function(|data| {
-            body.extend_from_slice(data);
-            Ok(data.len())
-        }).map_err(|e| FreightError::RegistryError(format!("curl write: {e}")))?;
-        transfer.perform()
+        transfer
+            .write_function(|data| {
+                body.extend_from_slice(data);
+                Ok(data.len())
+            })
+            .map_err(|e| FreightError::RegistryError(format!("curl write: {e}")))?;
+        transfer
+            .perform()
             .map_err(|e| FreightError::RegistryError(format!("request failed: {e}")))?;
     }
 
-    let code = easy.response_code()
+    let code = easy
+        .response_code()
         .map_err(|e| FreightError::RegistryError(format!("curl response code: {e}")))?;
 
     match code {
         200 => {}
         404 => return Err(FreightError::RegistryNotFound(url.to_string())),
-        _   => return Err(FreightError::RegistryError(format!("registry HTTP {code} for {url}"))),
+        _ => {
+            return Err(FreightError::RegistryError(format!(
+                "registry HTTP {code} for {url}"
+            )))
+        }
     }
 
     String::from_utf8(body)
@@ -522,14 +747,20 @@ fn http_get(url: &str, token: Option<&str>) -> Result<String, FreightError> {
 }
 
 /// GET a URL, returning raw bytes and the `X-Checksum-SHA256` header if present.
-fn http_get_bytes(url: &str, token: Option<&str>) -> Result<(Vec<u8>, Option<String>), FreightError> {
+fn http_get_bytes(
+    url: &str,
+    token: Option<&str>,
+) -> Result<(Vec<u8>, Option<String>), FreightError> {
     let mut body = Vec::new();
     let mut checksum_header: Option<String> = None;
     let mut easy = Easy::new();
 
-    easy.url(url).map_err(|e| FreightError::RegistryError(format!("curl url: {e}")))?;
-    easy.follow_location(true).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
-    easy.fail_on_error(false).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.url(url)
+        .map_err(|e| FreightError::RegistryError(format!("curl url: {e}")))?;
+    easy.follow_location(true)
+        .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.fail_on_error(false)
+        .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
     easy.connect_timeout(std::time::Duration::from_secs(5))
         .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
     easy.timeout(std::time::Duration::from_secs(30))
@@ -541,43 +772,64 @@ fn http_get_bytes(url: &str, token: Option<&str>) -> Result<(Vec<u8>, Option<Str
         let mut hdrs = List::new();
         hdrs.append(&format!("Authorization: Bearer {tok}"))
             .map_err(|e| FreightError::RegistryError(format!("curl header: {e}")))?;
-        easy.http_headers(hdrs).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+        easy.http_headers(hdrs)
+            .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
     }
 
     {
         let mut transfer = easy.transfer();
-        transfer.header_function(|header| {
-            let s = String::from_utf8_lossy(header).to_lowercase();
-            if let Some(rest) = s.strip_prefix("x-checksum-sha256:") {
-                checksum_header = Some(rest.trim().to_string());
-            }
-            true
-        }).map_err(|e| FreightError::RegistryError(format!("curl header fn: {e}")))?;
-        transfer.write_function(|data| {
-            body.extend_from_slice(data);
-            Ok(data.len())
-        }).map_err(|e| FreightError::RegistryError(format!("curl write: {e}")))?;
-        transfer.perform().map_err(|e| FreightError::RegistryError(format!("request: {e}")))?;
+        transfer
+            .header_function(|header| {
+                let s = String::from_utf8_lossy(header).to_lowercase();
+                if let Some(rest) = s.strip_prefix("x-checksum-sha256:") {
+                    checksum_header = Some(rest.trim().to_string());
+                }
+                true
+            })
+            .map_err(|e| FreightError::RegistryError(format!("curl header fn: {e}")))?;
+        transfer
+            .write_function(|data| {
+                body.extend_from_slice(data);
+                Ok(data.len())
+            })
+            .map_err(|e| FreightError::RegistryError(format!("curl write: {e}")))?;
+        transfer
+            .perform()
+            .map_err(|e| FreightError::RegistryError(format!("request: {e}")))?;
     }
 
-    let code = easy.response_code()
+    let code = easy
+        .response_code()
         .map_err(|e| FreightError::RegistryError(format!("curl code: {e}")))?;
     match code {
         200 => Ok((body, checksum_header)),
         404 => Err(FreightError::RegistryNotFound(url.to_string())),
-        410 => Err(FreightError::RegistryError(format!("version is yanked: {url}"))),
-        _   => Err(FreightError::RegistryError(format!("HTTP {code} from {url}"))),
+        410 => Err(FreightError::RegistryError(format!(
+            "version is yanked: {url}"
+        ))),
+        _ => Err(FreightError::RegistryError(format!(
+            "HTTP {code} from {url}"
+        ))),
     }
 }
 
-fn http_put(url: &str, token: Option<&str>, content_type: &str, body: Vec<u8>) -> Result<String, FreightError> {
+fn http_put(
+    url: &str,
+    token: Option<&str>,
+    content_type: &str,
+    body: Vec<u8>,
+) -> Result<String, FreightError> {
     let mut resp = Vec::new();
     let mut easy = Easy::new();
 
-    easy.url(url).map_err(|e| FreightError::RegistryError(format!("curl url: {e}")))?;
-    easy.upload(true).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
-    easy.in_filesize(body.len() as u64).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
-    easy.fail_on_error(false).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.url(url)
+        .map_err(|e| FreightError::RegistryError(format!("curl url: {e}")))?;
+    easy.upload(true)
+        .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.in_filesize(body.len() as u64)
+        .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.fail_on_error(false)
+        .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
     easy.useragent(&format!("freight/{}", env!("CARGO_PKG_VERSION")))
         .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
 
@@ -588,42 +840,63 @@ fn http_put(url: &str, token: Option<&str>, content_type: &str, body: Vec<u8>) -
         hdrs.append(&format!("Authorization: Bearer {tok}"))
             .map_err(|e| FreightError::RegistryError(format!("curl header: {e}")))?;
     }
-    easy.http_headers(hdrs).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.http_headers(hdrs)
+        .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
 
     let mut body_cursor = std::io::Cursor::new(body);
     {
         let mut transfer = easy.transfer();
-        transfer.read_function(|buf| {
-            use std::io::Read;
-            Ok(body_cursor.read(buf).unwrap_or(0))
-        }).map_err(|e| FreightError::RegistryError(format!("curl read: {e}")))?;
-        transfer.write_function(|data| {
-            resp.extend_from_slice(data);
-            Ok(data.len())
-        }).map_err(|e| FreightError::RegistryError(format!("curl write: {e}")))?;
-        transfer.perform().map_err(|e| FreightError::RegistryError(format!("request: {e}")))?;
+        transfer
+            .read_function(|buf| {
+                use std::io::Read;
+                Ok(body_cursor.read(buf).unwrap_or(0))
+            })
+            .map_err(|e| FreightError::RegistryError(format!("curl read: {e}")))?;
+        transfer
+            .write_function(|data| {
+                resp.extend_from_slice(data);
+                Ok(data.len())
+            })
+            .map_err(|e| FreightError::RegistryError(format!("curl write: {e}")))?;
+        transfer
+            .perform()
+            .map_err(|e| FreightError::RegistryError(format!("request: {e}")))?;
     }
 
-    let code = easy.response_code()
+    let code = easy
+        .response_code()
         .map_err(|e| FreightError::RegistryError(format!("curl code: {e}")))?;
     let body_str = String::from_utf8_lossy(&resp).into_owned();
     match code {
         200 | 201 => Ok(body_str),
-        401 => Err(FreightError::RegistryError("authentication required — check your token".into())),
+        401 => Err(FreightError::RegistryError(
+            "authentication required — check your token".into(),
+        )),
         403 => Err(FreightError::RegistryError("permission denied".into())),
         409 => Err(FreightError::RegistryError(format!("conflict: {body_str}"))),
-        _   => Err(FreightError::RegistryError(format!("HTTP {code}: {body_str}"))),
+        _ => Err(FreightError::RegistryError(format!(
+            "HTTP {code}: {body_str}"
+        ))),
     }
 }
 
-fn http_post(url: &str, token: Option<&str>, content_type: &str, body: Vec<u8>) -> Result<String, FreightError> {
+fn http_post(
+    url: &str,
+    token: Option<&str>,
+    content_type: &str,
+    body: Vec<u8>,
+) -> Result<String, FreightError> {
     let mut resp = Vec::new();
     let mut easy = Easy::new();
 
-    easy.url(url).map_err(|e| FreightError::RegistryError(format!("curl url: {e}")))?;
-    easy.post(true).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
-    easy.post_field_size(body.len() as u64).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
-    easy.fail_on_error(false).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.url(url)
+        .map_err(|e| FreightError::RegistryError(format!("curl url: {e}")))?;
+    easy.post(true)
+        .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.post_field_size(body.len() as u64)
+        .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.fail_on_error(false)
+        .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
     easy.useragent(&format!("freight/{}", env!("CARGO_PKG_VERSION")))
         .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
 
@@ -634,31 +907,43 @@ fn http_post(url: &str, token: Option<&str>, content_type: &str, body: Vec<u8>) 
         hdrs.append(&format!("Authorization: Bearer {tok}"))
             .map_err(|e| FreightError::RegistryError(format!("curl header: {e}")))?;
     }
-    easy.http_headers(hdrs).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.http_headers(hdrs)
+        .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
 
     let mut body_cursor = std::io::Cursor::new(body);
     {
         let mut transfer = easy.transfer();
-        transfer.read_function(|buf| {
-            use std::io::Read;
-            Ok(body_cursor.read(buf).unwrap_or(0))
-        }).map_err(|e| FreightError::RegistryError(format!("curl read: {e}")))?;
-        transfer.write_function(|data| {
-            resp.extend_from_slice(data);
-            Ok(data.len())
-        }).map_err(|e| FreightError::RegistryError(format!("curl write: {e}")))?;
-        transfer.perform().map_err(|e| FreightError::RegistryError(format!("request: {e}")))?;
+        transfer
+            .read_function(|buf| {
+                use std::io::Read;
+                Ok(body_cursor.read(buf).unwrap_or(0))
+            })
+            .map_err(|e| FreightError::RegistryError(format!("curl read: {e}")))?;
+        transfer
+            .write_function(|data| {
+                resp.extend_from_slice(data);
+                Ok(data.len())
+            })
+            .map_err(|e| FreightError::RegistryError(format!("curl write: {e}")))?;
+        transfer
+            .perform()
+            .map_err(|e| FreightError::RegistryError(format!("request: {e}")))?;
     }
 
-    let code = easy.response_code()
+    let code = easy
+        .response_code()
         .map_err(|e| FreightError::RegistryError(format!("curl code: {e}")))?;
     let body_str = String::from_utf8_lossy(&resp).into_owned();
     match code {
         200 | 201 => Ok(body_str),
-        401 => Err(FreightError::RegistryError("authentication required — check your token".into())),
+        401 => Err(FreightError::RegistryError(
+            "authentication required — check your token".into(),
+        )),
         403 => Err(FreightError::RegistryError("permission denied".into())),
         409 => Err(FreightError::RegistryError(format!("conflict: {body_str}"))),
-        _   => Err(FreightError::RegistryError(format!("HTTP {code}: {body_str}"))),
+        _ => Err(FreightError::RegistryError(format!(
+            "HTTP {code}: {body_str}"
+        ))),
     }
 }
 
@@ -666,35 +951,48 @@ fn http_delete(url: &str, token: &str) -> Result<String, FreightError> {
     let mut resp = Vec::new();
     let mut easy = Easy::new();
 
-    easy.url(url).map_err(|e| FreightError::RegistryError(format!("curl url: {e}")))?;
-    easy.custom_request("DELETE").map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
-    easy.fail_on_error(false).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.url(url)
+        .map_err(|e| FreightError::RegistryError(format!("curl url: {e}")))?;
+    easy.custom_request("DELETE")
+        .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.fail_on_error(false)
+        .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
     easy.useragent(&format!("freight/{}", env!("CARGO_PKG_VERSION")))
         .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
 
     let mut hdrs = List::new();
     hdrs.append(&format!("Authorization: Bearer {token}"))
         .map_err(|e| FreightError::RegistryError(format!("curl header: {e}")))?;
-    easy.http_headers(hdrs).map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
+    easy.http_headers(hdrs)
+        .map_err(|e| FreightError::RegistryError(format!("curl opt: {e}")))?;
 
     {
         let mut transfer = easy.transfer();
-        transfer.write_function(|data| {
-            resp.extend_from_slice(data);
-            Ok(data.len())
-        }).map_err(|e| FreightError::RegistryError(format!("curl write: {e}")))?;
-        transfer.perform().map_err(|e| FreightError::RegistryError(format!("request: {e}")))?;
+        transfer
+            .write_function(|data| {
+                resp.extend_from_slice(data);
+                Ok(data.len())
+            })
+            .map_err(|e| FreightError::RegistryError(format!("curl write: {e}")))?;
+        transfer
+            .perform()
+            .map_err(|e| FreightError::RegistryError(format!("request: {e}")))?;
     }
 
-    let code = easy.response_code()
+    let code = easy
+        .response_code()
         .map_err(|e| FreightError::RegistryError(format!("curl code: {e}")))?;
     let body_str = String::from_utf8_lossy(&resp).into_owned();
     match code {
         200 | 204 => Ok(body_str),
-        401 => Err(FreightError::RegistryError("authentication required — check your token".into())),
+        401 => Err(FreightError::RegistryError(
+            "authentication required — check your token".into(),
+        )),
         403 => Err(FreightError::RegistryError("permission denied".into())),
         404 => Err(FreightError::RegistryNotFound(url.to_string())),
-        _   => Err(FreightError::RegistryError(format!("HTTP {code}: {body_str}"))),
+        _ => Err(FreightError::RegistryError(format!(
+            "HTTP {code}: {body_str}"
+        ))),
     }
 }
 
@@ -708,11 +1006,13 @@ fn sha256_hex(s: &str) -> String {
 }
 
 fn url_encode(s: &str) -> String {
-    s.chars().flat_map(|c| match c {
-        'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => {
-            vec![c]
-        }
-        ' ' => vec!['+'],
-        c => format!("%{:02X}", c as u32).chars().collect::<Vec<_>>(),
-    }).collect()
+    s.chars()
+        .flat_map(|c| match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' | '~' => {
+                vec![c]
+            }
+            ' ' => vec!['+'],
+            c => format!("%{:02X}", c as u32).chars().collect::<Vec<_>>(),
+        })
+        .collect()
 }
