@@ -1,7 +1,7 @@
 use ratatui::{
     layout::{Alignment, Constraint, Layout, Rect},
     style::{Color, Modifier, Style},
-    text::{Line, Span, Text},
+    text::{Line, Span},
     widgets::{
         Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Row, Table, Tabs,
         Wrap,
@@ -159,7 +159,7 @@ fn draw_readme(frame: &mut Frame, area: Rect, app: &mut App) {
         .and_then(|d| d.readme.as_deref())
         .unwrap_or("*No README available.*");
 
-    let md = render_markdown(content);
+    let md = tui_markdown::from_str(content);
     let para = Paragraph::new(md)
         .block(Block::default()
             .title(" README  (PgUp/PgDn or scroll) ")
@@ -244,128 +244,6 @@ fn draw_package_detail(frame: &mut Frame, area: Rect, app: &mut App) {
     let mut hints = vec![Span::raw(" [y] yank  [u] unyank  [a] owner  [Esc] back")];
     if app.is_admin { hints.push(Span::styled("  [d] del", ERR_STYLE)); }
     frame.render_widget(Paragraph::new(Line::from(hints)).style(DIM_STYLE), hint_area);
-}
-
-// ── Markdown renderer ─────────────────────────────────────────────────────────
-//
-// Converts a Markdown string into styled ratatui `Text`.
-// Supports: headings (H1-H3), bold/italic, inline code, fenced code blocks,
-// unordered lists, paragraphs, horizontal rules.
-fn render_markdown(source: &str) -> Text<'static> {
-    use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
-
-    let mut lines: Vec<Line<'static>> = Vec::new();
-    let mut spans: Vec<Span<'static>> = Vec::new();
-    let mut bold:        bool = false;
-    let mut in_code:     bool = false;
-    let mut heading_lvl: u8   = 0;  // 0 = not in heading
-    let mut list_depth:  u32  = 0;
-
-    // Drain `spans` into a Line and push to `lines` if non-empty.
-    macro_rules! flush {
-        () => {
-            if !spans.is_empty() {
-                lines.push(Line::from(std::mem::take(&mut spans)));
-            }
-        };
-    }
-
-    for event in Parser::new_ext(source, Options::all()) {
-        match event {
-            // ── Headings ──────────────────────────────────────────────────────
-            Event::Start(Tag::Heading { level, .. }) => {
-                heading_lvl = match level {
-                    HeadingLevel::H1 => 1,
-                    HeadingLevel::H2 => 2,
-                    _ => 3,
-                };
-            }
-            Event::End(TagEnd::Heading(_)) => {
-                flush!();
-                lines.push(Line::default());
-                heading_lvl = 0;
-            }
-            // ── Emphasis / Strong ─────────────────────────────────────────────
-            Event::Start(Tag::Strong) | Event::Start(Tag::Emphasis) => bold = true,
-            Event::End(TagEnd::Strong) | Event::End(TagEnd::Emphasis) => bold = false,
-            // ── Inline code ───────────────────────────────────────────────────
-            Event::Code(c) => {
-                spans.push(Span::styled(
-                    format!("`{}`", c.as_ref()),
-                    Style::new().fg(Color::Yellow),
-                ));
-            }
-            // ── Fenced code block ─────────────────────────────────────────────
-            Event::Start(Tag::CodeBlock(_)) => {
-                flush!();
-                in_code = true;
-            }
-            Event::End(TagEnd::CodeBlock) => {
-                in_code = false;
-                lines.push(Line::default());
-            }
-            // ── Lists ─────────────────────────────────────────────────────────
-            Event::Start(Tag::List(_)) => { list_depth += 1; }
-            Event::End(TagEnd::List(_)) => {
-                list_depth = list_depth.saturating_sub(1);
-                if list_depth == 0 { lines.push(Line::default()); }
-            }
-            Event::Start(Tag::Item) => {
-                let indent = "  ".repeat(list_depth.saturating_sub(1) as usize);
-                spans.push(Span::styled(
-                    format!("{indent}● "),
-                    Style::new().fg(Color::Cyan),
-                ));
-            }
-            Event::End(TagEnd::Item) => { flush!(); }
-            // ── Paragraphs ────────────────────────────────────────────────────
-            Event::Start(Tag::Paragraph) => {}
-            Event::End(TagEnd::Paragraph) => {
-                flush!();
-                lines.push(Line::default());
-            }
-            // ── Text ──────────────────────────────────────────────────────────
-            Event::Text(t) => {
-                if in_code {
-                    // Each logical line of code gets its own Line
-                    for code_line in t.as_ref().trim_end_matches('\n').split('\n') {
-                        lines.push(Line::from(Span::styled(
-                            format!("  {code_line}"),
-                            Style::new().fg(Color::Yellow),
-                        )));
-                    }
-                } else {
-                    let style = if heading_lvl > 0 {
-                        match heading_lvl {
-                            1 => Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-                            2 => Style::new().fg(Color::Blue).add_modifier(Modifier::BOLD),
-                            _ => Style::new().fg(Color::Cyan),
-                        }
-                    } else if bold {
-                        Style::new().add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default()
-                    };
-                    spans.push(Span::styled(t.to_string(), style));
-                }
-            }
-            Event::SoftBreak => {
-                if !spans.is_empty() { spans.push(Span::raw(" ")); }
-            }
-            Event::HardBreak => { flush!(); }
-            Event::Rule => {
-                flush!();
-                lines.push(Line::from(Span::styled(
-                    "─".repeat(60),
-                    Style::new().fg(Color::DarkGray),
-                )));
-                lines.push(Line::default());
-            }
-            _ => {}
-        }
-    }
-    flush!();
-    Text::from(lines)
 }
 
 // ── Users tab ─────────────────────────────────────────────────────────────────
