@@ -25,6 +25,8 @@
 ///   - `ExternalProject_Add(name …)` → same rules; custom build steps warned
 ///   - `CPMAddPackage(NAME … GITHUB_REPOSITORY … GIT_TAG …)` → `{ git, tag }`
 ///   - `CPMAddPackage("gh:user/repo#tag")` compact form
+///   - `add_compile_options(…)` / `target_compile_options(tgt … flags…)` → `-std=` → lang std, `-D` → defines
+///   - `option(NAME "desc" ON|OFF)` / `cmake_dependent_option(…)` → `[features]`
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
@@ -213,6 +215,8 @@ struct Extracted {
     includes: Vec<String>,
     subdirs: Vec<String>,
     vars: HashMap<String, Vec<String>>, // name → list of values (set() args after the name)
+    /// Features from option() / cmake_dependent_option(): (name, default_on)
+    features: Vec<(String, bool)>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -240,6 +244,7 @@ impl Extracted {
             includes: Vec::new(),
             subdirs: Vec::new(),
             vars: HashMap::new(),
+            features: Vec::new(),
         }
     }
 
@@ -353,6 +358,11 @@ fn handle_command(
                 }
             }
         }
+        "add_compile_options" | "target_compile_options" => {
+            handle_compile_options(&args, ex, scope)
+        }
+        "option" => handle_option(&args, ex),
+        "cmake_dependent_option" => handle_cmake_dependent_option(&args, ex),
         "fetchcontent_declare" => handle_fetchcontent_declare(&args, ex, warnings),
         "externalproject_add" => handle_externalproject_add(&args, ex, warnings),
         "cpmaddpackage" => handle_cpm_add_package(&args, ex, warnings),
@@ -650,6 +660,90 @@ fn handle_add_definitions(args: &[&str], ex: &mut Extracted, has_target: bool) {
         if !def.is_empty() && !ex.defines.contains(&def) {
             ex.defines.push(def);
         }
+    }
+}
+
+/// Handle `add_compile_options(flags…)` and `target_compile_options(tgt … flags…)`.
+///
+/// Extracts `-std=` flags into the language standard and `-D` flags into defines.
+/// Other compiler flags (-Wall, -O2, etc.) are silently ignored — freight manages
+/// optimisation and warning levels through its own build profiles.
+fn handle_compile_options(args: &[&str], ex: &mut Extracted, scope: Option<&str>) {
+    const VIS: &[&str] = &["PUBLIC", "PRIVATE", "INTERFACE", "BEFORE"];
+    // For target_compile_options the first arg is the target name — skip it.
+    let skip_first = args
+        .first()
+        .map(|a| {
+            !a.starts_with('-')
+                && !VIS.contains(&a.to_ascii_uppercase().as_str())
+                && !a.starts_with("$<")
+        })
+        .unwrap_or(false);
+    let start = if skip_first { 1 } else { 0 };
+
+    for arg in &args[start..] {
+        if VIS.contains(&arg.to_ascii_uppercase().as_str()) {
+            continue;
+        }
+        let expanded = expand_var(arg, &ex.vars);
+        if expanded.starts_with("$<") || expanded.starts_with('$') {
+            continue; // generator expressions / unexpandable variables
+        }
+        if let Some(rest) = expanded.strip_prefix("-std=") {
+            let std = rest.replace("gnu++", "c++").replace("gnu", "c");
+            if std.contains("++") {
+                if ex.cxx_std.is_none() {
+                    ex.cxx_std = Some(std);
+                }
+            } else if ex.c_std.is_none() {
+                ex.c_std = Some(std);
+            }
+        } else if let Some(def) = expanded.strip_prefix("-D") {
+            if !def.is_empty() && scope.is_none() && !ex.defines.contains(&def.to_string()) {
+                ex.defines.push(def.to_string());
+            }
+        }
+    }
+}
+
+/// Handle `option(NAME "description" [ON|OFF])`.
+fn handle_option(args: &[&str], ex: &mut Extracted) {
+    if args.is_empty() {
+        return;
+    }
+    let name = sanitize_name(&expand_var(args[0], &ex.vars));
+    if name.is_empty() || name.contains('$') {
+        return;
+    }
+    // Skip standard CMake options that don't map to freight features.
+    const SKIP: &[&str] = &[
+        "cmake_build_type",
+        "cmake_install_prefix",
+        "build_testing",
+        "build_shared_libs",
+        "cmake_verbose_makefile",
+    ];
+    if SKIP.contains(&name.to_ascii_lowercase().as_str()) {
+        return;
+    }
+    let default_on = args.get(2).map(|v| v.eq_ignore_ascii_case("ON")).unwrap_or(false);
+    if !ex.features.iter().any(|(n, _)| n == &name) {
+        ex.features.push((name, default_on));
+    }
+}
+
+/// Handle `cmake_dependent_option(NAME "description" ON|OFF "conditions" [FORCE])`.
+fn handle_cmake_dependent_option(args: &[&str], ex: &mut Extracted) {
+    if args.is_empty() {
+        return;
+    }
+    let name = sanitize_name(&expand_var(args[0], &ex.vars));
+    if name.is_empty() || name.contains('$') {
+        return;
+    }
+    let default_on = args.get(2).map(|v| v.eq_ignore_ascii_case("ON")).unwrap_or(false);
+    if !ex.features.iter().any(|(n, _)| n == &name) {
+        ex.features.push((name, default_on));
     }
 }
 
@@ -1120,6 +1214,30 @@ fn emit_toml(name: &str, version: &str, ex: &Extracted, warnings: &[String]) -> 
     pkg.insert("name", value(name));
     pkg.insert("version", value(version));
     doc.insert("package", Item::Table(pkg));
+
+    // [features] — from option() / cmake_dependent_option()
+    if !ex.features.is_empty() {
+        let mut feat_tbl = Table::new();
+        let default_names: Vec<&str> = ex
+            .features
+            .iter()
+            .filter(|(_, on)| *on)
+            .map(|(n, _)| n.as_str())
+            .collect();
+        if !default_names.is_empty() {
+            let mut arr = Array::new();
+            for f in &default_names {
+                arr.push(*f);
+            }
+            feat_tbl.insert("default", Item::Value(arr.into()));
+        }
+        for (name, _) in &ex.features {
+            if name != "default" {
+                feat_tbl.insert(name.as_str(), Item::Value(Array::new().into()));
+            }
+        }
+        doc.insert("features", Item::Table(feat_tbl));
+    }
 
     if !ex.defines.is_empty() || !ex.includes.is_empty() {
         let mut compiler = Table::new();
@@ -1928,5 +2046,78 @@ CPMAddPackage(
         let toml = emit_toml("app", "0.1.0", &ex, &w);
         assert!(toml.contains("url = \"https://zlib.net/zlib-1.3.tar.gz\""));
         assert!(toml.contains("sha256 = \"abc123\""));
+    }
+
+    // ── add_compile_options / target_compile_options ──────────────────────────
+
+    #[test]
+    fn compile_options_extracts_std() {
+        let src = "add_compile_options(-std=c++17 -Wall -O2)";
+        let (ex, _) = extract_src(src);
+        assert_eq!(ex.cxx_std, Some("c++17".to_string()));
+    }
+
+    #[test]
+    fn target_compile_options_skips_target_name() {
+        let src = "target_compile_options(mylib PRIVATE -std=c++20 -DFOO)";
+        let (ex, _) = extract_src(src);
+        assert_eq!(ex.cxx_std, Some("c++20".to_string()));
+        assert!(ex.defines.contains(&"FOO".to_string()));
+    }
+
+    #[test]
+    fn compile_options_gnu_std_normalised() {
+        let src = "add_compile_options(-std=gnu++14)";
+        let (ex, _) = extract_src(src);
+        assert_eq!(ex.cxx_std, Some("c++14".to_string()));
+    }
+
+    #[test]
+    fn compile_options_does_not_duplicate_std_from_set() {
+        // CMAKE_CXX_STANDARD takes precedence (set earlier in Extracted::new state)
+        let src = "set(CMAKE_CXX_STANDARD 17)\nadd_compile_options(-std=c++20)";
+        let (ex, _) = extract_src(src);
+        // First assignment wins
+        assert_eq!(ex.cxx_std, Some("c++17".to_string()));
+    }
+
+    // ── option / cmake_dependent_option ──────────────────────────────────────
+
+    #[test]
+    fn option_off_by_default() {
+        let src = "option(ENABLE_TLS \"Enable TLS support\" OFF)";
+        let (ex, _) = extract_src(src);
+        assert!(ex.features.iter().any(|(n, on)| n == "enable_tls" && !on));
+    }
+
+    #[test]
+    fn option_on_by_default() {
+        let src = "option(WITH_LOGGING \"Enable logging\" ON)";
+        let (ex, _) = extract_src(src);
+        assert!(ex.features.iter().any(|(n, on)| n == "with_logging" && *on));
+    }
+
+    #[test]
+    fn cmake_dependent_option_captured() {
+        let src = "cmake_dependent_option(ENABLE_SSL \"SSL support\" ON \"UNIX\" OFF)";
+        let (ex, _) = extract_src(src);
+        assert!(ex.features.iter().any(|(n, _)| n == "enable_ssl"));
+    }
+
+    #[test]
+    fn cmake_internal_options_skipped() {
+        let src = "option(BUILD_TESTING \"Build tests\" OFF)\noption(BUILD_SHARED_LIBS \"Shared\" ON)";
+        let (ex, _) = extract_src(src);
+        assert!(ex.features.is_empty(), "cmake internals must not appear in features");
+    }
+
+    #[test]
+    fn features_emitted_with_default() {
+        let src = "option(LOGGING \"Enable logging\" ON)\noption(TLS \"TLS support\" OFF)";
+        let (ex, w) = extract_src(src);
+        let toml = emit_toml("app", "0.1.0", &ex, &w);
+        assert!(toml.contains("[features]"), "expected [features] section:\n{toml}");
+        assert!(toml.contains("logging"), "expected logging feature:\n{toml}");
+        assert!(toml.contains("default"), "expected default array:\n{toml}");
     }
 }

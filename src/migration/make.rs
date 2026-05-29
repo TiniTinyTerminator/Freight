@@ -209,7 +209,7 @@ fn analyze(
     }
     system_deps.sort();
     system_deps.dedup();
-    let system_deps = filter_auto_detected(system_deps);
+    let mut system_deps = filter_auto_detected(system_deps);
 
     // Warn about unexpandable things we skipped
     for flag_var in &["CFLAGS", "CXXFLAGS", "LDFLAGS", "LIBS"] {
@@ -293,7 +293,31 @@ fn analyze(
         })
         .unwrap_or_else(|| "project".to_string());
 
-    let conditional_deps = parse_conditional_deps(raw_content);
+    let mut conditional_deps = parse_conditional_deps(raw_content);
+    let unknown_ifdef_deps = parse_ifdef_deps(raw_content, &mut conditional_deps);
+    if !unknown_ifdef_deps.is_empty() {
+        warnings.push(format!(
+            "ifdef/ifndef blocks with unclassifiable condition — \
+             {} lib(s) added to [dependencies]; review manually",
+            unknown_ifdef_deps.len()
+        ));
+        for lib in &unknown_ifdef_deps {
+            if !system_deps.contains(lib) {
+                system_deps.push(lib.clone());
+            }
+        }
+    }
+
+    // Extract package names from $(shell pkg-config --libs …) in flag variables
+    for var in &["LDFLAGS", "LDLIBS", "LIBS", "LDADD"] {
+        let raw = vars.raw(var).unwrap_or_default();
+        let pkgs = filter_auto_detected(extract_pkgconfig_libs(&raw));
+        for pkg in pkgs {
+            if !system_deps.contains(&pkg) {
+                system_deps.push(pkg);
+            }
+        }
+    }
 
     ProjectSpec {
         name,
@@ -772,6 +796,118 @@ fn push_unique(vec: &mut Vec<String>, items: Vec<String>) {
     }
 }
 
+/// Extract package names from `$(shell pkg-config --libs foo bar)` expressions.
+///
+/// We can't evaluate shell calls, but we can recognise the pkg-config idiom and
+/// pull out the package names — they become `dep = "*"` entries that freight then
+/// resolves via its own pkg-config integration.
+fn extract_pkgconfig_libs(s: &str) -> Vec<String> {
+    let mut deps = Vec::new();
+    let mut pos = 0;
+    while let Some(idx) = s[pos..].find("pkg-config") {
+        let abs = pos + idx;
+        // Grab everything up to the end of the surrounding $(...) or backtick block
+        let after = &s[abs + 10..];
+        let end = after.find(|c| c == ')' || c == '`').unwrap_or(after.len());
+        let args = &after[..end];
+        for tok in args.split_whitespace() {
+            // Skip pkg-config flags
+            if tok.starts_with("--") || tok == "pkg-config" {
+                continue;
+            }
+            let pkg = tok.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_');
+            if !pkg.is_empty() && !deps.contains(&pkg.to_string()) {
+                deps.push(pkg.to_string());
+            }
+        }
+        pos = abs + 1;
+    }
+    deps
+}
+
+/// Scan raw Makefile text for `ifdef`/`ifndef` blocks that look OS-specific,
+/// collect -l flags from their bodies into conditional buckets.  Blocks whose
+/// variable name can't be classified go into `ConditionalDeps::unix` (best guess
+/// for most platform guards) and the caller emits a warning.
+fn parse_ifdef_deps(content: &str, result: &mut ConditionalDeps) -> Vec<String> {
+    let mut unknown_body_deps: Vec<String> = Vec::new();
+    let lines: Vec<&str> = content.lines().collect();
+    let mut i = 0;
+
+    while i < lines.len() {
+        let t = lines[i].trim();
+        let is_ifdef = t.starts_with("ifdef ");
+        let is_ifndef = t.starts_with("ifndef ");
+        if !is_ifdef && !is_ifndef {
+            i += 1;
+            continue;
+        }
+
+        let keyword_len = if is_ifdef { 6 } else { 7 };
+        let var_name = t[keyword_len..].trim().to_ascii_uppercase();
+
+        // Try to classify the variable name by OS
+        let os_key: Option<&'static str> = if var_name.contains("WIN") || var_name.contains("MSVC") || var_name.contains("MINGW") {
+            Some("windows")
+        } else if var_name.contains("LINUX") || var_name.contains("GNU") {
+            Some("linux")
+        } else if var_name.contains("DARWIN") || var_name.contains("APPLE") || var_name.contains("MACOS") {
+            Some("macos")
+        } else {
+            None
+        };
+
+        let mut then_libs: Vec<String> = Vec::new();
+        let mut else_libs: Vec<String> = Vec::new();
+        let mut in_else = false;
+        let mut depth = 1usize;
+        i += 1;
+
+        while i < lines.len() {
+            let it = lines[i].trim();
+            if it.starts_with("ifeq") || it.starts_with("ifneq") || it.starts_with("ifdef") || it.starts_with("ifndef") {
+                depth += 1;
+            } else if it.starts_with("endif") {
+                depth -= 1;
+                if depth == 0 {
+                    i += 1;
+                    break;
+                }
+            } else if it == "else" && depth == 1 {
+                in_else = true;
+                i += 1;
+                continue;
+            }
+            if depth == 1 {
+                let libs = filter_auto_detected(extract_libs_from_line(it));
+                let target = if in_else { &mut else_libs } else { &mut then_libs };
+                for lib in libs {
+                    if !target.contains(&lib) {
+                        target.push(lib);
+                    }
+                }
+            }
+            i += 1;
+        }
+
+        if let Some(os) = os_key {
+            let (then_os, else_os) = if is_ifndef {
+                (invert_os(os), os)
+            } else {
+                (os, invert_os(os))
+            };
+            push_unique(cond_bucket(result, then_os), then_libs);
+            push_unique(cond_bucket(result, else_os), else_libs);
+        } else {
+            // Unclassifiable guard — add all body deps to unknown bucket
+            push_unique(&mut unknown_body_deps, then_libs);
+            push_unique(&mut unknown_body_deps, else_libs);
+        }
+    }
+
+    unknown_body_deps
+}
+
 /// Extract -l<lib> flags from any line, stripping assignment operators first.
 fn extract_libs_from_line(line: &str) -> Vec<String> {
     let rhs = if let Some(p) = line.find("+=") {
@@ -880,6 +1016,14 @@ fn is_append_assignment(def: &VariableDefinition) -> bool {
         .unwrap_or(false)
 }
 
+fn is_conditional_assignment(def: &VariableDefinition) -> bool {
+    let text = def.to_string();
+    let name = def.name().unwrap_or_default();
+    text.find(&name)
+        .map(|i| text[i + name.len()..].trim_start().starts_with("?="))
+        .unwrap_or(false)
+}
+
 fn collect_vars(mf: &Makefile) -> HashMap<String, String> {
     let mut vars: HashMap<String, String> = HashMap::new();
     for def in mf.variable_definitions() {
@@ -891,6 +1035,9 @@ fn collect_vars(mf: &Makefile) -> HashMap<String, String> {
                 entry.push(' ');
             }
             entry.push_str(&val);
+        } else if is_conditional_assignment(&def) {
+            // ?= only sets the variable if it is not already defined
+            vars.entry(name).or_insert(val);
         } else {
             vars.insert(name, val);
         }
@@ -1307,6 +1454,59 @@ mod tests {
         assert!(
             !toml.contains("[dependencies]"),
             "ws2_32 should not appear in unconditional deps:\n{toml}"
+        );
+    }
+
+    #[test]
+    fn conditional_assign_does_not_override() {
+        let content = "CFLAGS = -O2\nCFLAGS ?= -g\n";
+        let mf = Makefile::read_relaxed(content.as_bytes()).unwrap();
+        let vars = ExpandedVars::new(collect_vars(&mf));
+        // ?= should not override the already-set value
+        assert_eq!(vars.get("CFLAGS"), "-O2");
+    }
+
+    #[test]
+    fn conditional_assign_sets_when_absent() {
+        let content = "CFLAGS ?= -O2\n";
+        let mf = Makefile::read_relaxed(content.as_bytes()).unwrap();
+        let vars = ExpandedVars::new(collect_vars(&mf));
+        assert_eq!(vars.get("CFLAGS"), "-O2");
+    }
+
+    #[test]
+    fn pkgconfig_libs_extracted() {
+        let libs = extract_pkgconfig_libs("$(shell pkg-config --libs openssl libcurl)");
+        assert!(libs.contains(&"openssl".to_string()));
+        assert!(libs.contains(&"libcurl".to_string()));
+    }
+
+    #[test]
+    fn pkgconfig_flags_skipped() {
+        let libs = extract_pkgconfig_libs("$(shell pkg-config --cflags --libs zlib)");
+        assert!(libs.contains(&"zlib".to_string()));
+        assert!(!libs.contains(&"--cflags".to_string()));
+    }
+
+    #[test]
+    fn ifdef_windows_routes_to_windows_bucket() {
+        let content = "ifdef WINDIR\nLDFLAGS += -lws2_32\nendif\n";
+        let mut result = ConditionalDeps::default();
+        parse_ifdef_deps(content, &mut result);
+        assert!(result.windows.contains(&"ws2_32".to_string()));
+    }
+
+    #[test]
+    fn ifdef_unknown_var_goes_to_system_deps_via_analyze() {
+        let content = "ifdef HAVE_ZLIB\nLDFLAGS += -lz\nendif\n";
+        let mf = Makefile::read_relaxed(content.as_bytes()).unwrap();
+        let vars = ExpandedVars::new(collect_vars(&mf));
+        let mut warnings = vec![];
+        let spec = analyze(&mf, &vars, Path::new("/tmp"), content, &mut warnings);
+        // z is in AUTO_LINKED so it will be filtered out, but the warning should fire
+        assert!(
+            warnings.iter().any(|w| w.contains("ifdef")),
+            "expected ifdef warning:\n{warnings:?}"
         );
     }
 

@@ -103,7 +103,7 @@ pub fn import_autotools(input: &Path, out_dir: Option<&Path>) -> Result<ImportRe
     };
 
     // ── 2. Parse Makefile.am (preferred) or Makefile.in (fallback) ───────────
-    let (targets, lang_std, extra_defines, subdirs) =
+    let (targets, lang_std, extra_defines, subdirs, am_ldadd_deps) =
         if let Some(am) = find_file(&project_dir, "Makefile.am") {
             let content = std::fs::read_to_string(&am)
                 .with_context(|| format!("reading {}", am.display()))?;
@@ -113,7 +113,7 @@ pub fn import_autotools(input: &Path, out_dir: Option<&Path>) -> Result<ImportRe
                 .with_context(|| format!("reading {}", mf_in.display()))?;
             warnings.push("No Makefile.am found — falling back to Makefile.in".into());
             let (t, s, d) = parse_makefile_in(&content, &mut warnings);
-            (t, s, d, vec![])
+            (t, s, d, vec![], vec![])
         } else {
             warnings.push("No Makefile.am or Makefile.in — inferring from filesystem".into());
             let kind = if has_main_function(&project_dir) {
@@ -122,9 +122,15 @@ pub fn import_autotools(input: &Path, out_dir: Option<&Path>) -> Result<ImportRe
                 TargetKind::StaticLib
             };
             let name = sanitize_name(&pkg_name);
-            (vec![TargetSpec { name, kind }], None, vec![], vec![])
+            (vec![TargetSpec { name, kind }], None, vec![], vec![], vec![])
         };
 
+    // Merge per-target / global LDADD deps from Makefile.am
+    for d in am_ldadd_deps {
+        if !deps.contains(&d) {
+            deps.push(d);
+        }
+    }
     // Filter well-known auto-linked libs (pkg-config finds them anyway)
     deps.retain(|d| !AUTO_LINKED.contains(&d.as_str()));
 
@@ -355,16 +361,18 @@ struct TargetSpec {
     kind: TargetKind,
 }
 
-/// Returns `(targets, lang_std, defines, subdirs)`.
-/// `subdirs` is the list of directory names from any `SUBDIRS = ...` line.
+/// Returns `(targets, lang_std, defines, subdirs, ldadd_deps)`.
+/// - `subdirs`    — SUBDIRS directory names
+/// - `ldadd_deps` — system libs from LDADD / *_LDADD / *_LIBADD / *_LDFLAGS
 fn parse_makefile_am(
     content: &str,
     warnings: &mut Vec<String>,
-) -> (Vec<TargetSpec>, Option<String>, Vec<String>, Vec<String>) {
+) -> (Vec<TargetSpec>, Option<String>, Vec<String>, Vec<String>, Vec<String>) {
     let mut targets: Vec<TargetSpec> = Vec::new();
     let mut lang_std: Option<String> = None;
     let mut defines: Vec<String> = Vec::new();
     let mut subdirs: Vec<String> = Vec::new();
+    let mut ldadd_deps: Vec<String> = Vec::new();
 
     // Join continuation lines
     let joined = join_continuations(content);
@@ -473,7 +481,17 @@ fn parse_makefile_am(
         else if line.starts_with("DIST_SUBDIRS") {
             // ignore
         }
-        // AM_CONDITIONAL if/endif blocks — warn, we can't evaluate the condition
+        // Global LDADD / LIBADD / LDFLAGS / AM_LDFLAGS
+        else if let Some(rhs) = strip_lhs(line, &["LDADD", "LIBADD", "LDFLAGS", "AM_LDFLAGS"]) {
+            for tok in rhs.split_whitespace() {
+                if let Some(lib) = tok.strip_prefix("-l") {
+                    if !lib.is_empty() && !ldadd_deps.contains(&lib.to_string()) {
+                        ldadd_deps.push(lib.to_string());
+                    }
+                }
+            }
+        }
+        // AM_CONDITIONAL if/endif blocks — warn and still extract -l deps from body
         else if line.starts_with("if ")
             && !line.starts_with("ifeq")
             && !line.starts_with("ifdef")
@@ -484,6 +502,24 @@ fn parse_makefile_am(
                  conditional sources/deps not converted; review manually"
             ));
         }
+        // Per-target *_LDADD / *_LIBADD / *_LDFLAGS (e.g. myapp_LDADD = -lssl)
+        else if (line.contains("_LDADD") || line.contains("_LIBADD") || line.contains("_LDFLAGS"))
+            && (line.contains('='))
+        {
+            let rhs = line
+                .find("+=")
+                .map(|p| &line[p + 2..])
+                .or_else(|| line.find(":=").map(|p| &line[p + 2..]))
+                .or_else(|| line.find('=').map(|p| &line[p + 1..]))
+                .unwrap_or("");
+            for tok in rhs.split_whitespace() {
+                if let Some(lib) = tok.strip_prefix("-l") {
+                    if !lib.is_empty() && !ldadd_deps.contains(&lib.to_string()) {
+                        ldadd_deps.push(lib.to_string());
+                    }
+                }
+            }
+        }
     }
 
     // If nothing found (and no subdirs to recurse), warn
@@ -491,7 +527,7 @@ fn parse_makefile_am(
         warnings.push("No target declarations found in Makefile.am".into());
     }
 
-    (targets, lang_std, defines, subdirs)
+    (targets, lang_std, defines, subdirs, ldadd_deps)
 }
 
 // ── Makefile.in fallback parser ───────────────────────────────────────────────
@@ -809,7 +845,7 @@ mod tests {
     fn parse_makefile_am_bin_programs() {
         let content = "bin_PROGRAMS = foo bar\nAM_CFLAGS = -std=c11 -DFOO\n";
         let mut w = vec![];
-        let (targets, std, defines, subdirs) = parse_makefile_am(content, &mut w);
+        let (targets, std, defines, subdirs, _) = parse_makefile_am(content, &mut w);
         assert_eq!(targets.len(), 2);
         assert_eq!(targets[0].kind, TargetKind::Bin);
         assert_eq!(targets[0].name, "foo");
@@ -822,7 +858,7 @@ mod tests {
     fn parse_makefile_am_lib_ltlibraries() {
         let content = "lib_LTLIBRARIES = libfoo.la\n";
         let mut w = vec![];
-        let (targets, _, _, _) = parse_makefile_am(content, &mut w);
+        let (targets, _, _, _, _) = parse_makefile_am(content, &mut w);
         assert_eq!(targets.len(), 1);
         assert_eq!(targets[0].name, "foo");
         assert_eq!(targets[0].kind, TargetKind::SharedLib);
@@ -832,7 +868,7 @@ mod tests {
     fn parse_makefile_am_subdirs_collected() {
         let content = "SUBDIRS = lib src tests\n";
         let mut w = vec![];
-        let (targets, _, _, subdirs) = parse_makefile_am(content, &mut w);
+        let (targets, _, _, subdirs, _) = parse_makefile_am(content, &mut w);
         assert!(targets.is_empty());
         assert_eq!(subdirs, vec!["lib", "src", "tests"]);
         // No "not detected" warning anymore
@@ -843,8 +879,37 @@ mod tests {
     fn parse_makefile_am_subdirs_dot_skipped() {
         let content = "SUBDIRS = . lib\n";
         let mut w = vec![];
-        let (_, _, _, subdirs) = parse_makefile_am(content, &mut w);
+        let (_, _, _, subdirs, _) = parse_makefile_am(content, &mut w);
         assert_eq!(subdirs, vec!["lib"]);
+    }
+
+    #[test]
+    fn per_target_ldadd_extracted() {
+        let content = "bin_PROGRAMS = foo\nfoo_LDADD = -lssl -lcurl\n";
+        let mut w = vec![];
+        let (_, _, _, _, ldadd) = parse_makefile_am(content, &mut w);
+        assert!(ldadd.contains(&"ssl".to_string()));
+        assert!(ldadd.contains(&"curl".to_string()));
+    }
+
+    #[test]
+    fn global_ldadd_extracted() {
+        let content = "bin_PROGRAMS = app\nLDADD = -lz -lpng\n";
+        let mut w = vec![];
+        let (_, _, _, _, ldadd) = parse_makefile_am(content, &mut w);
+        assert!(ldadd.contains(&"z".to_string()));
+        assert!(ldadd.contains(&"png".to_string()));
+    }
+
+    #[test]
+    fn ldadd_auto_linked_filtered_in_caller() {
+        // pthread and m are AUTO_LINKED — they should be filtered in import_autotools
+        // but parse_makefile_am itself returns them raw
+        let content = "LDADD = -lpthread -lm -lssl\n";
+        let mut w = vec![];
+        let (_, _, _, _, ldadd) = parse_makefile_am(content, &mut w);
+        assert!(ldadd.contains(&"pthread".to_string())); // raw, not yet filtered
+        assert!(ldadd.contains(&"ssl".to_string()));
     }
 
     #[test]
@@ -974,10 +1039,12 @@ mod tests {
     fn am_conditional_block_warned() {
         let content = "bin_PROGRAMS = foo\nif HAVE_SSL\nfoo_LDADD = -lssl\nendif\n";
         let mut w = vec![];
-        let _ = parse_makefile_am(content, &mut w);
+        let (_, _, _, _, ldadd) = parse_makefile_am(content, &mut w);
         assert!(
             w.iter().any(|s| s.contains("HAVE_SSL")),
             "expected AM_CONDITIONAL warning:\n{w:?}"
         );
+        // Even inside the conditional block, ssl should be extracted from foo_LDADD
+        assert!(ldadd.contains(&"ssl".to_string()), "ldadd should contain ssl:\n{ldadd:?}");
     }
 }
