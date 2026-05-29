@@ -329,13 +329,14 @@ pub fn fetch_registry_deps(
             continue;
         }
 
-        // If already fetched, record and move on.
-        let sentinel = project_dir
+        // If already fetched (source) or a prebuilt is present, skip.
+        let source_sentinel = project_dir
             .join("target")
             .join("deps")
             .join(name)
             .join(".freight-fetched");
-        if sentinel.exists() {
+        let prebuilt_sentinel = project_dir.join(".deps").join(name).join(".freight-fetched");
+        if source_sentinel.exists() || prebuilt_sentinel.exists() {
             outcomes.push(RegistryDepOutcome {
                 name: name.clone(),
                 version: version.to_string(),

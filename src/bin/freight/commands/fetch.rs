@@ -10,11 +10,26 @@ use freight_core::toolchain::cache::GlobalConfig;
 
 use crate::output::{print_error, print_status, print_success, print_warning};
 
+#[derive(clap::ValueEnum, Clone, Default, PartialEq)]
+pub enum PrebuiltKind {
+    /// Download a release (optimised) prebuilt for the target triple
+    #[default]
+    Release,
+    /// Download a debug prebuilt for the target triple
+    Debug,
+    /// Always fetch source — skip prebuilt lookup entirely
+    Source,
+}
+
 #[derive(clap::Args)]
 pub struct Args {
-    /// Always download source tarballs, even if a prebuilt is available for the current triple
-    #[arg(long, short = 's')]
-    pub source: bool,
+    /// Prebuilt variant to prefer: release (default), debug, or source
+    #[arg(long, short = 'p', value_name = "KIND", default_value = "release")]
+    pub prebuilt: PrebuiltKind,
+    /// Target triple for cross-compile prebuilt selection (e.g. aarch64-linux-gnu).
+    /// Defaults to the host triple.
+    #[arg(long, value_name = "TRIPLE")]
+    pub target: Option<String>,
     /// Parallel jobs for building foreign dependencies (cmake/make/meson/autotools)
     #[arg(long, short = 'j', value_name = "N")]
     pub jobs: Option<usize>,
@@ -23,11 +38,12 @@ pub struct Args {
 impl Args {
     pub fn run(self) {
         super::common::apply_jobs(self.jobs);
-        cmd_fetch(self.source);
+        let triple = self.target.unwrap_or_else(host_triple);
+        cmd_fetch(self.prebuilt, &triple);
     }
 }
 
-fn cmd_fetch(force_source: bool) {
+fn cmd_fetch(prebuilt: PrebuiltKind, triple: &str) {
     let project_dir = match super::common::locate_project_dir() {
         Some(d) => d,
         None => return,
@@ -140,13 +156,16 @@ fn cmd_fetch(force_source: bool) {
         cfg
     };
 
-    if !force_source {
-        let triple = host_triple();
+    if prebuilt != PrebuiltKind::Source {
+        let effective_triple = match prebuilt {
+            PrebuiltKind::Debug => format!("{triple}-debug"),
+            _ => triple.to_string(),
+        };
         fetch_prebuilt_deps(
             &manifest,
             &project_dir,
             &config,
-            &triple,
+            &effective_triple,
             &mut any_work,
             &mut all_ok,
         );
@@ -229,11 +248,8 @@ fn fetch_prebuilt_deps(
             continue;
         }
 
-        let sentinel = project_dir
-            .join("target")
-            .join("deps")
-            .join(name)
-            .join(".freight-fetched");
+        // Prebuilts land in .deps/<name>/, not target/deps/
+        let sentinel = project_dir.join(".deps").join(name).join(".freight-fetched");
         if sentinel.exists() {
             continue;
         }

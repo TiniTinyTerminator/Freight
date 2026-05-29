@@ -597,13 +597,24 @@ fn resolve_version_dep(
                     None,
                 )));
             }
-            // target/deps/ cache — populated by `freight fetch` from the registry.
-            // Check for a .pc file first; fall back to bare include/ + lib/ layout.
-            let dep_dir = project_dir.join("target").join("deps").join(name);
-            if dep_dir.join(".freight-fetched").exists() {
+            // Check two possible cache locations:
+            //   .deps/<name>/         — prebuilt binary tarballs (survive `freight clean`)
+            //   target/deps/<name>/   — source packages fetched from the registry
+            let prebuilt_dir = project_dir.join(".deps").join(name);
+            let source_dir   = project_dir.join("target").join("deps").join(name);
+            let cached: Option<(PathBuf, &str)> =
+                if prebuilt_dir.join(".freight-fetched").exists() {
+                    Some((prebuilt_dir, ".deps (prebuilt)"))
+                } else if source_dir.join(".freight-fetched").exists() {
+                    Some((source_dir, "target/deps (source fetch)"))
+                } else {
+                    None
+                };
+
+            if let Some((dep_dir, via)) = cached {
                 progress(BuildEvent::ResolvingDep {
                     name: name.to_string(),
-                    via: "target/deps (registry fetch)".to_string(),
+                    via: via.to_string(),
                 });
 
                 // Try pkg-config if the dep ships a .pc file.
@@ -639,7 +650,6 @@ fn resolve_version_dep(
                 let lib_dir = dep_dir.join("lib");
                 if lib_dir.is_dir() {
                     link_flags.push(format!("-L{}", lib_dir.display()));
-                    // Link any static archives or shared libs found there.
                     if let Ok(entries) = std::fs::read_dir(&lib_dir) {
                         for entry in entries.flatten() {
                             let path = entry.path();

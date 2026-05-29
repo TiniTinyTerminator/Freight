@@ -459,11 +459,11 @@ impl FreightRegistry {
         }
     }
 
-    /// Download a prebuilt tarball for `triple` to `target/deps/<name>/`.
+    /// Download a prebuilt tarball for `triple` to `.deps/<name>/`.
     ///
     /// Returns the SHA-256 checksum of the downloaded tarball.
     /// The prebuilt tarball is expected to contain `include/`, `lib/`, and
-    /// `lib/pkgconfig/` directories that are extracted into `target/deps/<name>/`.
+    /// `lib/pkgconfig/` directories that are extracted into `.deps/<name>/`.
     pub fn download_prebuilt(
         &self,
         name: &str,
@@ -488,12 +488,11 @@ impl FreightRegistry {
         };
         let (bytes, checksum_header) = http_get_bytes(&url, self.token.as_deref())?;
 
-        let deps_dir = project_dir.join("target").join("deps").join(name);
+        let deps_dir = project_dir.join(".deps").join(name);
         std::fs::create_dir_all(&deps_dir)?;
 
         let archive = project_dir
-            .join("target")
-            .join("deps")
+            .join(".deps")
             .join(format!("{name}-{version}-{triple}.tar.gz"));
         std::fs::write(&archive, &bytes)?;
 
