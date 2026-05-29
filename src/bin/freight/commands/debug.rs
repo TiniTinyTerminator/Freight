@@ -23,7 +23,12 @@ pub struct Args {
 impl Args {
     pub fn run(self) {
         self.build.apply();
-        cmd_debug(self.binary.as_deref(), self.debugger.as_deref(), &self.args, self.launch_json);
+        cmd_debug(
+            self.binary.as_deref(),
+            self.debugger.as_deref(),
+            &self.args,
+            self.launch_json,
+        );
     }
 }
 
@@ -56,15 +61,24 @@ pub fn cmd_debug(
 ) {
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
-        Err(e) => { print_error(&format!("cannot read cwd: {e}")); return; }
+        Err(e) => {
+            print_error(&format!("cannot read cwd: {e}"));
+            return;
+        }
     };
     let project_dir = match find_manifest_dir(&cwd) {
         Some(d) => d,
-        None => { print_error("no freight.toml found"); return; }
+        None => {
+            print_error("no freight.toml found");
+            return;
+        }
     };
     let manifest = match load_manifest(&project_dir) {
         Ok(m) => m,
-        Err(e) => { print_error(&e.to_string()); return; }
+        Err(e) => {
+            print_error(&e.to_string());
+            return;
+        }
     };
 
     let mut global_cfg = GlobalConfig::load();
@@ -97,7 +111,11 @@ pub fn cmd_debug(
             None => {
                 print_error(&format!(
                     "debugger '{pref}' not found on PATH (available: {})",
-                    debuggers.iter().map(|d| d.template.name.as_str()).collect::<Vec<_>>().join(", ")
+                    debuggers
+                        .iter()
+                        .map(|d| d.template.name.as_str())
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
                 return;
             }
@@ -109,20 +127,30 @@ pub fn cmd_debug(
     // ── Build with debug profile ───────────────────────────────────────────────
     let output = match build_project_with("debug", &[], true, &[], &silent()) {
         Ok(o) => o,
-        Err(e) => { print_error(&e.to_string()); return; }
+        Err(e) => {
+            print_error(&e.to_string());
+            return;
+        }
     };
 
     // ── Resolve binary ─────────────────────────────────────────────────────────
     let binary = match select_binary(&output, &project_dir, binary_filter, &manifest) {
         Ok(b) => b,
-        Err(e) => { print_error(&e); return; }
+        Err(e) => {
+            print_error(&e);
+            return;
+        }
     };
 
     use owo_colors::OwoColorize;
     println!(
         "  {} {} with {} {}",
         "Debugging".bold().cyan(),
-        binary.file_name().unwrap_or_default().to_str().unwrap_or(""),
+        binary
+            .file_name()
+            .unwrap_or_default()
+            .to_str()
+            .unwrap_or(""),
         debugger.template.name,
         debugger.version,
     );
@@ -149,7 +177,8 @@ fn gen_launch_json(
     let launch_path = vscode_dir.join("launch.json");
 
     // Read existing file so we can preserve non-freight configs.
-    let existing: Option<serde_json::Value> = launch_path.exists()
+    let existing: Option<serde_json::Value> = launch_path
+        .exists()
         .then(|| std::fs::read_to_string(&launch_path).ok())
         .flatten()
         .and_then(|s| serde_json::from_str(&s).ok());
@@ -208,7 +237,9 @@ fn select_binary(
     manifest: &freight_core::manifest::types::Manifest,
 ) -> Result<PathBuf, String> {
     let candidates: Vec<PathBuf> = if let Some(name) = filter {
-        output.binaries.iter()
+        output
+            .binaries
+            .iter()
             .filter(|p| p.file_name().and_then(|n| n.to_str()) == Some(name))
             .cloned()
             .collect()
@@ -220,11 +251,19 @@ fn select_binary(
         0 if filter.is_some() => Err(format!(
             "no binary named '{}' — available: {}",
             filter.unwrap(),
-            manifest.bins.iter().map(|b| b.name.as_str()).collect::<Vec<_>>().join(", ")
+            manifest
+                .bins
+                .iter()
+                .map(|b| b.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ")
         )),
         0 => {
             // Fall back: check target/debug/ for the package name binary.
-            let fallback = project_dir.join("target").join("debug").join(&manifest.package.name);
+            let fallback = project_dir
+                .join("target")
+                .join("debug")
+                .join(&manifest.package.name);
             if fallback.exists() {
                 Ok(fallback)
             } else {
@@ -234,7 +273,8 @@ fn select_binary(
         1 => Ok(candidates.into_iter().next().unwrap()),
         _ => Err(format!(
             "multiple binaries: {}; specify one with `freight debug <name>`",
-            candidates.iter()
+            candidates
+                .iter()
                 .filter_map(|p| p.file_name().and_then(|n| n.to_str()))
                 .collect::<Vec<_>>()
                 .join(", ")
@@ -255,9 +295,13 @@ fn exec_or_run(cmd: &mut std::process::Command) -> ! {
     }
     #[cfg(not(unix))]
     {
-        let code = cmd.status()
+        let code = cmd
+            .status()
             .map(|s| s.code().unwrap_or(1))
-            .unwrap_or_else(|e| { eprintln!("error: {e}"); 1 });
+            .unwrap_or_else(|e| {
+                eprintln!("error: {e}");
+                1
+            });
         std::process::exit(code);
     }
 }

@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use makefile_lossless::{Makefile, VariableDefinition};
-use toml_edit::{Array, DocumentMut, Item, Table, value};
+use toml_edit::{value, Array, DocumentMut, Item, Table};
 use walkdir::WalkDir;
 
 // ── Public entry point ────────────────────────────────────────────────────────
@@ -47,12 +47,14 @@ pub fn import_make(input: &Path, out_dir: Option<&Path>) -> Result<ImportResult>
     // ── Autotools stub detection ──────────────────────────────────────────────
     let is_autotools_stub = project_dir.join("configure.ac").exists()
         || project_dir.join("configure.in").exists()
-        || mf.rules_by_target("all")
+        || mf
+            .rules_by_target("all")
             .flat_map(|r| r.recipes())
             .any(|recipe| recipe.contains("configure") && recipe.contains("echo"));
     if is_autotools_stub {
         warnings.push(
-            "This looks like an autotools project — consider `freight migrate autotools` instead".into(),
+            "This looks like an autotools project — consider `freight migrate autotools` instead"
+                .into(),
         );
     }
 
@@ -69,10 +71,12 @@ pub fn import_make(input: &Path, out_dir: Option<&Path>) -> Result<ImportResult>
     std::fs::create_dir_all(out_root)
         .with_context(|| format!("creating {}", out_root.display()))?;
     let dest = out_root.join("freight.toml");
-    std::fs::write(&dest, &toml)
-        .with_context(|| format!("writing {}", dest.display()))?;
+    std::fs::write(&dest, &toml).with_context(|| format!("writing {}", dest.display()))?;
 
-    Ok(ImportResult { written: vec![dest], warnings })
+    Ok(ImportResult {
+        written: vec![dest],
+        warnings,
+    })
 }
 
 // ── Workspace ─────────────────────────────────────────────────────────────────
@@ -127,12 +131,14 @@ fn import_workspace(
         let dest_dir = out_root.join(subdir);
         std::fs::create_dir_all(&dest_dir)?;
         let dest = dest_dir.join("freight.toml");
-        std::fs::write(&dest, &toml)
-            .with_context(|| format!("writing {}", dest.display()))?;
+        std::fs::write(&dest, &toml).with_context(|| format!("writing {}", dest.display()))?;
         written.push(dest);
     }
 
-    Ok(ImportResult { written, warnings: warnings.clone() })
+    Ok(ImportResult {
+        written,
+        warnings: warnings.clone(),
+    })
 }
 
 // ── Analysis ──────────────────────────────────────────────────────────────────
@@ -156,7 +162,11 @@ struct TargetSpec {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-enum TargetKind { Bin, StaticLib, DynamicLib }
+enum TargetKind {
+    Bin,
+    StaticLib,
+    DynamicLib,
+}
 
 fn analyze(
     mf: &Makefile,
@@ -165,13 +175,13 @@ fn analyze(
     warnings: &mut Vec<String>,
 ) -> ProjectSpec {
     // Collect all flag variables
-    let cflags   = vars.get_joined(&["CFLAGS",   "CCFLAGS"]);
-    let cxxflags = vars.get_joined(&["CXXFLAGS",  "CPPFLAGS"]);
-    let ldflags  = vars.get_joined(&["LDFLAGS",   "LDLIBS", "LIBS", "LDADD"]);
+    let cflags = vars.get_joined(&["CFLAGS", "CCFLAGS"]);
+    let cxxflags = vars.get_joined(&["CXXFLAGS", "CPPFLAGS"]);
+    let ldflags = vars.get_joined(&["LDFLAGS", "LDLIBS", "LIBS", "LDADD"]);
 
     // Language standards
-    let lang_c   = extract_std(&cflags, 'c');
-    let lang_cpp  = extract_std(&cxxflags, '+').or_else(|| extract_std(&cflags, '+'));
+    let lang_c = extract_std(&cflags, 'c');
+    let lang_cpp = extract_std(&cxxflags, '+').or_else(|| extract_std(&cflags, '+'));
 
     // Defines (-D flags from all compile-flag vars)
     let all_cflags = format!("{cflags} {cxxflags}");
@@ -212,7 +222,11 @@ fn analyze(
     // Search under src/ if it exists, otherwise the project root itself.
     let src_dir = project_dir.join("src");
     let in_src_dir = src_dir.is_dir();
-    let search_root = if in_src_dir { src_dir.as_path() } else { project_dir };
+    let search_root = if in_src_dir {
+        src_dir.as_path()
+    } else {
+        project_dir
+    };
     let bin_count = targets.iter().filter(|t| t.kind == TargetKind::Bin).count();
     if bin_count > 0 {
         // Paths are relative to project_dir so freight can resolve them
@@ -220,23 +234,31 @@ fn analyze(
         // Assign each bin the best-matching entry-point file
         let mut used: std::collections::HashSet<String> = std::collections::HashSet::new();
         for target in &mut targets {
-            if target.kind != TargetKind::Bin { continue; }
+            if target.kind != TargetKind::Bin {
+                continue;
+            }
             let n = target.name.replace('-', "_").to_lowercase();
             // Priority 1: stem exactly matches binary name
             // Priority 2: binary name contains the stem (e.g. "linenoise-example" ⊃ "example")
             // Priority 3: stem is "main" or starts with "main"
             // Priority 4: first unused entry point
-            let ep = entry_points.iter()
+            let ep = entry_points
+                .iter()
                 .filter(|(_, p)| !used.contains(p))
                 .find(|(stem, _)| stem.replace('-', "_").to_lowercase() == n)
-                .or_else(|| entry_points.iter()
-                    .filter(|(_, p)| !used.contains(p))
-                    .find(|(stem, _)| n.contains(&stem.replace('-', "_").to_lowercase())))
-                .or_else(|| entry_points.iter()
-                    .filter(|(_, p)| !used.contains(p))
-                    .find(|(stem, _)| stem == "main" || stem.starts_with("main")))
-                .or_else(|| entry_points.iter()
-                    .find(|(_, p)| !used.contains(p)));
+                .or_else(|| {
+                    entry_points
+                        .iter()
+                        .filter(|(_, p)| !used.contains(p))
+                        .find(|(stem, _)| n.contains(&stem.replace('-', "_").to_lowercase()))
+                })
+                .or_else(|| {
+                    entry_points
+                        .iter()
+                        .filter(|(_, p)| !used.contains(p))
+                        .find(|(stem, _)| stem == "main" || stem.starts_with("main"))
+                })
+                .or_else(|| entry_points.iter().find(|(_, p)| !used.contains(p)));
             if let Some((_, path)) = ep {
                 used.insert(path.clone());
                 target.src = Some(path.clone());
@@ -244,7 +266,8 @@ fn analyze(
         }
         if !in_src_dir && !entry_points.is_empty() {
             warnings.push(
-                "Source files are at project root — move them to src/ for freight auto-discovery".into()
+                "Source files are at project root — move them to src/ for freight auto-discovery"
+                    .into(),
             );
         }
     }
@@ -274,9 +297,28 @@ fn analyze(
 
 /// Well-known phony-ish names that are never real build outputs.
 const PSEUDO_TARGETS: &[&str] = &[
-    "all", "clean", "distclean", "install", "uninstall", "test", "tests",
-    "check", "build", "dist", "docs", "help", "default", "debug", "release",
-    "package", "run", "fmt", "format", "lint", "prepare", "setup",
+    "all",
+    "clean",
+    "distclean",
+    "install",
+    "uninstall",
+    "test",
+    "tests",
+    "check",
+    "build",
+    "dist",
+    "docs",
+    "help",
+    "default",
+    "debug",
+    "release",
+    "package",
+    "run",
+    "fmt",
+    "format",
+    "lint",
+    "prepare",
+    "setup",
 ];
 
 fn infer_targets(
@@ -289,28 +331,43 @@ fn infer_targets(
     // 1a. Multi-binary variable hints (BINS, PROGS, TARGETS)
     for var in &["BINS", "PROGS", "TARGETS", "PROGRAMS"] {
         let val = vars.get(var);
-        if val.is_empty() { continue; }
+        if val.is_empty() {
+            continue;
+        }
         let specs: Vec<TargetSpec> = val
             .split_whitespace()
             .filter(|n| !PSEUDO_TARGETS.contains(n))
             .filter_map(|n| classify_target(n))
             .collect();
-        if !specs.is_empty() { return specs; }
+        if !specs.is_empty() {
+            return specs;
+        }
     }
 
     // 1b. Single-value variable hints
-    if let Some(name) = vars.get_first_nonempty(&["BIN", "PROG", "BINARY", "TARGET", "EXECUTABLE"]) {
+    if let Some(name) = vars.get_first_nonempty(&["BIN", "PROG", "BINARY", "TARGET", "EXECUTABLE"])
+    {
         if !PSEUDO_TARGETS.contains(&name.as_str()) {
-            return vec![TargetSpec { name: sanitize_name(&name), kind: TargetKind::Bin, src: None }];
+            return vec![TargetSpec {
+                name: sanitize_name(&name),
+                kind: TargetKind::Bin,
+                src: None,
+            }];
         }
     }
-    if let Some(name) = vars.get_first_nonempty(&["LIB", "LIBRARY", "LIBNAME", "SHLIB", "STATIC_LIB"]) {
+    if let Some(name) =
+        vars.get_first_nonempty(&["LIB", "LIBRARY", "LIBNAME", "SHLIB", "STATIC_LIB"])
+    {
         let kind = if name.ends_with(".so") || name.contains(".so.") {
             TargetKind::DynamicLib
         } else {
             TargetKind::StaticLib
         };
-        return vec![TargetSpec { name: strip_lib_ext(&name), kind, src: None }];
+        return vec![TargetSpec {
+            name: strip_lib_ext(&name),
+            kind,
+            src: None,
+        }];
     }
 
     // 2. Look at the "all" rule's prerequisites — those are the real output targets.
@@ -323,7 +380,10 @@ fn infer_targets(
             // If the prerequisite name matches a make variable, expand it
             let expanded = vars.get(&p);
             if !expanded.is_empty() && expanded != p {
-                expanded.split_whitespace().map(str::to_string).collect::<Vec<_>>()
+                expanded
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
             } else {
                 vec![p]
             }
@@ -339,15 +399,23 @@ fn infer_targets(
     // 3. First explicit non-phony, non-pseudo, non-pattern rule that looks like output
     for rule in mf.rules() {
         for target in rule.targets() {
-            if phony.contains(target.as_str()) { continue; }
-            if PSEUDO_TARGETS.contains(&target.as_str()) { continue; }
-            if target.contains('%') || target.contains('$') { continue; }
+            if phony.contains(target.as_str()) {
+                continue;
+            }
+            if PSEUDO_TARGETS.contains(&target.as_str()) {
+                continue;
+            }
+            if target.contains('%') || target.contains('$') {
+                continue;
+            }
             if let Some(spec) = classify_target(&target) {
                 candidates.push(spec);
                 break;
             }
         }
-        if !candidates.is_empty() { break; }
+        if !candidates.is_empty() {
+            break;
+        }
     }
 
     if candidates.is_empty() {
@@ -358,13 +426,24 @@ fn infer_targets(
             .and_then(|n| n.to_str())
             .unwrap_or("project");
         let name = sanitize_name(dir_name);
-        let kind = if has_main { TargetKind::Bin } else { TargetKind::StaticLib };
-        if has_main {
-            warnings.push("Could not determine target from Makefile — assuming binary (found main())".into());
+        let kind = if has_main {
+            TargetKind::Bin
         } else {
-            warnings.push("Could not determine target from Makefile — assuming static library".into());
+            TargetKind::StaticLib
+        };
+        if has_main {
+            warnings.push(
+                "Could not determine target from Makefile — assuming binary (found main())".into(),
+            );
+        } else {
+            warnings
+                .push("Could not determine target from Makefile — assuming static library".into());
         }
-        candidates.push(TargetSpec { name, kind, src: None });
+        candidates.push(TargetSpec {
+            name,
+            kind,
+            src: None,
+        });
     }
 
     candidates
@@ -372,18 +451,32 @@ fn infer_targets(
 
 fn classify_target(target: &str) -> Option<TargetSpec> {
     let t = target.trim();
-    if t.is_empty() || t.starts_with('.') { return None; }
+    if t.is_empty() || t.starts_with('.') {
+        return None;
+    }
 
     if t.ends_with(".a") {
-        return Some(TargetSpec { name: strip_lib_ext(t), kind: TargetKind::StaticLib, src: None });
+        return Some(TargetSpec {
+            name: strip_lib_ext(t),
+            kind: TargetKind::StaticLib,
+            src: None,
+        });
     }
     if t.ends_with(".so") || t.contains(".so.") {
-        return Some(TargetSpec { name: strip_lib_ext(t), kind: TargetKind::DynamicLib, src: None });
+        return Some(TargetSpec {
+            name: strip_lib_ext(t),
+            kind: TargetKind::DynamicLib,
+            src: None,
+        });
     }
     // No extension (or .exe) → binary
     let stem = Path::new(t).file_stem()?.to_str()?;
     if !stem.contains('.') {
-        return Some(TargetSpec { name: sanitize_name(stem), kind: TargetKind::Bin, src: None });
+        return Some(TargetSpec {
+            name: sanitize_name(stem),
+            kind: TargetKind::Bin,
+            src: None,
+        });
     }
     None
 }
@@ -395,14 +488,13 @@ fn emit_toml(spec: &ProjectSpec) -> String {
 
     // [package]
     let mut pkg = Table::new();
-    pkg["name"]    = value(spec.name.as_str());
+    pkg["name"] = value(spec.name.as_str());
     pkg["version"] = value(spec.version.as_str());
     doc["package"] = Item::Table(pkg);
 
     // Header comment
-    let mut header = String::from(
-        "# Generated by freight migrate make — review before committing.\n"
-    );
+    let mut header =
+        String::from("# Generated by freight migrate make — review before committing.\n");
     for w in &spec.warnings {
         header.push_str(&format!("# warning: {w}\n"));
     }
@@ -522,7 +614,11 @@ impl ExpandedVars {
     fn get_first_nonempty(&self, names: &[&str]) -> Option<String> {
         names.iter().find_map(|n| {
             let v = self.get(n);
-            if v.is_empty() { None } else { Some(v) }
+            if v.is_empty() {
+                None
+            } else {
+                Some(v)
+            }
         })
     }
 
@@ -542,7 +638,10 @@ impl ExpandedVars {
                     chars.next();
                     let name: String = chars.by_ref().take_while(|&c| c != ')').collect();
                     // Skip shell/function calls — leave unexpanded
-                    if name.starts_with("shell") || name.starts_with("wildcard") || name.contains(' ') {
+                    if name.starts_with("shell")
+                        || name.starts_with("wildcard")
+                        || name.contains(' ')
+                    {
                         out.push_str(&format!("$({name})"));
                     } else if let Some(v) = self.raw.get(&name) {
                         out.push_str(&self.expand(v, depth + 1));
@@ -652,8 +751,8 @@ fn extract_libs(flags: &str) -> Vec<String> {
 /// Libraries that freight auto-detects via pkg-config — don't emit them.
 fn filter_auto_detected(libs: Vec<String>) -> Vec<String> {
     const AUTO: &[&str] = &[
-        "m", "dl", "rt", "pthread", "c", "gcc", "gcc_s", "stdc++", "supc++",
-        "atomic", "resolv", "nsl",
+        "m", "dl", "rt", "pthread", "c", "gcc", "gcc_s", "stdc++", "supc++", "atomic", "resolv",
+        "nsl",
     ];
     libs.into_iter()
         .filter(|l| !AUTO.contains(&l.as_str()))
@@ -681,12 +780,22 @@ fn find_entry_points(search_root: &Path, project_dir: &Path) -> Vec<(String, Str
     let mut out = Vec::new();
     for entry in WalkDir::new(search_root).max_depth(3).into_iter().flatten() {
         let path = entry.path();
-        if !entry.file_type().is_file() { continue; }
+        if !entry.file_type().is_file() {
+            continue;
+        }
         let ext = path.extension().and_then(|x| x.to_str()).unwrap_or("");
-        if !src_exts.contains(&ext) { continue; }
-        let Ok(content) = std::fs::read_to_string(path) else { continue };
+        if !src_exts.contains(&ext) {
+            continue;
+        }
+        let Ok(content) = std::fs::read_to_string(path) else {
+            continue;
+        };
         if content.contains("int main(") || content.contains("int main (") {
-            let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("").to_string();
+            let stem = path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("")
+                .to_string();
             let rel = path.strip_prefix(project_dir).unwrap_or(path);
             out.push((stem, rel.to_string_lossy().into_owned()));
         }
@@ -719,7 +828,13 @@ fn has_main_function(dir: &Path) -> bool {
 fn sanitize_name(s: &str) -> String {
     s.trim_matches(|c: char| !c.is_ascii_alphanumeric())
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect()
 }
 
@@ -730,9 +845,16 @@ fn strip_lib_ext(name: &str) -> String {
         .and_then(|s| s.to_str())
         .unwrap_or(name);
     // If still ends with .so (versioned lib), strip it again
-    let stem = if stem.ends_with(".so") { &stem[..stem.len() - 3] } else { stem };
+    let stem = if stem.ends_with(".so") {
+        &stem[..stem.len() - 3]
+    } else {
+        stem
+    };
     // Strip trailing .a or .so extensions via another pass
-    let stem = stem.strip_suffix(".a").or_else(|| stem.strip_suffix(".so")).unwrap_or(stem);
+    let stem = stem
+        .strip_suffix(".a")
+        .or_else(|| stem.strip_suffix(".so"))
+        .unwrap_or(stem);
     // Strip leading "lib" prefix
     let stripped = stem.strip_prefix("lib").unwrap_or(stem);
     sanitize_name(stripped)
@@ -785,12 +907,20 @@ mod tests {
     use super::*;
 
     fn vars(pairs: &[(&str, &str)]) -> ExpandedVars {
-        ExpandedVars::new(pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect())
+        ExpandedVars::new(
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        )
     }
 
     #[test]
     fn extracts_cpp_std() {
-        assert_eq!(extract_std("-O2 -std=c++17 -Wall", '+'), Some("c++17".into()));
+        assert_eq!(
+            extract_std("-O2 -std=c++17 -Wall", '+'),
+            Some("c++17".into())
+        );
         assert_eq!(extract_std("-std=gnu++20", '+'), Some("c++20".into()));
         assert_eq!(extract_std("-std=c11", 'c'), Some("c11".into()));
         assert_eq!(extract_std("-std=c++17", 'c'), None);

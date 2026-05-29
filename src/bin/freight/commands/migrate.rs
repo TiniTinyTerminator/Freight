@@ -52,9 +52,21 @@ pub enum MigrateCmd {
 impl Args {
     pub fn run(self) {
         match self.command {
-            MigrateCmd::Make { input, out_dir, purge } => cmd_migrate_make(&input, out_dir.as_deref(), purge),
-            MigrateCmd::Cmake { input, out_dir, purge } => cmd_migrate_cmake(&input, out_dir.as_deref(), purge),
-            MigrateCmd::Autotools { input, out_dir, purge } => cmd_migrate_autotools(&input, out_dir.as_deref(), purge),
+            MigrateCmd::Make {
+                input,
+                out_dir,
+                purge,
+            } => cmd_migrate_make(&input, out_dir.as_deref(), purge),
+            MigrateCmd::Cmake {
+                input,
+                out_dir,
+                purge,
+            } => cmd_migrate_cmake(&input, out_dir.as_deref(), purge),
+            MigrateCmd::Autotools {
+                input,
+                out_dir,
+                purge,
+            } => cmd_migrate_autotools(&input, out_dir.as_deref(), purge),
         }
     }
 }

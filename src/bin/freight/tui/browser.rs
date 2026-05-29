@@ -57,7 +57,7 @@ enum BrowserResponse {
 }
 
 /// Which sub-view is shown in the Versions panel.
-#[derive(Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum VersionTab {
     #[default]
     Versions,
@@ -70,13 +70,12 @@ enum PageSelection {
     Preserve,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FocusPane {
     Packages,
     Details,
     Versions,
 }
-
 
 struct App {
     // Search
@@ -100,6 +99,7 @@ struct App {
     pending_detail: Option<String>,
     last_selection: Instant,
     scroll: u16,
+    info_scroll: u16,
     version_scroll: u16,
     focus: FocusPane,
 
@@ -129,6 +129,7 @@ struct App {
 
     // Layout tracking for mouse hit-testing
     list_area: Rect,
+    info_area: Rect,
     detail_area: Rect,
     versions_area: Rect,
 
@@ -169,6 +170,7 @@ impl App {
             pending_detail: None,
             last_selection: Instant::now(),
             scroll: 0,
+            info_scroll: 0,
             version_scroll: 0,
             focus: FocusPane::Packages,
             loading: false,
@@ -188,6 +190,7 @@ impl App {
             ver_tab: VersionTab::Versions,
             owners: Vec::new(),
             list_area: Rect::default(),
+            info_area: Rect::default(),
             detail_area: Rect::default(),
             versions_area: Rect::default(),
             installed,
@@ -223,12 +226,55 @@ impl App {
         self.last_selection = Instant::now();
         self.detail = Some(detail);
         self.scroll = 0;
+        self.info_scroll = 0;
         self.version_scroll = 0;
         self.ver_tab = VersionTab::Versions;
         self.owners = Vec::new();
         // Reset version selection to the first (latest) entry.
         self.version_list_state = ListState::default();
         self.version_list_state.select(Some(0));
+    }
+
+    fn focus_left(&mut self) {
+        self.focus = match self.focus {
+            FocusPane::Packages => FocusPane::Packages,
+            FocusPane::Details => FocusPane::Packages,
+            FocusPane::Versions => FocusPane::Details,
+        };
+    }
+
+    fn focus_right(&mut self) {
+        self.focus = match self.focus {
+            FocusPane::Packages => FocusPane::Details,
+            FocusPane::Details if self.versions_area.width > 0 && self.versions_area.height > 0 => {
+                FocusPane::Versions
+            }
+            FocusPane::Details => FocusPane::Details,
+            FocusPane::Versions => FocusPane::Versions,
+        };
+    }
+
+    fn next_focused_tab(&mut self) {
+        if self.focus == FocusPane::Versions {
+            self.next_version_tab();
+        }
+    }
+
+    fn previous_focused_tab(&mut self) {
+        if self.focus == FocusPane::Versions {
+            self.previous_version_tab();
+        }
+    }
+
+    fn next_version_tab(&mut self) {
+        self.ver_tab = match self.ver_tab {
+            VersionTab::Versions => VersionTab::Dependencies,
+            VersionTab::Dependencies => VersionTab::Versions,
+        };
+    }
+
+    fn previous_version_tab(&mut self) {
+        self.next_version_tab();
     }
 
     /// The version string currently selected in the Versions panel.
@@ -250,10 +296,7 @@ impl App {
     }
 
     fn version_count(&self) -> usize {
-        self.detail
-            .as_ref()
-            .map(|p| p.versions.len())
-            .unwrap_or(0)
+        self.detail.as_ref().map(|p| p.versions.len()).unwrap_or(0)
     }
 
     fn move_version_up(&mut self) {
@@ -418,7 +461,12 @@ impl App {
                         self.readme = readme;
                     }
                 }
-                BrowserResponse::PackageDetail { id, name, info, owners } => {
+                BrowserResponse::PackageDetail {
+                    id,
+                    name,
+                    info,
+                    owners,
+                } => {
                     if self.active_detail_id != Some(id) {
                         continue;
                     }
@@ -428,7 +476,8 @@ impl App {
                         self.owners = owners;
                     }
                     if let Some(info) = info {
-                        self.versions_cache.insert(name.clone(), info.versions.clone());
+                        self.versions_cache
+                            .insert(name.clone(), info.versions.clone());
                         if let Some(detail) = &mut self.detail {
                             if detail.name == name {
                                 detail.versions = info.versions;
@@ -499,6 +548,9 @@ impl App {
     fn scroll_focused_up(&mut self) {
         match self.focus {
             FocusPane::Packages => self.move_up(),
+            FocusPane::Details if self.info_area.width > 0 && self.info_area.height > 0 => {
+                self.info_scroll = self.info_scroll.saturating_sub(3)
+            }
             FocusPane::Details => self.scroll = self.scroll.saturating_sub(3),
             FocusPane::Versions => self.version_scroll = self.version_scroll.saturating_sub(3),
         }
@@ -507,6 +559,9 @@ impl App {
     fn scroll_focused_down(&mut self) {
         match self.focus {
             FocusPane::Packages => self.move_down(),
+            FocusPane::Details if self.info_area.width > 0 && self.info_area.height > 0 => {
+                self.info_scroll = self.info_scroll.saturating_add(3)
+            }
             FocusPane::Details => self.scroll = self.scroll.saturating_add(3),
             FocusPane::Versions => self.version_scroll = self.version_scroll.saturating_add(3),
         }
@@ -519,6 +574,9 @@ impl App {
                     self.offset -= RESULT_WINDOW_SIZE;
                     self.update_window(PageSelection::Last);
                 }
+            }
+            FocusPane::Details if self.info_area.width > 0 && self.info_area.height > 0 => {
+                self.info_scroll = self.info_scroll.saturating_sub(10)
             }
             FocusPane::Details => self.scroll = self.scroll.saturating_sub(10),
             FocusPane::Versions => self.version_scroll = self.version_scroll.saturating_sub(10),
@@ -533,6 +591,9 @@ impl App {
                     self.update_window(PageSelection::First);
                 }
             }
+            FocusPane::Details if self.info_area.width > 0 && self.info_area.height > 0 => {
+                self.info_scroll = self.info_scroll.saturating_add(10)
+            }
             FocusPane::Details => self.scroll = self.scroll.saturating_add(10),
             FocusPane::Versions => self.version_scroll = self.version_scroll.saturating_add(10),
         }
@@ -543,6 +604,8 @@ impl App {
             self.focus = FocusPane::Packages;
         } else if contains(self.versions_area, x, y) {
             self.focus = FocusPane::Versions;
+        } else if contains(self.info_area, x, y) {
+            self.focus = FocusPane::Details;
         } else if contains(self.detail_area, x, y) {
             self.focus = FocusPane::Details;
         }
@@ -568,7 +631,11 @@ impl App {
             // Already installed — remove it.
             match manifest_remove_dep(manifest_path, &name) {
                 Ok(_) => {
-                    let section = if self.dev { "dev-dependencies" } else { "dependencies" };
+                    let section = if self.dev {
+                        "dev-dependencies"
+                    } else {
+                        "dependencies"
+                    };
                     self.status = Some(format!("✗ removed `{name}` from [{section}]"));
                     self.error = None;
                     self.installed.remove(&name);
@@ -582,7 +649,11 @@ impl App {
             let dep = Dependency::Simple(version.clone());
             match manifest_add_dep(manifest_path, &name, &dep, self.dev) {
                 Ok(()) => {
-                    let section = if self.dev { "dev-dependencies" } else { "dependencies" };
+                    let section = if self.dev {
+                        "dev-dependencies"
+                    } else {
+                        "dependencies"
+                    };
                     self.status = Some(format!("✓ added `{name}@{version}` to [{section}]"));
                     self.error = None;
                     self.installed.insert(name);
@@ -644,9 +715,16 @@ fn spawn_detail_request(
     name: String,
 ) {
     thread::spawn(move || {
-        let info = fetch_full_package_info(repo.as_deref(), &name).ok().flatten();
+        let info = fetch_full_package_info(repo.as_deref(), &name)
+            .ok()
+            .flatten();
         let owners = fetch_package_owners(repo.as_deref(), &name);
-        let _ = tx.send(BrowserResponse::PackageDetail { id, name, info, owners });
+        let _ = tx.send(BrowserResponse::PackageDetail {
+            id,
+            name,
+            info,
+            owners,
+        });
     });
 }
 
@@ -654,7 +732,10 @@ fn fetch_package_owners(repo: Option<&str>, name: &str) -> Vec<String> {
     use freight_core::registry::repos::{registries_in_order, repo_by_name};
     let config = freight_core::toolchain::cache::GlobalConfig::load();
     let repos: Vec<Box<dyn freight_core::registry::PackageRepo>> = match repo {
-        Some(repo_name) => repo_by_name(repo_name, &config).ok().map(|r| vec![r]).unwrap_or_default(),
+        Some(repo_name) => repo_by_name(repo_name, &config)
+            .ok()
+            .map(|r| vec![r])
+            .unwrap_or_default(),
         None => registries_in_order(&config),
     };
     for r in &repos {
@@ -707,8 +788,12 @@ fn load_installed_deps() -> std::collections::HashSet<String> {
     use freight_core::manifest::{find_manifest_dir, load_manifest};
     let mut set = std::collections::HashSet::new();
     let cwd = std::env::current_dir().unwrap_or_default();
-    let Some(dir) = find_manifest_dir(&cwd) else { return set };
-    let Ok(manifest) = load_manifest(&dir) else { return set };
+    let Some(dir) = find_manifest_dir(&cwd) else {
+        return set;
+    };
+    let Ok(manifest) = load_manifest(&dir) else {
+        return set;
+    };
     for name in manifest.dependencies.keys() {
         set.insert(name.clone());
     }
@@ -750,12 +835,18 @@ fn run_loop(
 
     // Collect names of deps already in the project's freight.toml.
     let installed = load_installed_deps();
-    let manifest_path = freight_core::manifest::find_manifest_dir(
-        &std::env::current_dir().unwrap_or_default(),
-    )
-    .map(|d| d.join("freight.toml"));
+    let manifest_path =
+        freight_core::manifest::find_manifest_dir(&std::env::current_dir().unwrap_or_default())
+            .map(|d| d.join("freight.toml"));
 
-    let mut app = App::new(repo.map(String::from), tx, rx, installed, manifest_path, dev);
+    let mut app = App::new(
+        repo.map(String::from),
+        tx,
+        rx,
+        installed,
+        manifest_path,
+        dev,
+    );
     app.do_search(); // initial load (empty query = all packages)
 
     loop {
@@ -772,20 +863,17 @@ fn run_loop(
                     (KeyCode::Enter, _) => {
                         app.install_selected();
                     }
-                    // Tab cycles focus: Packages → Versions → Details → Packages
-                    (KeyCode::Tab, _) => {
-                        app.focus = match app.focus {
-                            FocusPane::Packages => FocusPane::Versions,
-                            FocusPane::Versions => FocusPane::Details,
-                            FocusPane::Details => FocusPane::Packages,
-                        };
-                    }
-                    // Toggle Versions ↔ Dependencies sub-tab (only when Versions pane is focused)
-                    (KeyCode::Char('t'), KeyModifiers::NONE) if app.focus == FocusPane::Versions => {
-                        app.ver_tab = match app.ver_tab {
-                            VersionTab::Versions => VersionTab::Dependencies,
-                            VersionTab::Dependencies => VersionTab::Versions,
-                        };
+                    // Left/right move focus between panes. Tab switches tabs inside
+                    // the currently focused pane.
+                    (KeyCode::Left, _) => app.focus_left(),
+                    (KeyCode::Right, _) => app.focus_right(),
+                    (KeyCode::Tab, _) => app.next_focused_tab(),
+                    (KeyCode::BackTab, _) => app.previous_focused_tab(),
+                    // Also keep the old explicit toggle for the Versions pane.
+                    (KeyCode::Char('t'), KeyModifiers::NONE)
+                        if app.focus == FocusPane::Versions =>
+                    {
+                        app.next_version_tab();
                     }
                     // Navigation — Up/Down move selection in the focused pane.
                     // Vim aliases only fire when the search box is empty so that
@@ -813,23 +901,11 @@ fn run_loop(
                     // Scroll the focused panel.
                     (KeyCode::PageUp, _) => app.page_focused_up(),
                     (KeyCode::PageDown, _) => app.page_focused_down(),
-                    // Pagination — same guard: only when not actively typing.
-                    (KeyCode::Right, _) => {
-                        if app.offset + RESULT_WINDOW_SIZE < app.total {
-                            app.offset += RESULT_WINDOW_SIZE;
-                            app.update_window(PageSelection::First);
-                        }
-                    }
+                    // Pagination — only via vim aliases now; arrows are pane focus.
                     (KeyCode::Char('l'), KeyModifiers::NONE) if app.query.is_empty() => {
                         if app.offset + RESULT_WINDOW_SIZE < app.total {
                             app.offset += RESULT_WINDOW_SIZE;
                             app.update_window(PageSelection::First);
-                        }
-                    }
-                    (KeyCode::Left, _) => {
-                        if app.offset >= RESULT_WINDOW_SIZE {
-                            app.offset -= RESULT_WINDOW_SIZE;
-                            app.update_window(PageSelection::Last);
                         }
                     }
                     (KeyCode::Char('h'), KeyModifiers::NONE) if app.query.is_empty() => {
@@ -969,16 +1045,17 @@ fn render_body(f: &mut Frame, app: &mut App, area: Rect) {
             Constraint::Percentage(30),
             Constraint::Percentage(46),
             Constraint::Percentage(24),
-        ]).areas(area);
+        ])
+        .areas(area);
         render_list(f, app, left);
         render_readme_panel(f, app, middle);
         render_info_and_versions(f, app, right);
     } else {
         // Narrow: 2 columns — list | scrollable detail (info + inline versions + README)
-        let [left, right] = Layout::horizontal([
-            Constraint::Percentage(40),
-            Constraint::Percentage(60),
-        ]).areas(area);
+        let [left, right] =
+            Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
+                .areas(area);
+        app.info_area = Rect::default();
         app.versions_area = Rect::default();
         render_list(f, app, left);
         render_detail(f, app, right, true);
@@ -994,7 +1071,11 @@ fn render_list(f: &mut Frame, app: &mut App, area: Rect) {
             let already = app.installed.contains(&pkg.name);
             let checkbox = Span::styled(
                 if already { "[✓] " } else { "[ ] " },
-                Style::default().fg(if already { Color::Green } else { Color::DarkGray }),
+                Style::default().fg(if already {
+                    Color::Green
+                } else {
+                    Color::DarkGray
+                }),
             );
             let name = Span::styled(
                 format!("{:<30}", truncate(&pkg.name, 28)),
@@ -1064,104 +1145,101 @@ fn render_readme_panel(f: &mut Frame, app: &mut App, area: Rect) {
 // ── Info + Versions panel (wide layout, right column) ───────────────────────
 
 fn render_info_and_versions(f: &mut Frame, app: &mut App, area: Rect) {
-    let Some(pkg) = app.detail.as_ref() else { return; };
+    let Some(pkg) = app.detail.as_ref() else {
+        return;
+    };
+    app.detail_area = Rect::default();
 
     // Extract what we need before borrowing app mutably for render_versions.
-    let name       = pkg.name.clone();
-    let latest     = pkg.latest.clone();
+    let name = pkg.name.clone();
+    let latest = pkg.latest.clone();
     let n_versions = pkg.versions.len();
-    let keywords   = pkg.keywords.clone();
-    let owners     = app.owners.clone();
-
-    // Description: clamp to available inner width (borders + 2 pad).
-    let inner_w = area.width.saturating_sub(4) as usize;
-    let desc = pkg.description.as_ref().map(|d| {
-        let max_ch = inner_w.max(10);
-        if d.chars().count() > max_ch {
-            let cut: String = d.chars().take(max_ch.saturating_sub(1)).collect();
-            format!("{cut}…")
-        } else {
-            d.clone()
-        }
-    });
+    let keywords = pkg.keywords.clone();
+    let owners = app.owners.clone();
+    let desc = pkg.description.clone();
 
     // Info pane = half the right column (min 6 rows so content fits).
     let info_h = (area.height / 2).max(6);
-    let [info_area, ver_area] = Layout::vertical([
-        Constraint::Length(info_h),
-        Constraint::Min(4),
-    ]).areas(area);
+    let [info_area, ver_area] =
+        Layout::vertical([Constraint::Length(info_h), Constraint::Min(4)]).areas(area);
+    app.info_area = info_area;
 
     // ── Build info lines ─────────────────────────────────────────────────────
-    let label = |s: &str| {
+    // For label + long-value pairs we put the value on its own indented line so
+    // ratatui's Wrap can break it naturally without clipping at the right edge.
+    let heading = |s: &'static str| -> Span<'static> {
         Span::styled(
             format!("{s:<9}"),
-            Style::new().fg(Color::DarkGray).add_modifier(Modifier::BOLD),
+            Style::new()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
         )
     };
 
     let mut info_lines: Vec<Line<'static>> = vec![
         Line::from(vec![
-            Span::styled("Name     ".to_string(),
-                Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "Name     ".to_string(),
+                Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ),
             Span::raw(name),
         ]),
         Line::from(vec![
-            Span::styled("Latest   ".to_string(),
-                Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "Latest   ".to_string(),
+                Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ),
             Span::styled(latest.clone(), Style::new().fg(Color::Green)),
         ]),
     ];
 
-    // Description (1–2 lines max to keep it compact).
+    // Description — full text, wrapped by ratatui.
     if let Some(d) = desc {
         info_lines.push(Line::raw(""));
         info_lines.push(Line::from(Span::styled(d, Style::new().fg(Color::Gray))));
     }
 
-    // Keywords / categories.
+    // Keywords / categories — value on its own line so wrap stays within pane.
     if !keywords.is_empty() {
         info_lines.push(Line::raw(""));
-        let kw_str = keywords.join("  ");
-        let kw_str = if kw_str.chars().count() > inner_w {
-            format!("{}…", kw_str.chars().take(inner_w.saturating_sub(1)).collect::<String>())
-        } else {
-            kw_str
-        };
-        info_lines.push(Line::from(vec![
-            label("Tags"),
-            Span::styled(kw_str, Style::new().fg(Color::Yellow)),
-        ]));
+        info_lines.push(Line::from(heading("Tags")));
+        info_lines.push(Line::from(Span::styled(
+            keywords.join("  "),
+            Style::new().fg(Color::Yellow),
+        )));
     }
 
-    // Owners.
+    // Owners — same pattern.
     if !owners.is_empty() {
-        if keywords.is_empty() { info_lines.push(Line::raw("")); }
-        let own_str = owners.join(", ");
-        let own_str = if own_str.chars().count() > inner_w {
-            format!("{}…", own_str.chars().take(inner_w.saturating_sub(1)).collect::<String>())
-        } else {
-            own_str
-        };
-        info_lines.push(Line::from(vec![
-            label("Owners"),
-            Span::styled(own_str, Style::new().fg(Color::Magenta)),
-        ]));
+        info_lines.push(Line::raw(""));
+        info_lines.push(Line::from(heading("Owners")));
+        info_lines.push(Line::from(Span::styled(
+            owners.join(", "),
+            Style::new().fg(Color::Magenta),
+        )));
     }
 
     // Version count.
     info_lines.push(Line::raw(""));
     info_lines.push(Line::from(vec![
-        label("Versions"),
+        heading("Versions"),
         Span::raw(n_versions.to_string()),
     ]));
 
+    let info_inner_height = info_area.height.saturating_sub(2);
+    let content_height = rendered_line_count(&info_lines, info_area.width.saturating_sub(2), true);
+    app.info_scroll = clamped_scroll(app.info_scroll, content_height, info_inner_height);
+
     let info = Paragraph::new(info_lines)
-        .block(Block::default()
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded)
-            .title(" Info "))
-        .wrap(Wrap { trim: true });
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(panel_border_style(app.focus == FocusPane::Details))
+                .title(" Info "),
+        )
+        .wrap(Wrap { trim: true })
+        .scroll((app.info_scroll, 0));
     f.render_widget(info, info_area);
 
     render_versions(f, app, ver_area);
@@ -1280,12 +1358,22 @@ fn render_versions(f: &mut Frame, app: &mut App, area: Rect) {
 
     // Tab header: "Versions" | "Dependencies"
     let tab_versions = if app.ver_tab == VersionTab::Versions {
-        Span::styled(" Versions ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD | Modifier::UNDERLINED))
+        Span::styled(
+            " Versions ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+        )
     } else {
         Span::styled(" Versions ", Style::default().fg(Color::DarkGray))
     };
     let tab_deps = if app.ver_tab == VersionTab::Dependencies {
-        Span::styled(" Dependencies ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD | Modifier::UNDERLINED))
+        Span::styled(
+            " Dependencies ",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED),
+        )
     } else {
         Span::styled(" Dependencies ", Style::default().fg(Color::DarkGray))
     };
@@ -1302,7 +1390,9 @@ fn render_versions(f: &mut Frame, app: &mut App, area: Rect) {
     f.render_widget(block, area);
 
     // Clone package data so we can pass `app` mutably to render helpers.
-    let Some(pkg) = app.detail.clone() else { return };
+    let Some(pkg) = app.detail.clone() else {
+        return;
+    };
 
     match app.ver_tab {
         VersionTab::Versions => render_version_list(f, app, &pkg, inner),
@@ -1313,7 +1403,10 @@ fn render_versions(f: &mut Frame, app: &mut App, area: Rect) {
 fn render_version_list(f: &mut Frame, app: &mut App, pkg: &PackageInfo, inner: Rect) {
     if pkg.versions.is_empty() {
         f.render_widget(
-            Paragraph::new(Line::styled("No versions returned.", Style::default().fg(Color::DarkGray))),
+            Paragraph::new(Line::styled(
+                "No versions returned.",
+                Style::default().fg(Color::DarkGray),
+            )),
             inner,
         );
         return;
@@ -1324,30 +1417,81 @@ fn render_version_list(f: &mut Frame, app: &mut App, pkg: &PackageInfo, inner: R
 
     let selected_idx = app.version_list_state.selected().unwrap_or(0);
 
+    // Available width for each row (minus 2 for radio + space).
+    let row_w = inner.width.saturating_sub(2) as usize;
+
     let items: Vec<ListItem> = sorted
         .iter()
         .enumerate()
         .map(|(i, ver)| {
             let radio = if i == selected_idx { "◉" } else { "○" };
             let is_latest = ver.version == pkg.latest;
-            let style = if i == selected_idx {
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
-            } else if is_latest {
-                Style::default().fg(Color::Yellow)
+
+            // Left side: "version" or "version (latest)"
+            let ver_label = if is_latest {
+                format!("{} (latest)", ver.version)
             } else {
-                Style::default().fg(Color::Gray)
+                ver.version.clone()
             };
-            let label = if is_latest {
-                format!("{radio} {} (latest)", ver.version)
+
+            // Right side: download count — only show when non-zero.
+            let dl_label = if ver.downloads > 0 {
+                fmt_downloads(ver.downloads)
             } else {
-                format!("{radio} {}", ver.version)
+                String::new()
             };
-            ListItem::new(Line::styled(label, style))
+
+            // Pad ver_label to push dl_label to the right.
+            let line = if dl_label.is_empty() {
+                Line::from(vec![
+                    Span::raw(format!("{radio} ")),
+                    Span::styled(
+                        ver_label,
+                        if i == selected_idx {
+                            Style::default()
+                                .fg(Color::Green)
+                                .add_modifier(Modifier::BOLD)
+                        } else if is_latest {
+                            Style::default().fg(Color::Yellow)
+                        } else {
+                            Style::default().fg(Color::Gray)
+                        },
+                    ),
+                ])
+            } else {
+                let gap = row_w
+                    .saturating_sub(ver_label.chars().count())
+                    .saturating_sub(dl_label.chars().count());
+                let padding = " ".repeat(gap);
+                Line::from(vec![
+                    Span::raw(format!("{radio} ")),
+                    Span::styled(
+                        ver_label,
+                        if i == selected_idx {
+                            Style::default()
+                                .fg(Color::Green)
+                                .add_modifier(Modifier::BOLD)
+                        } else if is_latest {
+                            Style::default().fg(Color::Yellow)
+                        } else {
+                            Style::default().fg(Color::Gray)
+                        },
+                    ),
+                    Span::raw(padding),
+                    Span::styled(dl_label, Style::default().fg(Color::DarkGray)),
+                ])
+            };
+
+            ListItem::new(line)
         })
         .collect();
 
     let list = List::new(items)
-        .highlight_style(Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+        .highlight_style(
+            Style::default()
+                .fg(Color::Green)
+                .add_modifier(Modifier::BOLD),
+        )
         .highlight_symbol("");
 
     f.render_stateful_widget(list, inner, &mut app.version_list_state);
@@ -1368,21 +1512,32 @@ fn render_deps_list(f: &mut Frame, app: &mut App, pkg: &PackageInfo, inner: Rect
         }
         Some(_) => {
             f.render_widget(
-                Paragraph::new(Line::styled("No dependencies.", Style::default().fg(Color::DarkGray))),
+                Paragraph::new(Line::styled(
+                    "No dependencies.",
+                    Style::default().fg(Color::DarkGray),
+                )),
                 inner,
             );
             return;
         }
         None => {
             f.render_widget(
-                Paragraph::new(Line::styled("Select a version first.", Style::default().fg(Color::DarkGray))),
+                Paragraph::new(Line::styled(
+                    "Select a version first.",
+                    Style::default().fg(Color::DarkGray),
+                )),
                 inner,
             );
             return;
         }
     };
 
-    let max_name = deps.iter().map(|(k, _)| k.chars().count()).max().unwrap_or(8).min(24);
+    let max_name = deps
+        .iter()
+        .map(|(k, _)| k.chars().count())
+        .max()
+        .unwrap_or(8)
+        .min(24);
     let items: Vec<ListItem> = deps
         .into_iter()
         .map(|(dep, ver)| {
@@ -1426,6 +1581,17 @@ fn version_lines(pkg: &PackageInfo) -> Vec<Line<'_>> {
         .collect()
 }
 
+/// Format a download count compactly: 1234 → "1.2k", 1500000 → "1.5M".
+fn fmt_downloads(n: u64) -> String {
+    if n >= 1_000_000 {
+        format!("{:.1}M ↓", n as f64 / 1_000_000.0)
+    } else if n >= 1_000 {
+        format!("{:.1}k ↓", n as f64 / 1_000.0)
+    } else {
+        format!("{n} ↓")
+    }
+}
+
 fn cmp_version(a: &str, b: &str) -> std::cmp::Ordering {
     let ta: Vec<&str> = a.split(['.', '-', '_']).collect();
     let tb: Vec<&str> = b.split(['.', '-', '_']).collect();
@@ -1448,8 +1614,8 @@ fn render_statusbar(f: &mut Frame, app: &App, area: Rect) {
         Span::styled(status.clone(), Style::default().fg(Color::Green))
     } else {
         let hint = match app.focus {
-            FocusPane::Versions => " Tab focus   ↑↓ select version   t toggle deps   Enter add   Esc close",
-            _ => " Tab focus   ↑↓/jk navigate   wheel/PgUp/PgDn scroll   Enter add   Esc close   ←→ page",
+            FocusPane::Versions => " ←/→ focus pane   Tab/t versions/deps   ↑↓ select version   Enter add   Esc close",
+            _ => " ←/→ focus pane   ↑↓/jk navigate   h/l page   wheel/PgUp/PgDn scroll   Enter add   Esc close",
         };
         Span::styled(hint, Style::default().fg(Color::DarkGray))
     };
@@ -1462,6 +1628,28 @@ fn panel_border_style(focused: bool) -> Style {
     } else {
         Style::default().fg(Color::DarkGray)
     }
+}
+
+fn clamped_scroll(scroll: u16, content_len: usize, viewport_height: u16) -> u16 {
+    let max_scroll = content_len.saturating_sub(viewport_height as usize);
+    scroll.min(max_scroll.min(u16::MAX as usize) as u16)
+}
+
+fn rendered_line_count(lines: &[Line<'_>], width: u16, trim: bool) -> usize {
+    let width = width.max(1) as usize;
+    lines
+        .iter()
+        .map(|line| {
+            let text = line
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>();
+            let text = if trim { text.trim().to_string() } else { text };
+            let chars = text.chars().count();
+            chars.div_ceil(width).max(1)
+        })
+        .sum()
 }
 
 fn contains(area: Rect, x: u16, y: u16) -> bool {
@@ -1500,4 +1688,70 @@ fn textwrap(s: &str, width: usize) -> Vec<String> {
         lines.push(cur);
     }
     lines
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+    use std::sync::mpsc;
+
+    use ratatui::layout::Rect;
+
+    use ratatui::text::{Line, Span};
+
+    use super::{clamped_scroll, rendered_line_count, App, BrowserResponse, FocusPane, VersionTab};
+
+    fn app() -> App {
+        let (tx, rx) = mpsc::channel::<BrowserResponse>();
+        App::new(None, tx, rx, HashSet::new(), None, false)
+    }
+
+    #[test]
+    fn horizontal_keys_change_focus_and_tab_switches_version_tabs() {
+        let mut app = app();
+        app.versions_area = Rect::new(80, 10, 20, 10);
+
+        assert_eq!(app.focus, FocusPane::Packages);
+        app.focus_right();
+        assert_eq!(app.focus, FocusPane::Details);
+        app.focus_right();
+        assert_eq!(app.focus, FocusPane::Versions);
+
+        assert_eq!(app.ver_tab, VersionTab::Versions);
+        app.next_focused_tab();
+        assert_eq!(app.ver_tab, VersionTab::Dependencies);
+        app.previous_focused_tab();
+        assert_eq!(app.ver_tab, VersionTab::Versions);
+
+        app.focus_left();
+        assert_eq!(app.focus, FocusPane::Details);
+        app.focus_left();
+        assert_eq!(app.focus, FocusPane::Packages);
+
+        app.next_focused_tab();
+        assert_eq!(app.ver_tab, VersionTab::Versions);
+    }
+
+    #[test]
+    fn right_focus_stays_on_details_when_versions_pane_is_not_visible() {
+        let mut app = app();
+
+        app.focus_right();
+        assert_eq!(app.focus, FocusPane::Details);
+        app.focus_right();
+        assert_eq!(app.focus, FocusPane::Details);
+    }
+
+    #[test]
+    fn info_scroll_is_clamped_to_rendered_content() {
+        let lines = vec![
+            Line::from(Span::raw("short")),
+            Line::from(Span::raw("this line wraps across several cells")),
+        ];
+        let content_len = rendered_line_count(&lines, 10, true);
+
+        assert!(content_len > lines.len());
+        assert_eq!(clamped_scroll(99, content_len, 3), 2);
+        assert_eq!(clamped_scroll(99, 2, 3), 0);
+    }
 }

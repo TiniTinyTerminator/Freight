@@ -8,9 +8,9 @@ use sha2::{Digest, Sha256};
 use crate::error::FreightError;
 use crate::event::{BuildEvent, Progress};
 
-/// Download a source archive to `.deps/{name}/`, verify SHA-256, and extract.
+/// Download a source archive to `target/deps/{name}/`, verify SHA-256, and extract.
 ///
-/// If `.deps/{name}/.freight-fetched` already exists the download is skipped.
+/// If `target/deps/{name}/.freight-fetched` already exists the download is skipped.
 /// Returns the extracted source dir.
 pub fn fetch_url_dep(
     name: &str,
@@ -19,19 +19,25 @@ pub fn fetch_url_dep(
     project_dir: &Path,
     progress: &Progress,
 ) -> Result<PathBuf, FreightError> {
-    let deps_dir = project_dir.join(".deps").join(name);
+    let deps_dir = project_dir.join("target").join("deps").join(name);
     let sentinel = deps_dir.join(".freight-fetched");
 
     if sentinel.exists() {
         return Ok(deps_dir);
     }
 
-    progress(BuildEvent::FetchingDep { name: name.to_string(), source: url.to_string() });
+    progress(BuildEvent::FetchingDep {
+        name: name.to_string(),
+        source: url.to_string(),
+    });
 
-    std::fs::create_dir_all(project_dir.join(".deps"))?;
+    std::fs::create_dir_all(project_dir.join("target").join("deps"))?;
 
     let ext = archive_ext(url);
-    let archive_path = project_dir.join(".deps").join(format!("{name}.{ext}"));
+    let archive_path = project_dir
+        .join("target")
+        .join("deps")
+        .join(format!("{name}.{ext}"));
 
     download(url, &archive_path)?;
 
@@ -87,20 +93,32 @@ fn sha256_of_file(path: &Path) -> Result<String, FreightError> {
     let bytes = std::fs::read(path)?;
     let mut hasher = Sha256::new();
     hasher.update(&bytes);
-    Ok(hasher.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect())
 }
 
 fn archive_ext(url: &str) -> &'static str {
-    if url.ends_with(".tar.gz") || url.ends_with(".tgz") { return "tar.gz"; }
-    if url.ends_with(".tar.bz2")                         { return "tar.bz2"; }
-    if url.ends_with(".tar.xz")                          { return "tar.xz"; }
-    if url.ends_with(".zip")                             { return "zip"; }
+    if url.ends_with(".tar.gz") || url.ends_with(".tgz") {
+        return "tar.gz";
+    }
+    if url.ends_with(".tar.bz2") {
+        return "tar.bz2";
+    }
+    if url.ends_with(".tar.xz") {
+        return "tar.xz";
+    }
+    if url.ends_with(".zip") {
+        return "zip";
+    }
     "tar.gz"
 }
 
 fn extract_archive(archive: &Path, dest: &Path, ext: &str) -> Result<(), FreightError> {
     let archive_s = archive.to_string_lossy().into_owned();
-    let dest_s    = dest.to_string_lossy().into_owned();
+    let dest_s = dest.to_string_lossy().into_owned();
 
     let ok = if ext == "zip" {
         std::process::Command::new("unzip")
@@ -118,7 +136,8 @@ fn extract_archive(archive: &Path, dest: &Path, ext: &str) -> Result<(), Freight
 
     if !ok {
         return Err(FreightError::ManifestParse(format!(
-            "extraction failed for '{}'", archive.display()
+            "extraction failed for '{}'",
+            archive.display()
         )));
     }
     Ok(())

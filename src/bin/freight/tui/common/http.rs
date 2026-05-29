@@ -31,17 +31,19 @@ pub async fn post_login(url: &str, username: &str, password: &str) -> Result<Str
     if let Some(t) = body["token"].as_str() {
         Ok(t.to_string())
     } else {
-        let detail = body["errors"][0]["detail"].as_str().unwrap_or("login failed");
+        let detail = body["errors"][0]["detail"]
+            .as_str()
+            .unwrap_or("login failed");
         anyhow::bail!("{detail}")
     }
 }
 
 /// POST `/api/v1/users/register` and return the initial access token on success.
 pub async fn post_register(
-    url:        &str,
-    username:   &str,
-    password:   &str,
-    email:      Option<&str>,
+    url: &str,
+    username: &str,
+    password: &str,
+    email: Option<&str>,
     token_name: Option<&str>,
 ) -> Result<String> {
     let resp = reqwest::Client::new()
@@ -58,7 +60,9 @@ pub async fn post_register(
     if let Some(t) = body["token"].as_str() {
         Ok(t.to_string())
     } else {
-        let detail = body["errors"][0]["detail"].as_str().unwrap_or("registration failed");
+        let detail = body["errors"][0]["detail"]
+            .as_str()
+            .unwrap_or("registration failed");
         anyhow::bail!("{detail}")
     }
 }

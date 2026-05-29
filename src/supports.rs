@@ -13,7 +13,7 @@
 
 use std::collections::HashSet;
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
@@ -257,7 +257,9 @@ mod tests {
     #[test]
     fn parentheses() {
         let env = env_with(&["linux", "x64", "unix"]);
-        assert!(SupportsExpr::parse("(linux | windows) & !macos").unwrap().eval(&env));
+        assert!(SupportsExpr::parse("(linux | windows) & !macos")
+            .unwrap()
+            .eval(&env));
     }
 
     #[test]

@@ -21,7 +21,10 @@ use crate::output::{print_error, print_status, print_success};
 pub fn cmd_check() {
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
-        Err(e) => { print_error(&format!("cannot determine current directory: {e}")); return; }
+        Err(e) => {
+            print_error(&format!("cannot determine current directory: {e}"));
+            return;
+        }
     };
 
     let manifest_dir = match find_manifest_dir(&cwd) {
@@ -58,10 +61,16 @@ fn check_one(manifest_dir: &Path, templates: &[freight_core::toolchain::Compiler
     let manifest = match load_manifest(manifest_dir) {
         Ok(m) => m,
         Err(FreightError::ManifestParse(msg)) => {
-            print_error(&format!("{}: freight.toml could not be parsed: {msg}", manifest_dir.display()));
+            print_error(&format!(
+                "{}: freight.toml could not be parsed: {msg}",
+                manifest_dir.display()
+            ));
             return false;
         }
-        Err(e) => { print_error(&e.to_string()); return false; }
+        Err(e) => {
+            print_error(&e.to_string());
+            return false;
+        }
     };
 
     let mut errors = validate(&manifest, templates);
@@ -87,13 +96,24 @@ fn check_one(manifest_dir: &Path, templates: &[freight_core::toolchain::Compiler
 }
 
 fn print_manifest_summary(m: &Manifest) {
-    print_status("package", &format!("{} {}", m.package.name, m.package.version));
+    print_status(
+        "package",
+        &format!("{} {}", m.package.name, m.package.version),
+    );
 
     if !m.language.is_empty() {
-        let mut langs: Vec<String> = m.language.iter().map(|(key, settings)| {
-            let std_part = settings.std.as_deref().map(|s| format!(" ({s})")).unwrap_or_default();
-            format!("{key}{std_part}")
-        }).collect();
+        let mut langs: Vec<String> = m
+            .language
+            .iter()
+            .map(|(key, settings)| {
+                let std_part = settings
+                    .std
+                    .as_deref()
+                    .map(|s| format!(" ({s})"))
+                    .unwrap_or_default();
+                format!("{key}{std_part}")
+            })
+            .collect();
         langs.sort();
         print_status("language", &langs.join(", "));
     }

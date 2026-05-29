@@ -8,7 +8,7 @@ pub mod freight_registry;
 pub mod repos;
 
 pub use freight_registry::FreightRegistry;
-pub use repos::{repo_by_name, default_repo, registries_in_order};
+pub use repos::{default_repo, registries_in_order, repo_by_name};
 
 use crate::error::FreightError;
 
@@ -34,6 +34,8 @@ pub struct PackageVersion {
     pub prebuilt_triples: Vec<String>,
     /// Dependencies declared in freight.toml: name → version constraint.
     pub dependencies: std::collections::HashMap<String, String>,
+    /// Total download count for this version (0 when not provided by the registry).
+    pub downloads: u64,
 }
 
 /// Package metadata returned by a registry lookup.
@@ -59,7 +61,11 @@ pub trait PackageRepo: Send + Sync {
 
     /// Look up a package by name in the given channel (`None` = registry default).
     /// Returns `Ok(None)` when not found (404).
-    fn lookup(&self, name: &str, channel: Option<&str>) -> Result<Option<PackageInfo>, FreightError>;
+    fn lookup(
+        &self,
+        name: &str,
+        channel: Option<&str>,
+    ) -> Result<Option<PackageInfo>, FreightError>;
 
     /// Search for packages matching `query`.
     fn search(&self, query: &str) -> Result<Vec<PackageInfo>, FreightError>;
@@ -69,7 +75,9 @@ pub trait PackageRepo: Send + Sync {
 
     /// Fetch the list of owner usernames for a package.
     /// Returns an empty vec when the endpoint is unavailable or the package doesn't exist.
-    fn fetch_owners(&self, _name: &str) -> Vec<String> { vec![] }
+    fn fetch_owners(&self, _name: &str) -> Vec<String> {
+        vec![]
+    }
 }
 
 /// Backward-compatibility alias. Prefer [`PackageRepo`].
@@ -83,9 +91,9 @@ pub trait Registry: PackageRepo {}
 pub fn host_triple() -> String {
     let arch = std::env::consts::ARCH; // "x86_64" | "aarch64" | "arm" | …
     match std::env::consts::OS {
-        "linux"   => format!("{arch}-linux-gnu"),
-        "macos"   => format!("{arch}-apple-darwin"),
+        "linux" => format!("{arch}-linux-gnu"),
+        "macos" => format!("{arch}-apple-darwin"),
         "windows" => format!("{arch}-windows-msvc"),
-        other     => format!("{arch}-{other}"),
+        other => format!("{arch}-{other}"),
     }
 }

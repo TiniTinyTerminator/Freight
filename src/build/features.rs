@@ -45,19 +45,28 @@ pub fn resolve_features(
         });
     }
 
-    let defaults = all_features.get("default").map(|v| v.as_slice()).unwrap_or(&[]);
+    let defaults = all_features
+        .get("default")
+        .map(|v| v.as_slice())
+        .unwrap_or(&[]);
 
     let mut active: BTreeSet<String> = BTreeSet::new();
     let mut activated_deps: BTreeSet<String> = BTreeSet::new();
     let mut queue: VecDeque<&str> = VecDeque::new();
 
     if use_defaults {
-        for f in defaults { queue.push_back(f); }
+        for f in defaults {
+            queue.push_back(f);
+        }
     }
-    for f in requested { queue.push_back(f.as_str()); }
+    for f in requested {
+        queue.push_back(f.as_str());
+    }
 
     while let Some(feat) = queue.pop_front() {
-        if feat == "default" { continue; }
+        if feat == "default" {
+            continue;
+        }
 
         // dep:name → activate the optional dep, don't produce a define.
         if let Some(dep_name) = feat.strip_prefix("dep:") {
@@ -65,17 +74,26 @@ pub fn resolve_features(
             continue;
         }
 
-        if active.contains(feat) { continue; }
+        if active.contains(feat) {
+            continue;
+        }
         if !all_features.contains_key(feat) {
-            return Err(FreightError::ManifestParse(format!("unknown feature '{feat}'")));
+            return Err(FreightError::ManifestParse(format!(
+                "unknown feature '{feat}'"
+            )));
         }
         active.insert(feat.to_string());
         if let Some(implied) = all_features.get(feat) {
-            for f in implied { queue.push_back(f.as_str()); }
+            for f in implied {
+                queue.push_back(f.as_str());
+            }
         }
     }
 
-    Ok(FeatureResolution { active, activated_deps })
+    Ok(FeatureResolution {
+        active,
+        activated_deps,
+    })
 }
 
 /// Convert active feature names to define strings (WITHOUT `-D` prefix).
@@ -83,7 +101,8 @@ pub fn resolve_features(
 /// The `-D` prefix is added by `assemble_flags` via the compiler template.
 /// Hyphens are normalised to underscores before uppercasing.
 pub fn to_defines(features: &BTreeSet<String>) -> Vec<String> {
-    features.iter()
+    features
+        .iter()
         .map(|f| f.replace('-', "_").to_uppercase())
         .collect()
 }
@@ -93,9 +112,10 @@ mod tests {
     use super::*;
 
     fn map(pairs: &[(&str, &[&str])]) -> HashMap<String, Vec<String>> {
-        pairs.iter().map(|(k, vs)| {
-            (k.to_string(), vs.iter().map(|v| v.to_string()).collect())
-        }).collect()
+        pairs
+            .iter()
+            .map(|(k, vs)| (k.to_string(), vs.iter().map(|v| v.to_string()).collect()))
+            .collect()
     }
 
     #[test]
@@ -115,9 +135,20 @@ mod tests {
 
     #[test]
     fn transitive_expansion() {
-        let f = map(&[("default", &["full"]), ("full", &["tls", "json"]), ("tls", &[]), ("json", &[])]);
+        let f = map(&[
+            ("default", &["full"]),
+            ("full", &["tls", "json"]),
+            ("tls", &[]),
+            ("json", &[]),
+        ]);
         let r = resolve_features(&f, &[], true).unwrap();
-        assert_eq!(r.active, ["full", "json", "tls"].iter().map(|s| s.to_string()).collect());
+        assert_eq!(
+            r.active,
+            ["full", "json", "tls"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect()
+        );
     }
 
     #[test]
@@ -143,7 +174,8 @@ mod tests {
 
     #[test]
     fn to_defines_uppercases() {
-        let features: BTreeSet<String> = ["tls", "with-json"].iter().map(|s| s.to_string()).collect();
+        let features: BTreeSet<String> =
+            ["tls", "with-json"].iter().map(|s| s.to_string()).collect();
         let mut defines = to_defines(&features);
         defines.sort();
         assert_eq!(defines, vec!["TLS", "WITH_JSON"]);
@@ -154,7 +186,7 @@ mod tests {
         let f = map(&[
             ("default", &["openblas"]),
             ("openblas", &["dep:openblas"]),
-            ("mkl",      &["dep:mkl"]),
+            ("mkl", &["dep:mkl"]),
         ]);
         let r = resolve_features(&f, &[], true).unwrap();
         // "openblas" feature is active (produces a define)
@@ -167,9 +199,7 @@ mod tests {
 
     #[test]
     fn dep_prefix_not_treated_as_define() {
-        let f = map(&[
-            ("logging", &["dep:spdlog"]),
-        ]);
+        let f = map(&[("logging", &["dep:spdlog"])]);
         let r = resolve_features(&f, &["logging".to_string()], false).unwrap();
         // "logging" is a real feature → produces a define
         assert!(r.active.contains("logging"));
@@ -184,9 +214,9 @@ mod tests {
     fn profile_features_activate_deps() {
         // Simulate what build_project_at does: merge profile features into requested.
         let f = map(&[
-            ("default",  &[]),
+            ("default", &[]),
             ("openblas", &["dep:openblas"]),
-            ("mkl",      &["dep:mkl"]),
+            ("mkl", &["dep:mkl"]),
         ]);
         let profile_features = vec!["mkl".to_string()];
         let r = resolve_features(&f, &profile_features, true).unwrap();

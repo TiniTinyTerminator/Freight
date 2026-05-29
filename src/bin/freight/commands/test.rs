@@ -37,7 +37,14 @@ impl Args {
     }
 }
 
-pub fn cmd_test(filter: Option<&str>, release: bool, package: Option<&str>, features: &[String], use_defaults: bool, sanitize: &[String]) {
+pub fn cmd_test(
+    filter: Option<&str>,
+    release: bool,
+    package: Option<&str>,
+    features: &[String],
+    use_defaults: bool,
+    sanitize: &[String],
+) {
     let profile = if release { "release" } else { "dev" };
     let progress = super::build::make_progress();
     if super::build::at_workspace_root() {
@@ -50,7 +57,8 @@ pub fn cmd_test(filter: Option<&str>, release: bool, package: Option<&str>, feat
                 }
                 if summary.failed == 0 {
                     print_success(&format!(
-                        "test result: ok. {} passed; 0 failed", summary.passed,
+                        "test result: ok. {} passed; 0 failed",
+                        summary.passed,
                     ));
                 } else {
                     print_error(&format!(
@@ -59,7 +67,10 @@ pub fn cmd_test(filter: Option<&str>, release: bool, package: Option<&str>, feat
                     ));
                 }
             }
-            Err(e) => { println!(); print_error(&e.to_string()); }
+            Err(e) => {
+                println!();
+                print_error(&e.to_string());
+            }
         }
         return;
     }
@@ -78,7 +89,8 @@ pub fn cmd_test(filter: Option<&str>, release: bool, package: Option<&str>, feat
             }
             if summary.failed == 0 {
                 print_success(&format!(
-                    "test result: ok. {} passed; 0 failed", summary.passed,
+                    "test result: ok. {} passed; 0 failed",
+                    summary.passed,
                 ));
             } else {
                 print_error(&format!(
@@ -87,6 +99,9 @@ pub fn cmd_test(filter: Option<&str>, release: bool, package: Option<&str>, feat
                 ));
             }
         }
-        Err(e) => { println!(); print_error(&e.to_string()); }
+        Err(e) => {
+            println!();
+            print_error(&e.to_string());
+        }
     }
 }

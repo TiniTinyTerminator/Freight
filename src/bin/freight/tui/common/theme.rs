@@ -7,17 +7,17 @@ use ratatui::style::{Color, Modifier, Style};
 // ── Colour palette ────────────────────────────────────────────────────────────
 
 /// Border/title colour when the form is idle and ready for input.
-pub const COLOR_IDLE:    Color = Color::Cyan;
+pub const COLOR_IDLE: Color = Color::Cyan;
 /// Border/title colour while an async operation is in progress.
 pub const COLOR_LOADING: Color = Color::Yellow;
 /// Border/title colour on success.
-pub const COLOR_DONE:    Color = Color::Green;
+pub const COLOR_DONE: Color = Color::Green;
 /// Border/title colour when an error has occurred.
-pub const COLOR_ERR:     Color = Color::Red;
+pub const COLOR_ERR: Color = Color::Red;
 /// Colour used for the active input field border.
-pub const COLOR_ACTIVE:  Color = Color::Yellow;
+pub const COLOR_ACTIVE: Color = Color::Yellow;
 /// Colour used for hint/help text.
-pub const COLOR_HINT:    Color = Color::DarkGray;
+pub const COLOR_HINT: Color = Color::DarkGray;
 
 // ── Form status ───────────────────────────────────────────────────────────────
 
@@ -33,10 +33,10 @@ impl FormStatus {
     /// Border colour for the outer popup block.
     pub fn border_color(&self) -> Color {
         match self {
-            FormStatus::Idle    => COLOR_IDLE,
+            FormStatus::Idle => COLOR_IDLE,
             FormStatus::Loading => COLOR_LOADING,
-            FormStatus::Done    => COLOR_DONE,
-            FormStatus::Err(_)  => COLOR_ERR,
+            FormStatus::Done => COLOR_DONE,
+            FormStatus::Err(_) => COLOR_ERR,
         }
     }
 

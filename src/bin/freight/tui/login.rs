@@ -13,23 +13,25 @@ use ratatui::{
 };
 use tokio::sync::mpsc;
 
-use super::common::{
-    self, enter_tui, leave_tui, render_field, render_hint, render_popup, render_status,
-    FormStatus,
-};
 use super::common::widgets::center_rect;
+use super::common::{
+    self, enter_tui, leave_tui, render_field, render_hint, render_popup, render_status, FormStatus,
+};
 
 // ── State ─────────────────────────────────────────────────────────────────────
 
 struct LoginForm {
-    url:      String,
+    url: String,
     username: String,
     password: String,
-    field:    usize,   // 0 = url, 1 = username, 2 = password
-    status:   FormStatus,
+    field: usize, // 0 = url, 1 = username, 2 = password
+    status: FormStatus,
 }
 
-enum Msg { Success { username: String, token: String }, Err(String) }
+enum Msg {
+    Success { username: String, token: String },
+    Err(String),
+}
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
@@ -45,12 +47,12 @@ async fn run_async(url: String, prefill_username: Option<String>) -> Result<(Str
         url,
         username: prefill_username.unwrap_or_default(),
         password: String::new(),
-        field:    field_start,
-        status:   FormStatus::Idle,
+        field: field_start,
+        status: FormStatus::Idle,
     };
 
     let mut term = enter_tui()?;
-    let result   = event_loop(&mut term, &mut form).await;
+    let result = event_loop(&mut term, &mut form).await;
     leave_tui(&mut term)?;
     result
 }
@@ -72,43 +74,58 @@ async fn event_loop(
                     tokio::time::sleep(Duration::from_millis(500)).await;
                     return Ok((username, token));
                 }
-                Msg::Err(e) => { form.status = FormStatus::Err(e); }
+                Msg::Err(e) => {
+                    form.status = FormStatus::Err(e);
+                }
             }
         }
 
-        if !event::poll(Duration::from_millis(50))? { continue; }
+        if !event::poll(Duration::from_millis(50))? {
+            continue;
+        }
 
         if let Event::Key(key) = event::read()? {
             if key.code == KeyCode::Esc
-                || (key.modifiers.contains(KeyModifiers::CONTROL)
-                    && key.code == KeyCode::Char('c'))
+                || (key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c'))
             {
                 anyhow::bail!("cancelled");
             }
 
-            if !form.status.is_interactive() { continue; }
+            if !form.status.is_interactive() {
+                continue;
+            }
 
             match key.code {
-                KeyCode::Tab | KeyCode::Down  => { form.field = (form.field + 1) % 3; }
-                KeyCode::BackTab | KeyCode::Up => { form.field = (form.field + 2) % 3; }
+                KeyCode::Tab | KeyCode::Down => {
+                    form.field = (form.field + 1) % 3;
+                }
+                KeyCode::BackTab | KeyCode::Up => {
+                    form.field = (form.field + 2) % 3;
+                }
                 KeyCode::Char(c) => match form.field {
                     0 => form.url.push(c),
                     1 => form.username.push(c),
                     _ => form.password.push(c),
                 },
                 KeyCode::Backspace => match form.field {
-                    0 => { form.url.pop(); }
-                    1 => { form.username.pop(); }
-                    _ => { form.password.pop(); }
+                    0 => {
+                        form.url.pop();
+                    }
+                    1 => {
+                        form.username.pop();
+                    }
+                    _ => {
+                        form.password.pop();
+                    }
                 },
                 KeyCode::Enter => {
                     if form.field < 2 {
                         form.field += 1;
                     } else {
-                        let url      = form.url.clone();
+                        let url = form.url.clone();
                         let username = form.username.clone();
                         let password = form.password.clone();
-                        form.status  = FormStatus::Loading;
+                        form.status = FormStatus::Loading;
                         let tx2 = tx.clone();
                         tokio::spawn(async move {
                             match common::post_login(&url, &username, &password).await {
@@ -131,14 +148,14 @@ async fn event_loop(
 // ── Rendering ─────────────────────────────────────────────────────────────────
 
 fn draw(frame: &mut Frame, form: &LoginForm) {
-    let area  = frame.area();
+    let area = frame.area();
     let popup = center_rect(56, 18, area);
 
     let title = match &form.status {
         FormStatus::Loading => " freight login — authenticating… ",
-        FormStatus::Done    => " freight login — ✓ success ",
-        FormStatus::Err(_)  => " freight login — error ",
-        FormStatus::Idle    => " freight login ",
+        FormStatus::Done => " freight login — ✓ success ",
+        FormStatus::Err(_) => " freight login — error ",
+        FormStatus::Idle => " freight login ",
     };
 
     let inner = render_popup(frame, title, &form.status, popup);
@@ -150,12 +167,37 @@ fn draw(frame: &mut Frame, form: &LoginForm) {
         Constraint::Length(1),
         Constraint::Length(2),
         Constraint::Length(1),
-    ]).areas(inner);
+    ])
+    .areas(inner);
 
-    render_field(frame, url_a, " Registry URL ", &form.url,      false, form.field == 0, &form.status);
-    render_field(frame, usr_a, " Username ",     &form.username, false, form.field == 1, &form.status);
-    render_field(frame, pw_a,  " Password ",     &form.password, true,  form.field == 2, &form.status);
+    render_field(
+        frame,
+        url_a,
+        " Registry URL ",
+        &form.url,
+        false,
+        form.field == 0,
+        &form.status,
+    );
+    render_field(
+        frame,
+        usr_a,
+        " Username ",
+        &form.username,
+        false,
+        form.field == 1,
+        &form.status,
+    );
+    render_field(
+        frame,
+        pw_a,
+        " Password ",
+        &form.password,
+        true,
+        form.field == 2,
+        &form.status,
+    );
 
-    render_status(frame, err_a,  &form.status, "Logged in — token saved.");
-    render_hint  (frame, hint_a, &form.status);
+    render_status(frame, err_a, &form.status, "Logged in — token saved.");
+    render_hint(frame, hint_a, &form.status);
 }

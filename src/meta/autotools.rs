@@ -9,8 +9,8 @@
 //! - Always passes `--enable-static --disable-shared`
 use std::path::{Path, PathBuf};
 
-use crate::error::FreightError;
 use super::run;
+use crate::error::FreightError;
 
 pub fn build_autotools(
     dep_dir: &Path,
@@ -26,7 +26,13 @@ pub fn build_autotools(
     if !dep_dir.join("configure").exists() {
         if dep_dir.join("autogen.sh").exists() {
             if use_emscripten {
-                run("emconfigure", &["sh", "autogen.sh"], dep_dir, "autogen.sh", tool_paths)?;
+                run(
+                    "emconfigure",
+                    &["sh", "autogen.sh"],
+                    dep_dir,
+                    "autogen.sh",
+                    tool_paths,
+                )?;
             } else {
                 run("sh", &["autogen.sh"], dep_dir, "autogen.sh", tool_paths)?;
             }
@@ -41,13 +47,10 @@ pub fn build_autotools(
     // Configure step — skipped when already up-to-date.
     if !configure_up_to_date(dep_dir) {
         let configure = dep_dir.join("configure").to_string_lossy().into_owned();
-        let prefix    = format!("--prefix={}", install_dir.display());
+        let prefix = format!("--prefix={}", install_dir.display());
 
-        let mut args: Vec<String> = vec![
-            prefix,
-            "--enable-static".into(),
-            "--disable-shared".into(),
-        ];
+        let mut args: Vec<String> =
+            vec![prefix, "--enable-static".into(), "--disable-shared".into()];
         if let Some(triple) = target {
             args.push(format!("--host={triple}"));
         }
@@ -67,11 +70,23 @@ pub fn build_autotools(
     let jobs_str = rayon::current_num_threads().to_string();
 
     if use_emscripten {
-        run("emmake", &["make", "-j", &jobs_str], dep_dir, "make", tool_paths)?;
-        run("emmake", &["make", "install"],        dep_dir, "make install", tool_paths)?;
+        run(
+            "emmake",
+            &["make", "-j", &jobs_str],
+            dep_dir,
+            "make",
+            tool_paths,
+        )?;
+        run(
+            "emmake",
+            &["make", "install"],
+            dep_dir,
+            "make install",
+            tool_paths,
+        )?;
     } else {
         run("make", &["-j", &jobs_str], dep_dir, "make", tool_paths)?;
-        run("make", &["install"],       dep_dir, "make install", tool_paths)?;
+        run("make", &["install"], dep_dir, "make install", tool_paths)?;
     }
 
     Ok(())
@@ -82,8 +97,8 @@ pub fn build_autotools(
 /// than `config.status`.
 fn configure_up_to_date(dep_dir: &Path) -> bool {
     let config_status = dep_dir.join("config.status");
-    let makefile      = dep_dir.join("Makefile");
-    let configure     = dep_dir.join("configure");
+    let makefile = dep_dir.join("Makefile");
+    let configure = dep_dir.join("configure");
 
     if !config_status.exists() || !makefile.exists() || !configure.exists() {
         return false;

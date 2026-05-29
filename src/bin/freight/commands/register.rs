@@ -34,16 +34,27 @@ impl Args {
             );
         } else {
             let url = super::common::resolve_registry_url(self.registry.as_deref());
-            match crate::tui::register::run(url.clone(), self.username, self.email, self.token_name) {
+            match crate::tui::register::run(url.clone(), self.username, self.email, self.token_name)
+            {
                 Ok((uname, token)) => {
                     let name = super::common::registry_name_for(&url);
-                    match freight_core::toolchain::cache::GlobalConfig::save_credential(&url, &name, &token) {
-                        Ok(()) => crate::output::print_success(&format!("registered as `{uname}` — token saved to ~/.freight/credentials.toml")),
-                        Err(e) => { crate::output::print_error(&e.to_string()); std::process::exit(1); }
+                    match freight_core::toolchain::cache::GlobalConfig::save_credential(
+                        &url, &name, &token,
+                    ) {
+                        Ok(()) => crate::output::print_success(&format!(
+                            "registered as `{uname}` — token saved to ~/.freight/credentials.toml"
+                        )),
+                        Err(e) => {
+                            crate::output::print_error(&e.to_string());
+                            std::process::exit(1);
+                        }
                     }
                 }
                 Err(e) if e.to_string() == "cancelled" => {}
-                Err(e) => { crate::output::print_error(&e.to_string()); std::process::exit(1); }
+                Err(e) => {
+                    crate::output::print_error(&e.to_string());
+                    std::process::exit(1);
+                }
             }
         }
     }
@@ -113,30 +124,31 @@ fn cmd_register(
 
     let cfg = RegistryConfig {
         name: reg_name.clone(),
-        url:  url.clone(),
+        url: url.clone(),
         token: None,
     };
     let registry = FreightRegistry::from_config(&cfg);
 
-    print_status("register", &format!("creating account `{username}` on {url}…"));
+    print_status(
+        "register",
+        &format!("creating account `{username}` on {url}…"),
+    );
 
     match registry.register_user(&username, &password, email_arg, token_name_arg) {
-        Ok((_, token)) => {
-            match GlobalConfig::save_credential(&url, &reg_name, &token) {
-                Ok(()) => {
-                    let creds_path = freight_home()
-                        .map(|h| h.join("credentials.toml").to_string_lossy().into_owned())
-                        .unwrap_or_else(|| "~/.freight/credentials.toml".into());
-                    print_success(&format!(
-                        "registered as `{username}` — token saved to {creds_path}"
-                    ));
-                }
-                Err(e) => {
-                    print_success(&format!("registered as `{username}`"));
-                    print_warning(&format!("could not save token automatically: {e}"));
-                }
+        Ok((_, token)) => match GlobalConfig::save_credential(&url, &reg_name, &token) {
+            Ok(()) => {
+                let creds_path = freight_home()
+                    .map(|h| h.join("credentials.toml").to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "~/.freight/credentials.toml".into());
+                print_success(&format!(
+                    "registered as `{username}` — token saved to {creds_path}"
+                ));
             }
-        }
+            Err(e) => {
+                print_success(&format!("registered as `{username}`"));
+                print_warning(&format!("could not save token automatically: {e}"));
+            }
+        },
         Err(e) => {
             print_error(&e.to_string());
             std::process::exit(1);

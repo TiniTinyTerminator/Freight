@@ -1,12 +1,15 @@
 //! Factory helpers for obtaining a [`PackageRepo`] by name.
 
+use super::{FreightRegistry, PackageRepo};
 use crate::error::FreightError;
 use crate::toolchain::cache::GlobalConfig;
-use super::{PackageRepo, FreightRegistry};
 
 /// Return the repo implementation for the given name, searching the configured
 /// registries. Falls back to the default freight.dev registry for `""` / `"freight"`.
-pub fn repo_by_name(name: &str, config: &GlobalConfig) -> Result<Box<dyn PackageRepo>, FreightError> {
+pub fn repo_by_name(
+    name: &str,
+    config: &GlobalConfig,
+) -> Result<Box<dyn PackageRepo>, FreightError> {
     match name {
         "" | "freight" => return Ok(Box::new(FreightRegistry::default_registry())),
         _ => {}
@@ -30,7 +33,8 @@ pub fn default_repo() -> Box<dyn PackageRepo> {
 /// with the default freight.dev registry appended last unless an entry named
 /// `"freight"` is already present.
 pub fn registries_in_order(config: &GlobalConfig) -> Vec<Box<dyn PackageRepo>> {
-    let mut repos: Vec<Box<dyn PackageRepo>> = config.registries
+    let mut repos: Vec<Box<dyn PackageRepo>> = config
+        .registries
         .iter()
         .map(|cfg| -> Box<dyn PackageRepo> { Box::new(FreightRegistry::from_config(cfg)) })
         .collect();

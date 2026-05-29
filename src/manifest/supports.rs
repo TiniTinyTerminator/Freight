@@ -227,9 +227,7 @@ impl SupportEnv {
             self.os == "windows"
                 && std::env::var("MSYSTEM")
                     .map(|m| {
-                        m.starts_with("MINGW")
-                            || m.starts_with("UCRT")
-                            || m.starts_with("CLANG")
+                        m.starts_with("MINGW") || m.starts_with("UCRT") || m.starts_with("CLANG")
                     })
                     .unwrap_or(false)
         }
@@ -341,7 +339,7 @@ mod tests {
     #[test]
     fn supports_expr_distinguishes_mingw_from_msvc() {
         let msvc = env("windows", "x86_64", Some("x86_64-pc-windows-msvc"));
-        let gnu  = env("windows", "x86_64", Some("x86_64-pc-windows-gnu"));
+        let gnu = env("windows", "x86_64", Some("x86_64-pc-windows-gnu"));
         let mingw = env("windows", "x86_64", Some("x86_64-w64-mingw32"));
         assert!(!eval("mingw", &msvc).unwrap());
         assert!(eval("mingw", &gnu).unwrap());

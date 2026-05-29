@@ -2,7 +2,10 @@ use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 
 use crate::error::FreightError;
-use crate::manifest::{load_manifest, types::{Dependency, Manifest}};
+use crate::manifest::{
+    load_manifest,
+    types::{Dependency, Manifest},
+};
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -22,11 +25,11 @@ pub struct ResolvedDep {
 /// - Version deps (`name = "0.3"`) → resolved via pkg-config, system stubs, or registry
 /// - Path deps (`path = "..."`) → resolved from that path
 /// - System deps (`system = "..."`) → skipped (linked by name, no source)
-/// - Git deps → resolved from `.deps/{name}/` after `freight fetch`
+/// - Git deps → resolved from `target/deps/{name}/` after `freight fetch`
 ///
 /// Only one level of availability is checked: if dep A requires dep B, B must
-/// already be present in `.deps/`. Freight refuses to download transitively —
-/// run `freight fetch` to populate `.deps/` before building.
+/// already be present in `target/deps/`. Freight refuses to download transitively —
+/// run `freight fetch` to populate `target/deps/` before building.
 pub fn resolve_dep_graph(
     root_dir: &Path,
     root_manifest: &Manifest,
@@ -37,15 +40,21 @@ pub fn resolve_dep_graph(
     let mut deps_of: HashMap<String, Vec<String>> = HashMap::new();
     let mut depths: HashMap<String, usize> = HashMap::new();
 
-    let initial = direct_compilable_deps(root_dir, root_dir, root_manifest, include_dev, activated_deps);
+    let initial = direct_compilable_deps(
+        root_dir,
+        root_dir,
+        root_manifest,
+        include_dev,
+        activated_deps,
+    );
     // Queue carries (name, dir, depth): direct deps of root start at depth 1.
-    let mut queue: VecDeque<(String, PathBuf, usize)> = initial
-        .into_iter()
-        .map(|(n, d)| (n, d, 1))
-        .collect();
+    let mut queue: VecDeque<(String, PathBuf, usize)> =
+        initial.into_iter().map(|(n, d)| (n, d, 1)).collect();
 
     while let Some((name, dir, depth)) = queue.pop_front() {
-        if nodes.contains_key(&name) { continue; }
+        if nodes.contains_key(&name) {
+            continue;
+        }
 
         if !dir.exists() {
             return Err(FreightError::ManifestParse(format!(
@@ -59,7 +68,7 @@ pub fn resolve_dep_graph(
             .map_err(|e| FreightError::ManifestParse(format!("dep '{name}': {e}")))?;
 
         // All deps — including transitive ones — live in the root project's flat
-        // .deps/ pool, not in a nested .deps/ inside each dep.  Path deps in a
+        // target/deps/ pool, not in a nested .deps/ inside each dep.  Path deps in a
         // transitive manifest are relative to that dep's own directory, but
         // version/git deps always resolve against root_dir.
         let empty = BTreeSet::new();
@@ -68,7 +77,7 @@ pub fn resolve_dep_graph(
             if !sub_dir.exists() {
                 return Err(FreightError::ManifestParse(format!(
                     "dep '{name}' requires '{sub_name}', which is not present. \
-                     Add it to your root .deps/ and run `freight fetch`.",
+                     Add it to your root target/deps/ and run `freight fetch`.",
                 )));
             }
         }
@@ -86,11 +95,19 @@ pub fn resolve_dep_graph(
     let build_order = topo_sort(&nodes.keys().cloned().collect::<Vec<_>>(), &deps_of)?;
 
     let mut remaining = nodes;
-    Ok(build_order.into_iter().map(|name| {
-        let depth = depths[&name];
-        let (dir, manifest) = remaining.remove(&name).unwrap();
-        ResolvedDep { name, dir, manifest, depth }
-    }).collect())
+    Ok(build_order
+        .into_iter()
+        .map(|name| {
+            let depth = depths[&name];
+            let (dir, manifest) = remaining.remove(&name).unwrap();
+            ResolvedDep {
+                name,
+                dir,
+                manifest,
+                depth,
+            }
+        })
+        .collect())
 }
 
 /// Check slot conflicts among active deps and apply hierarchy-based substitution.
@@ -103,7 +120,10 @@ pub fn resolve_dep_graph(
 /// - Same depth → hard error: neither has priority, the user must resolve it.
 ///
 /// Returns the list of dep names that should be dropped from the build.
-pub fn check_slot_conflicts(resolved: &[ResolvedDep], root_manifest: &Manifest) -> Result<Vec<String>, FreightError> {
+pub fn check_slot_conflicts(
+    resolved: &[ResolvedDep],
+    root_manifest: &Manifest,
+) -> Result<Vec<String>, FreightError> {
     // slot → (dep_name, depth); depth 0 = root project (always wins)
     let mut claimed: HashMap<String, (String, usize)> = HashMap::new();
     let mut to_drop: Vec<String> = Vec::new();
@@ -159,7 +179,11 @@ pub fn check_slot_conflicts(resolved: &[ResolvedDep], root_manifest: &Manifest) 
 pub fn dep_include_dirs(dep_dir: &Path, manifest: &Manifest) -> Vec<PathBuf> {
     let mut dirs: Vec<PathBuf> = Vec::new();
 
-    let hdrs_declared = manifest.lib.as_ref().map(|l| !l.hdrs.is_empty()).unwrap_or(false);
+    let hdrs_declared = manifest
+        .lib
+        .as_ref()
+        .map(|l| !l.hdrs.is_empty())
+        .unwrap_or(false);
     if hdrs_declared {
         for hdr in &manifest.lib.as_ref().unwrap().hdrs {
             if let Some(parent) = std::path::Path::new(hdr).parent() {
@@ -174,13 +198,17 @@ pub fn dep_include_dirs(dep_dir: &Path, manifest: &Manifest) -> Vec<PathBuf> {
     } else {
         for candidate in &["include", "inc"] {
             let d = dep_dir.join(candidate);
-            if d.is_dir() { dirs.push(d); }
+            if d.is_dir() {
+                dirs.push(d);
+            }
         }
     }
 
     for p in &manifest.compiler.includes {
         let abs = dep_dir.join(p);
-        if !dirs.contains(&abs) { dirs.push(abs); }
+        if !dirs.contains(&abs) {
+            dirs.push(abs);
+        }
     }
     dirs
 }
@@ -188,7 +216,7 @@ pub fn dep_include_dirs(dep_dir: &Path, manifest: &Manifest) -> Vec<PathBuf> {
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// `root_dir`      — the root project's directory; version/git deps resolve to
-///                   `root_dir/.deps/{name}/` (flat, shared pool).
+///                   `root_dir/target/deps/{name}/` (flat, shared pool).
 /// `declaring_dir` — the directory of the manifest that declares this dep;
 ///                   path deps (`path = "../foo"`) are relative to this.
 ///
@@ -215,7 +243,9 @@ fn direct_compilable_deps(
     }
     if include_dev {
         for (name, dep) in &manifest.dev_dependencies {
-            if result.iter().any(|(n, _)| n == name) { continue; }
+            if result.iter().any(|(n, _)| n == name) {
+                continue;
+            }
             if let Some(dir) = compilable_dep_dir(root_dir, declaring_dir, name, dep) {
                 result.push((name.clone(), dir));
             }
@@ -224,17 +254,24 @@ fn direct_compilable_deps(
     result
 }
 
-fn compilable_dep_dir(root_dir: &Path, declaring_dir: &Path, name: &str, dep: &Dependency) -> Option<PathBuf> {
+fn compilable_dep_dir(
+    root_dir: &Path,
+    declaring_dir: &Path,
+    name: &str,
+    dep: &Dependency,
+) -> Option<PathBuf> {
     match dep {
         Dependency::Simple(_) => {
             // Version dep → resolved by foreign package lookup (pkg-config → system stubs → registry).
             None
         }
         Dependency::Detailed(d) => {
-            if crate::manifest::types::is_platform_dep(name) { return None; }
+            if crate::manifest::types::is_platform_dep(name) {
+                return None;
+            }
             let dep_dir = if d.git.is_some() {
-                // Git dep → root .deps/{name}/ (flat pool)
-                root_dir.join(".deps").join(name)
+                // Git dep → root target/deps/{name}/ (flat pool)
+                root_dir.join("target").join("deps").join(name)
             } else if let Some(p) = &d.path {
                 // Path dep → relative to the manifest that declares it
                 declaring_dir.join(p)
@@ -260,7 +297,8 @@ pub(crate) fn topo_sort(
     deps_of: &HashMap<String, Vec<String>>,
 ) -> Result<Vec<String>, FreightError> {
     // in_degree[A] = number of packages A depends on
-    let mut in_degree: HashMap<String, usize> = names.iter()
+    let mut in_degree: HashMap<String, usize> = names
+        .iter()
         .map(|n| (n.clone(), deps_of.get(n).map_or(0, |v| v.len())))
         .collect();
 
@@ -273,7 +311,8 @@ pub(crate) fn topo_sort(
     }
 
     // Start with packages that have no dependencies (leaves).
-    let mut queue: VecDeque<String> = in_degree.iter()
+    let mut queue: VecDeque<String> = in_degree
+        .iter()
         .filter(|(_, &d)| d == 0)
         .map(|(n, _)| n.clone())
         .collect();
@@ -318,9 +357,10 @@ mod tests {
     }
 
     fn deps(pairs: &[(&str, &[&str])]) -> HashMap<String, Vec<String>> {
-        pairs.iter().map(|(k, v)| {
-            (k.to_string(), v.iter().map(|s| s.to_string()).collect())
-        }).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.iter().map(|s| s.to_string()).collect()))
+            .collect()
     }
 
     #[test]
@@ -346,11 +386,7 @@ mod tests {
     #[test]
     fn topo_sort_diamond() {
         // d depends on b and c; b and c both depend on a → a is first, d is last
-        let d = deps(&[
-            ("b", &["a"]),
-            ("c", &["a"]),
-            ("d", &["b", "c"]),
-        ]);
+        let d = deps(&[("b", &["a"]), ("c", &["a"]), ("d", &["b", "c"])]);
         let order = topo_sort(&names(&["a", "b", "c", "d"]), &d).unwrap();
         let pos = |n: &str| order.iter().position(|x| x == n).unwrap();
         assert!(pos("a") < pos("b"));

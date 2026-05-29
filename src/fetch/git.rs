@@ -9,8 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use git2::{
-    build::RepoBuilder, Cred, CredentialType, FetchOptions, RemoteCallbacks, Repository,
-    ResetType,
+    build::RepoBuilder, Cred, CredentialType, FetchOptions, RemoteCallbacks, Repository, ResetType,
 };
 
 use crate::error::FreightError;
@@ -74,8 +73,14 @@ pub fn checkout_rev(dest: &Path, sha: &str) -> Result<(), FreightError> {
     let _ = {
         let mut remote = repo.find_remote("origin").ok();
         if let Some(ref mut r) = remote {
-            with_auth(|fo| r.fetch(&["refs/heads/*:refs/remotes/origin/*"], Some(&mut { fo }), None))
-                .ok(); // non-fatal — SHA may already be local
+            with_auth(|fo| {
+                r.fetch(
+                    &["refs/heads/*:refs/remotes/origin/*"],
+                    Some(&mut { fo }),
+                    None,
+                )
+            })
+            .ok(); // non-fatal — SHA may already be local
         }
     };
 

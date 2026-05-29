@@ -1,16 +1,16 @@
 pub mod build;
 pub mod dep_cmds;
-pub mod migration;
 pub mod error;
 pub mod event;
+pub mod migration;
 pub mod supports;
 
+pub mod fetch;
 pub mod install;
 pub mod lock;
 pub mod manifest;
+pub mod meta;
 pub mod new;
+pub mod registry;
 pub mod toolchain;
 pub mod vendor;
-pub mod fetch;
-pub mod meta;
-pub mod registry;

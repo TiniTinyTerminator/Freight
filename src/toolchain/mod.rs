@@ -6,22 +6,16 @@ pub mod system_libs;
 pub mod template;
 pub mod tool;
 
-pub use cache::{GlobalConfig, ToolchainCache, freight_home};
-pub use debugger::{
-    DebuggerTemplate, DetectedDebugger,
-    detect_debuggers, load_debugger_templates,
-};
+pub use cache::{freight_home, GlobalConfig, ToolchainCache};
+pub use debugger::{detect_debuggers, load_debugger_templates, DebuggerTemplate, DetectedDebugger};
 pub use detect::{
+    backend_matches, check_manifest_version_bounds, detect_all, detect_all_cached,
+    group_into_toolchains, load_all_templates, parse_versioned_name, toolchain_use,
     DetectedCompiler, DetectedToolchain, ToolchainGroups,
-    detect_all, detect_all_cached, group_into_toolchains,
-    load_all_templates, toolchain_use,
-    check_manifest_version_bounds, backend_matches, parse_versioned_name,
 };
+pub use system_libs::{find_stub, load_system_lib_stubs, SystemLibStub};
 pub use template::{BuildSettings, CompilerTemplate, ModuleStyle};
-pub use system_libs::{SystemLibStub, load_system_lib_stubs, find_stub};
 pub use tool::{
-    DetectedTool, ToolTemplate,
-    collect_sources, detect_tools,
-    load_formatter_templates, load_linter_templates,
-    select_formatter, select_linter,
+    collect_sources, detect_tools, load_formatter_templates, load_linter_templates,
+    select_formatter, select_linter, DetectedTool, ToolTemplate,
 };

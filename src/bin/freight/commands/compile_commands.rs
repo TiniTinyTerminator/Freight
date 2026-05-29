@@ -19,11 +19,17 @@ pub fn cmd_compile_commands(release: bool) {
     let profile = if release { "release" } else { "dev" };
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
-        Err(e) => { print_error(&format!("{e}")); return; }
+        Err(e) => {
+            print_error(&format!("{e}"));
+            return;
+        }
     };
     let project_dir = match find_manifest_dir(&cwd) {
         Some(d) => d,
-        None => { print_error("no freight.toml found in current directory or any parent"); return; }
+        None => {
+            print_error("no freight.toml found in current directory or any parent");
+            return;
+        }
     };
 
     // Workspace root: regenerate each member then write a merged root-level DB.
@@ -34,8 +40,14 @@ pub fn cmd_compile_commands(release: bool) {
         for member in &ws.members {
             let member_dir = project_dir.join(member.trim_end_matches('/'));
             match generate_compile_commands_at(&member_dir, profile) {
-                Ok(n) => { total += n; member_dirs.push(member_dir); }
-                Err(e) => { print_error(&format!("{}: {e}", member)); return; }
+                Ok(n) => {
+                    total += n;
+                    member_dirs.push(member_dir);
+                }
+                Err(e) => {
+                    print_error(&format!("{}: {e}", member));
+                    return;
+                }
             }
         }
 
@@ -46,7 +58,9 @@ pub fn cmd_compile_commands(release: bool) {
         }
         all.sort_by(|a, b| a.file.cmp(&b.file));
         if let Err(e) = compile_commands::write(&project_dir, &all) {
-            print_error(&format!("could not write workspace compile_commands.json: {e}"));
+            print_error(&format!(
+                "could not write workspace compile_commands.json: {e}"
+            ));
             return;
         }
 

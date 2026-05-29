@@ -25,7 +25,9 @@ impl BuildFlags {
     pub fn apply(&self) {
         if self.verbose {
             // Safety: single-threaded here; rayon workers not yet started.
-            unsafe { std::env::set_var("FREIGHT_VERBOSE", "1"); }
+            unsafe {
+                std::env::set_var("FREIGHT_VERBOSE", "1");
+            }
         }
         apply_jobs(self.jobs);
     }
@@ -34,19 +36,31 @@ impl BuildFlags {
 /// Configure the rayon thread pool from an optional `--jobs N` value.
 pub fn apply_jobs(jobs: Option<usize>) {
     let n = jobs.unwrap_or_else(|| {
-        std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(6)
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4)
+            .min(6)
     });
-    rayon::ThreadPoolBuilder::new().num_threads(n).build_global().ok();
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(n)
+        .build_global()
+        .ok();
 }
 
 pub fn locate_project_dir() -> Option<PathBuf> {
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
-        Err(e) => { print_error(&format!("cannot read cwd: {e}")); return None; }
+        Err(e) => {
+            print_error(&format!("cannot read cwd: {e}"));
+            return None;
+        }
     };
     match find_manifest_dir(&cwd) {
         Some(d) => Some(d),
-        None => { print_error("no freight.toml found"); None }
+        None => {
+            print_error("no freight.toml found");
+            None
+        }
     }
 }
 
@@ -54,7 +68,9 @@ pub fn refresh_lock(project_dir: &Path) {
     match regen_lock(project_dir) {
         Ok(RegenLockOutcome::Wrote) => {}
         Ok(RegenLockOutcome::Skipped) => {
-            print_warning("freight.lock not updated — run `freight fetch` after downloading dependencies");
+            print_warning(
+                "freight.lock not updated — run `freight fetch` after downloading dependencies",
+            );
         }
         Err(e) => {
             print_error(&format!("cannot write freight.lock: {e}"));
@@ -68,7 +84,13 @@ pub fn resolve_registry_url(registry: Option<&str>) -> String {
     use freight_core::toolchain::cache::GlobalConfig;
     registry
         .map(str::to_string)
-        .or_else(|| GlobalConfig::load().registries.into_iter().next().map(|r| r.url))
+        .or_else(|| {
+            GlobalConfig::load()
+                .registries
+                .into_iter()
+                .next()
+                .map(|r| r.url)
+        })
         .unwrap_or_else(|| "https://freight.dev".to_string())
 }
 
@@ -87,13 +109,13 @@ pub fn registry_name_for(url: &str) -> String {
 /// Used by `freight login --username NAME --password PASS` (non-TUI path).
 pub fn login_with_credentials(
     registry_url: Option<&str>,
-    username:     Option<&str>,
-    password:     Option<&str>,
+    username: Option<&str>,
+    password: Option<&str>,
 ) {
     use freight_core::toolchain::cache::GlobalConfig;
     use sha2::{Digest, Sha256};
 
-    let url  = resolve_registry_url(registry_url);
+    let url = resolve_registry_url(registry_url);
     let name = registry_name_for(&url);
 
     let username = match username {
@@ -132,7 +154,10 @@ pub fn login_with_credentials(
 
     let rt = match tokio::runtime::Runtime::new() {
         Ok(r) => r,
-        Err(e) => { crate::output::print_error(&e.to_string()); std::process::exit(1); }
+        Err(e) => {
+            crate::output::print_error(&e.to_string());
+            std::process::exit(1);
+        }
     };
     let token = match rt.block_on(async {
         let resp = reqwest::Client::new()
@@ -144,7 +169,9 @@ pub fn login_with_credentials(
         if let Some(t) = body["token"].as_str() {
             anyhow::Ok(t.to_string())
         } else {
-            let detail = body["errors"][0]["detail"].as_str().unwrap_or("login failed");
+            let detail = body["errors"][0]["detail"]
+                .as_str()
+                .unwrap_or("login failed");
             anyhow::bail!("{detail}")
         }
     }) {
@@ -156,9 +183,9 @@ pub fn login_with_credentials(
     };
 
     match GlobalConfig::save_credential(&url, &name, &token) {
-        Ok(()) => crate::output::print_success(
-            &format!("logged in as `{username}` — token saved to ~/.freight/credentials.toml")
-        ),
+        Ok(()) => crate::output::print_success(&format!(
+            "logged in as `{username}` — token saved to ~/.freight/credentials.toml"
+        )),
         Err(e) => {
             crate::output::print_error(&e.to_string());
             std::process::exit(1);

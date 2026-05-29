@@ -15,10 +15,10 @@ impl Args {
     }
 }
 
-use freight_core::manifest::{find_manifest_dir, load_manifest, load_workspace_manifest};
 use freight_core::manifest::types::Manifest;
+use freight_core::manifest::{find_manifest_dir, load_manifest, load_workspace_manifest};
 use freight_core::toolchain::{
-    DetectedTool, collect_sources, detect_tools, load_linter_templates, select_linter,
+    collect_sources, detect_tools, load_linter_templates, select_linter, DetectedTool,
 };
 
 use crate::output::{print_error, print_success, print_warning};
@@ -26,8 +26,14 @@ use crate::output::{print_error, print_success, print_warning};
 fn print_settings_ref(tool: &DetectedTool) {
     use owo_colors::OwoColorize;
     let t = &tool.template;
-    if t.settings.is_empty() { return; }
-    println!("  {} [linter] settings for {}:", "hint:".dimmed(), t.name.bold());
+    if t.settings.is_empty() {
+        return;
+    }
+    println!(
+        "  {} [linter] settings for {}:",
+        "hint:".dimmed(),
+        t.name.bold()
+    );
     let mut keys: Vec<&String> = t.settings.keys().collect();
     keys.sort();
     for key in keys {
@@ -62,13 +68,20 @@ fn lint_project(project_dir: &Path, manifest: &Manifest, fix: bool) -> bool {
     let src_dir = project_dir.join("src");
     let files = collect_sources(&src_dir, &linter.template.extensions);
     if files.is_empty() {
-        print_warning(&format!("no source files found to lint in {}", project_dir.display()));
+        print_warning(&format!(
+            "no source files found to lint in {}",
+            project_dir.display()
+        ));
         return true;
     }
 
     let mode = if fix { "fix" } else { "check" };
     use owo_colors::OwoColorize;
-    let verb = if fix { "Fixing".bold().cyan().to_string() } else { "Linting".bold().cyan().to_string() };
+    let verb = if fix {
+        "Fixing".bold().cyan().to_string()
+    } else {
+        "Linting".bold().cyan().to_string()
+    };
     println!(
         "  {} {} files with {} {}",
         verb,
@@ -77,17 +90,26 @@ fn lint_project(project_dir: &Path, manifest: &Manifest, fix: bool) -> bool {
         linter.version,
     );
 
-    match linter.command(&manifest.linter.settings, mode, &files).status() {
+    match linter
+        .command(&manifest.linter.settings, mode, &files)
+        .status()
+    {
         Ok(s) if s.success() => true,
         Ok(_) => false,
-        Err(e) => { print_error(&format!("failed to run linter: {e}")); false }
+        Err(e) => {
+            print_error(&format!("failed to run linter: {e}"));
+            false
+        }
     }
 }
 
 pub fn cmd_lint(fix: bool) {
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
-        Err(e) => { print_error(&format!("cannot read cwd: {e}")); return; }
+        Err(e) => {
+            print_error(&format!("cannot read cwd: {e}"));
+            return;
+        }
     };
 
     if let Some(ws) = load_workspace_manifest(&cwd) {
@@ -96,7 +118,11 @@ pub fn cmd_lint(fix: bool) {
             let member_dir = cwd.join(member);
             let manifest = match load_manifest(&member_dir) {
                 Ok(m) => m,
-                Err(e) => { print_error(&format!("{member}: {e}")); all_ok = false; continue; }
+                Err(e) => {
+                    print_error(&format!("{member}: {e}"));
+                    all_ok = false;
+                    continue;
+                }
             };
             use owo_colors::OwoColorize;
             println!("  {} {}", "member".bright_black(), member.bold());
@@ -105,7 +131,11 @@ pub fn cmd_lint(fix: bool) {
             }
         }
         if all_ok {
-            if fix { print_success("fixes applied"); } else { print_success("no issues found"); }
+            if fix {
+                print_success("fixes applied");
+            } else {
+                print_success("no issues found");
+            }
         } else if fix {
             print_error("linter exited with errors while applying fixes");
         } else {
@@ -116,16 +146,26 @@ pub fn cmd_lint(fix: bool) {
 
     let project_dir = match find_manifest_dir(&cwd) {
         Some(d) => d,
-        None => { print_error("no freight.toml found"); return; }
+        None => {
+            print_error("no freight.toml found");
+            return;
+        }
     };
     let manifest = match load_manifest(&project_dir) {
         Ok(m) => m,
-        Err(e) => { print_error(&e.to_string()); return; }
+        Err(e) => {
+            print_error(&e.to_string());
+            return;
+        }
     };
 
     let ok = lint_project(&project_dir, &manifest, fix);
     if ok {
-        if fix { print_success("fixes applied"); } else { print_success("no issues found"); }
+        if fix {
+            print_success("fixes applied");
+        } else {
+            print_success("no issues found");
+        }
     } else if fix {
         print_error("linter exited with errors while applying fixes");
     } else {

@@ -81,7 +81,9 @@ pub fn group_into_toolchains(detected: Vec<DetectedCompiler>) -> ToolchainGroups
         .map(|(name, mut compilers)| {
             // Primary sort: compiler name; secondary: newest version first.
             compilers.sort_by(|a, b| {
-                a.template.name.cmp(&b.template.name)
+                a.template
+                    .name
+                    .cmp(&b.template.name)
                     .then_with(|| version_cmp_desc(&a.version, &b.version))
             });
             let mut languages: Vec<String> = compilers
@@ -90,7 +92,11 @@ pub fn group_into_toolchains(detected: Vec<DetectedCompiler>) -> ToolchainGroups
                 .collect();
             languages.sort_unstable();
             languages.dedup();
-            DetectedToolchain { name, compilers, languages }
+            DetectedToolchain {
+                name,
+                compilers,
+                languages,
+            }
         })
         .collect();
 
@@ -98,7 +104,6 @@ pub fn group_into_toolchains(detected: Vec<DetectedCompiler>) -> ToolchainGroups
 
     ToolchainGroups { toolchains, guests }
 }
-
 
 /// Probe PATH for every template's binary and return those that are present with their version.
 /// Each template may yield multiple entries when versioned variants (e.g. `gcc-12`, `gcc-13`)
@@ -110,7 +115,9 @@ pub fn detect_all(templates: &[CompilerTemplate]) -> Vec<DetectedCompiler> {
     }
     let mut found = filter_by_toolchain_deps(found);
     found.sort_by(|a, b| {
-        a.template.name.cmp(&b.template.name)
+        a.template
+            .name
+            .cmp(&b.template.name)
             .then_with(|| version_cmp_desc(&a.version, &b.version))
     });
     found
@@ -134,7 +141,9 @@ pub fn detect_all_cached(templates: &[CompilerTemplate]) -> Vec<DetectedCompiler
 
     let mut found = filter_by_toolchain_deps(found);
     found.sort_by(|a, b| {
-        a.template.name.cmp(&b.template.name)
+        a.template
+            .name
+            .cmp(&b.template.name)
             .then_with(|| version_cmp_desc(&a.version, &b.version))
     });
     found
@@ -142,21 +151,23 @@ pub fn detect_all_cached(templates: &[CompilerTemplate]) -> Vec<DetectedCompiler
 
 /// Return the major version component of a version string, or 0 for unknown.
 fn version_major(v: &str) -> u64 {
-    v.split('.').next().and_then(|p| p.parse().ok()).unwrap_or(0)
+    v.split('.')
+        .next()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(0)
 }
 
 /// Ordering for two version strings: newest first (descending by major, then minor, …).
 fn version_cmp_desc(a: &str, b: &str) -> std::cmp::Ordering {
-    let parse = |s: &str| -> Vec<u64> {
-        s.split('.').map(|p| p.parse().unwrap_or(0)).collect()
-    };
+    let parse = |s: &str| -> Vec<u64> { s.split('.').map(|p| p.parse().unwrap_or(0)).collect() };
     let av = parse(a);
     let bv = parse(b);
     let len = av.len().max(bv.len());
     for i in 0..len {
         let x = av.get(i).copied().unwrap_or(0);
         let y = bv.get(i).copied().unwrap_or(0);
-        match y.cmp(&x) { // reversed: b before a = descending
+        match y.cmp(&x) {
+            // reversed: b before a = descending
             std::cmp::Ordering::Equal => {}
             other => return other,
         }
@@ -206,16 +217,27 @@ fn probe_all_cached(
         } else {
             vec![]
         };
-        result.push(DetectedCompiler { template: template.clone(), version, path, cpu_extensions });
+        result.push(DetectedCompiler {
+            template: template.clone(),
+            version,
+            path,
+            cpu_extensions,
+        });
     }
     result
 }
 
 fn host_supported(template: &CompilerTemplate) -> bool {
     let arch_ok = template.supported_archs.is_empty()
-        || template.supported_archs.iter().any(|a| a == std::env::consts::ARCH);
+        || template
+            .supported_archs
+            .iter()
+            .any(|a| a == std::env::consts::ARCH);
     let os_ok = template.supported_os.is_empty()
-        || template.supported_os.iter().any(|o| o == std::env::consts::OS);
+        || template
+            .supported_os
+            .iter()
+            .any(|o| o == std::env::consts::OS);
     arch_ok && os_ok
 }
 
@@ -269,7 +291,9 @@ fn executable_name(binary: &str) -> String {
 
 /// Check `set_min_version`. Emits a warning when the detected version is older.
 fn min_version_met(template: &CompilerTemplate, detected: &str) -> bool {
-    let Some(min) = &template.min_version else { return true };
+    let Some(min) = &template.min_version else {
+        return true;
+    };
     if !version_ge(detected, min) {
         eprintln!(
             "warn: {} {} is older than the required minimum {} \
@@ -284,9 +308,7 @@ fn min_version_met(template: &CompilerTemplate, detected: &str) -> bool {
 /// Compare two dotted version strings component-by-component.
 /// Returns `true` when `a >= b`. Unknown/non-numeric components are treated as 0.
 fn version_ge(a: &str, b: &str) -> bool {
-    let parse = |s: &str| -> Vec<u64> {
-        s.split('.').map(|p| p.parse().unwrap_or(0)).collect()
-    };
+    let parse = |s: &str| -> Vec<u64> { s.split('.').map(|p| p.parse().unwrap_or(0)).collect() };
     let av = parse(a);
     let bv = parse(b);
     let len = av.len().max(bv.len());
@@ -295,8 +317,8 @@ fn version_ge(a: &str, b: &str) -> bool {
         let y = bv.get(i).copied().unwrap_or(0);
         match x.cmp(&y) {
             std::cmp::Ordering::Greater => return true,
-            std::cmp::Ordering::Less    => return false,
-            std::cmp::Ordering::Equal   => {}
+            std::cmp::Ordering::Less => return false,
+            std::cmp::Ordering::Equal => {}
         }
     }
     true // equal counts as satisfied
@@ -314,7 +336,9 @@ pub fn check_manifest_version_bounds(
     detected: &str,
     version_req: Option<&str>,
 ) -> Result<(), FreightError> {
-    let Some(req_str) = version_req else { return Ok(()) };
+    let Some(req_str) = version_req else {
+        return Ok(());
+    };
 
     let req = semver::VersionReq::parse(req_str).map_err(|e| {
         FreightError::OptionError(format!(
@@ -344,13 +368,14 @@ pub fn check_manifest_version_bounds(
 fn coerce_semver(s: &str) -> String {
     // Strip any build metadata suffix (anything after a non-numeric, non-dot char
     // following the numeric part — e.g. "-r1", "+debian").
-    let numeric: String = s.chars()
+    let numeric: String = s
+        .chars()
         .take_while(|c| c.is_ascii_digit() || *c == '.')
         .collect();
     let parts: Vec<&str> = numeric.split('.').collect();
     match parts.as_slice() {
-        []           => "0.0.0".into(),
-        [major]      => format!("{major}.0.0"),
+        [] => "0.0.0".into(),
+        [major] => format!("{major}.0.0"),
         [major, minor] => format!("{major}.{minor}.0"),
         [major, minor, patch, ..] => format!("{major}.{minor}.{patch}"),
     }
@@ -414,7 +439,12 @@ fn probe_all(template: &CompilerTemplate) -> Vec<DetectedCompiler> {
         } else {
             vec![]
         };
-        result.push(DetectedCompiler { template: template.clone(), version, path, cpu_extensions });
+        result.push(DetectedCompiler {
+            template: template.clone(),
+            version,
+            path,
+            cpu_extensions,
+        });
     }
     result
 }
@@ -425,21 +455,24 @@ fn probe_all(template: &CompilerTemplate) -> Vec<DetectedCompiler> {
 /// Value-taking flags (`-march=`, `-mtune=`) are skipped. Returns an empty
 /// vec for compilers that don't support this flag (nvcc, nasm, msvc, …).
 fn query_cpu_extensions(path: &Path) -> Vec<String> {
-    let Ok(output) = Command::new(path)
-        .args(["-Q", "--help=target"])
-        .output()
-    else { return vec![] };
+    let Ok(output) = Command::new(path).args(["-Q", "--help=target"]).output() else {
+        return vec![];
+    };
 
     let text = String::from_utf8_lossy(&output.stdout);
     let mut exts = Vec::new();
 
     for line in text.lines() {
         let trimmed = line.trim_start();
-        let Some(rest) = trimmed.strip_prefix("-m") else { continue };
+        let Some(rest) = trimmed.strip_prefix("-m") else {
+            continue;
+        };
         // First token is the flag name; anything after is the [enabled]/[disabled] annotation.
         let name = rest.split_whitespace().next().unwrap_or("");
         // Skip empty, value-taking (-march=, -mtune=), and non-extension flags.
-        if name.is_empty() || name.ends_with('=') { continue; }
+        if name.is_empty() || name.ends_with('=') {
+            continue;
+        }
         exts.push(name.to_string());
     }
 
@@ -463,7 +496,9 @@ fn which(binary: &str) -> Option<PathBuf> {
 /// considered before versioned ones; versioned names are sorted descending so
 /// the newest appears first.
 fn which_all(binary: &str) -> Vec<PathBuf> {
-    let Some(path_var) = std::env::var_os("PATH") else { return vec![] };
+    let Some(path_var) = std::env::var_os("PATH") else {
+        return vec![];
+    };
     let base_name = executable_name(binary);
     let versioned_prefix = format!("{binary}-");
 
@@ -483,7 +518,9 @@ fn which_all(binary: &str) -> Vec<PathBuf> {
                 let fname = entry.file_name();
                 let name = fname.to_string_lossy();
 
-                let Some(suffix) = name.strip_prefix(&versioned_prefix) else { continue };
+                let Some(suffix) = name.strip_prefix(&versioned_prefix) else {
+                    continue;
+                };
                 // On Windows the suffix may include the .exe extension.
                 #[cfg(windows)]
                 let suffix = suffix.strip_suffix(".exe").unwrap_or(suffix);
@@ -609,7 +646,9 @@ mod tests {
     #[test]
     fn load_templates_finds_all() {
         let templates = load_all_templates();
-        assert_eq!(templates.len(), 35,
+        assert_eq!(
+            templates.len(),
+            35,
             "expected g++, gcc, gfortran, gdc, gas, \
              clang++, clang, flang, ldc2, \
              nvcc, nvc++, nvc, nvfortran, \
@@ -619,7 +658,8 @@ mod tests {
              msvc, clang-cl, masm, \
              zig-c, zig-c++, zig, \
              emcc, em++, wasi-clang, \
-             tcc, dmd, opencl, circle, nagfor, gnat, swiftc");
+             tcc, dmd, opencl, circle, nagfor, gnat, swiftc"
+        );
     }
 
     #[test]
@@ -629,7 +669,11 @@ mod tests {
             assert!(!t.name.is_empty(), "empty name");
             assert!(!t.binary.is_empty(), "{}: empty binary", t.name);
             assert!(!t.extensions.is_empty(), "{}: no extensions", t.name);
-            assert!(!t.version_regex.is_empty(), "{}: empty version_regex", t.name);
+            assert!(
+                !t.version_regex.is_empty(),
+                "{}: empty version_regex",
+                t.name
+            );
             // version_arg may be empty — means "invoke the binary with no arguments"
             // (e.g. cl.exe prints its version on stderr when called with no args).
         }
@@ -642,14 +686,19 @@ mod tests {
         let names: Vec<&str> = detected.iter().map(|d| d.template.name.as_str()).collect();
         let mut sorted = names.clone();
         sorted.sort();
-        assert_eq!(names, sorted, "detect_all should return compilers in alphabetical order");
+        assert_eq!(
+            names, sorted,
+            "detect_all should return compilers in alphabetical order"
+        );
     }
 
     #[test]
     fn guest_compilers_declare_requires_toolchain() {
         let templates = load_all_templates();
         for name in &["nvcc", "hipcc", "opencl", "ispc"] {
-            let t = templates.iter().find(|t| t.name == *name)
+            let t = templates
+                .iter()
+                .find(|t| t.name == *name)
                 .unwrap_or_else(|| panic!("{name} template not found"));
             assert!(
                 t.requires_toolchain.contains(&"cpp".to_string()),
@@ -662,20 +711,32 @@ mod tests {
     fn detected_compilers_have_non_empty_version() {
         let templates = load_all_templates();
         for d in detect_all(&templates) {
-            assert!(!d.version.is_empty(), "{} reported empty version", d.template.name);
-            assert!(d.path.exists(), "{} path does not exist: {:?}", d.template.name, d.path);
+            assert!(
+                !d.version.is_empty(),
+                "{} reported empty version",
+                d.template.name
+            );
+            assert!(
+                d.path.exists(),
+                "{} path does not exist: {:?}",
+                d.template.name,
+                d.path
+            );
         }
     }
 
     // ── group_into_toolchains ─────────────────────────────────────────────────
 
     fn fake_detected_from_templates(templates: &[CompilerTemplate]) -> Vec<DetectedCompiler> {
-        templates.iter().map(|t| DetectedCompiler {
-            template: t.clone(),
-            version: "0.0.0".into(),
-            path: std::path::PathBuf::from(format!("/usr/bin/{}", t.name)),
-            cpu_extensions: vec![],
-        }).collect()
+        templates
+            .iter()
+            .map(|t| DetectedCompiler {
+                template: t.clone(),
+                version: "0.0.0".into(),
+                path: std::path::PathBuf::from(format!("/usr/bin/{}", t.name)),
+                cpu_extensions: vec![],
+            })
+            .collect()
     }
 
     #[test]
@@ -684,15 +745,25 @@ mod tests {
         let detected = fake_detected_from_templates(&templates);
         let groups = group_into_toolchains(detected);
 
-        let gnu = groups.toolchains.iter().find(|tc| tc.name == "gnu")
+        let gnu = groups
+            .toolchains
+            .iter()
+            .find(|tc| tc.name == "gnu")
             .expect("gnu toolchain should exist");
-        let names: Vec<&str> = gnu.compilers.iter().map(|c| c.template.name.as_str()).collect();
-        assert!(names.contains(&"g++"),  "gnu should contain g++");
-        assert!(names.contains(&"gcc"),  "gnu should contain gcc");
+        let names: Vec<&str> = gnu
+            .compilers
+            .iter()
+            .map(|c| c.template.name.as_str())
+            .collect();
+        assert!(names.contains(&"g++"), "gnu should contain g++");
+        assert!(names.contains(&"gcc"), "gnu should contain gcc");
         assert!(names.contains(&"gfortran"), "gnu should contain gfortran");
         assert!(gnu.languages.contains(&"cpp".to_string()), "gnu covers cpp");
         assert!(gnu.languages.contains(&"c".to_string()), "gnu covers c");
-        assert!(gnu.languages.contains(&"fortran".to_string()), "gnu covers fortran");
+        assert!(
+            gnu.languages.contains(&"fortran".to_string()),
+            "gnu covers fortran"
+        );
     }
 
     #[test]
@@ -701,15 +772,28 @@ mod tests {
         let detected = fake_detected_from_templates(&templates);
         let groups = group_into_toolchains(detected);
 
-        let llvm = groups.toolchains.iter().find(|tc| tc.name == "llvm")
+        let llvm = groups
+            .toolchains
+            .iter()
+            .find(|tc| tc.name == "llvm")
             .expect("llvm toolchain should exist");
-        let names: Vec<&str> = llvm.compilers.iter().map(|c| c.template.name.as_str()).collect();
+        let names: Vec<&str> = llvm
+            .compilers
+            .iter()
+            .map(|c| c.template.name.as_str())
+            .collect();
         assert!(names.contains(&"clang++"), "llvm should contain clang++");
-        assert!(names.contains(&"clang"),   "llvm should contain clang");
-        assert!(names.contains(&"flang"),     "llvm should contain flang");
-        assert!(llvm.languages.contains(&"cpp".to_string()),     "llvm covers cpp");
-        assert!(llvm.languages.contains(&"c".to_string()),       "llvm covers c");
-        assert!(llvm.languages.contains(&"fortran".to_string()), "llvm covers fortran");
+        assert!(names.contains(&"clang"), "llvm should contain clang");
+        assert!(names.contains(&"flang"), "llvm should contain flang");
+        assert!(
+            llvm.languages.contains(&"cpp".to_string()),
+            "llvm covers cpp"
+        );
+        assert!(llvm.languages.contains(&"c".to_string()), "llvm covers c");
+        assert!(
+            llvm.languages.contains(&"fortran".to_string()),
+            "llvm covers fortran"
+        );
     }
 
     #[test]
@@ -721,9 +805,10 @@ mod tests {
         // Guest compilers (requires_toolchain non-empty) must not appear in toolchains.
         for name in &["nvcc", "hipcc", "opencl", "ispc"] {
             assert!(
-                !groups.toolchains.iter().any(|tc| {
-                    tc.compilers.iter().any(|c| c.template.name == *name)
-                }),
+                !groups
+                    .toolchains
+                    .iter()
+                    .any(|tc| { tc.compilers.iter().any(|c| c.template.name == *name) }),
                 "{name} (guest) should not appear in a primary toolchain"
             );
             assert!(
@@ -779,7 +864,11 @@ mod tests {
         let templates = load_all_templates();
         let detected = fake_detected_from_templates(&templates);
         let groups = group_into_toolchains(detected);
-        let names: Vec<&str> = groups.toolchains.iter().map(|tc| tc.name.as_str()).collect();
+        let names: Vec<&str> = groups
+            .toolchains
+            .iter()
+            .map(|tc| tc.name.as_str())
+            .collect();
         let mut sorted = names.clone();
         sorted.sort();
         assert_eq!(names, sorted, "toolchains should be sorted by name");
@@ -810,7 +899,10 @@ mod tests {
         let templates = load_all_templates();
         // "g++" has family "gnu", so it should be rejected — use "gnu" instead.
         let result = super::super::super::toolchain::toolchain_use("g++", &templates);
-        assert!(result.is_err(), "'g++' (has family 'gnu') should not be a valid toolchain name");
+        assert!(
+            result.is_err(),
+            "'g++' (has family 'gnu') should not be a valid toolchain name"
+        );
     }
 
     #[test]
@@ -831,9 +923,15 @@ mod tests {
         let templates = load_all_templates();
         // Assemblers are auto-selected, not user-selectable.
         let result = super::super::super::toolchain::toolchain_use("nasm", &templates);
-        assert!(result.is_err(), "'nasm' (assembler) should not be a valid toolchain use target");
+        assert!(
+            result.is_err(),
+            "'nasm' (assembler) should not be a valid toolchain use target"
+        );
         let result2 = super::super::super::toolchain::toolchain_use("yasm", &templates);
-        assert!(result2.is_err(), "'yasm' (assembler) should not be a valid toolchain use target");
+        assert!(
+            result2.is_err(),
+            "'yasm' (assembler) should not be a valid toolchain use target"
+        );
     }
 
     #[test]
@@ -859,30 +957,46 @@ mod tests {
         };
 
         let _base = make_exec("mycc");
-        let _v12  = make_exec("mycc-12");
-        let _v13  = make_exec("mycc-13");
-        let _v14  = make_exec("mycc-14");
+        let _v12 = make_exec("mycc-12");
+        let _v13 = make_exec("mycc-13");
+        let _v14 = make_exec("mycc-14");
         // Should not be picked up (not a plain integer suffix).
         let _skip = make_exec("mycc-old");
 
         let orig_path = std::env::var_os("PATH").unwrap_or_default();
         let new_path = std::env::join_paths(
-            std::iter::once(dir.path().to_path_buf())
-                .chain(std::env::split_paths(&orig_path))
-        ).unwrap();
+            std::iter::once(dir.path().to_path_buf()).chain(std::env::split_paths(&orig_path)),
+        )
+        .unwrap();
         std::env::set_var("PATH", &new_path);
 
         let found = which_all("mycc");
         std::env::set_var("PATH", &orig_path);
 
-        let names: Vec<String> = found.iter()
+        let names: Vec<String> = found
+            .iter()
             .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
             .collect();
-        assert!(names.contains(&"mycc".to_string()),    "base binary must be found");
-        assert!(names.contains(&"mycc-12".to_string()), "mycc-12 must be found");
-        assert!(names.contains(&"mycc-13".to_string()), "mycc-13 must be found");
-        assert!(names.contains(&"mycc-14".to_string()), "mycc-14 must be found");
-        assert!(!names.contains(&"mycc-old".to_string()), "non-numeric suffix must be ignored");
+        assert!(
+            names.contains(&"mycc".to_string()),
+            "base binary must be found"
+        );
+        assert!(
+            names.contains(&"mycc-12".to_string()),
+            "mycc-12 must be found"
+        );
+        assert!(
+            names.contains(&"mycc-13".to_string()),
+            "mycc-13 must be found"
+        );
+        assert!(
+            names.contains(&"mycc-14".to_string()),
+            "mycc-14 must be found"
+        );
+        assert!(
+            !names.contains(&"mycc-old".to_string()),
+            "non-numeric suffix must be ignored"
+        );
     }
 
     #[test]
@@ -898,9 +1012,9 @@ mod tests {
 
         let orig_path = std::env::var_os("PATH").unwrap_or_default();
         let new_path = std::env::join_paths(
-            std::iter::once(dir.path().to_path_buf())
-                .chain(std::env::split_paths(&orig_path))
-        ).unwrap();
+            std::iter::once(dir.path().to_path_buf()).chain(std::env::split_paths(&orig_path)),
+        )
+        .unwrap();
         std::env::set_var("PATH", &new_path);
 
         let found = which_all("mycc");
@@ -908,7 +1022,11 @@ mod tests {
 
         // The symlink and real binary resolve to the same canonical path,
         // so we should get exactly one entry.
-        assert_eq!(found.len(), 1, "symlink and target must be deduplicated; got: {found:?}");
+        assert_eq!(
+            found.len(),
+            1,
+            "symlink and target must be deduplicated; got: {found:?}"
+        );
     }
 
     // ── parse_versioned_name / backend_matches ────────────────────────────────
@@ -917,16 +1035,19 @@ mod tests {
     fn parse_versioned_name_parses_correctly() {
         assert_eq!(parse_versioned_name("gnu-14"), Some(("gnu", 14)));
         assert_eq!(parse_versioned_name("llvm-18"), Some(("llvm", 18)));
-        assert_eq!(parse_versioned_name("gnu"),     None);
+        assert_eq!(parse_versioned_name("gnu"), None);
         assert_eq!(parse_versioned_name("gnu-old"), None);
-        assert_eq!(parse_versioned_name("-14"),     None);
-        assert_eq!(parse_versioned_name(""),        None);
+        assert_eq!(parse_versioned_name("-14"), None);
+        assert_eq!(parse_versioned_name(""), None);
     }
 
     #[test]
     fn backend_matches_family_and_versioned() {
         let templates = load_all_templates();
-        let gcc = templates.iter().find(|t| t.name == "gcc").expect("gcc template");
+        let gcc = templates
+            .iter()
+            .find(|t| t.name == "gcc")
+            .expect("gcc template");
         let detected = DetectedCompiler {
             template: gcc.clone(),
             version: "14.2.0".into(),
@@ -934,11 +1055,11 @@ mod tests {
             cpu_extensions: vec![],
         };
 
-        assert!(backend_matches(&detected, "gcc"),    "exact name match");
-        assert!(backend_matches(&detected, "gnu"),    "family match");
+        assert!(backend_matches(&detected, "gcc"), "exact name match");
+        assert!(backend_matches(&detected, "gnu"), "family match");
         assert!(backend_matches(&detected, "gnu-14"), "version-pinned match");
         assert!(!backend_matches(&detected, "gnu-13"), "wrong major version");
-        assert!(!backend_matches(&detected, "llvm"),   "wrong family");
+        assert!(!backend_matches(&detected, "llvm"), "wrong family");
     }
 
     #[test]
@@ -958,7 +1079,10 @@ mod tests {
     fn toolchain_use_rejects_versioned_unknown_family() {
         let templates = load_all_templates();
         let result = super::super::super::toolchain::toolchain_use("nofamily-14", &templates);
-        assert!(result.is_err(), "'nofamily-14' (unknown family) should be rejected");
+        assert!(
+            result.is_err(),
+            "'nofamily-14' (unknown family) should be rejected"
+        );
     }
 }
 
@@ -1058,4 +1182,3 @@ pub fn backend_matches(detected: &DetectedCompiler, name: &str) -> bool {
     }
     false
 }
-

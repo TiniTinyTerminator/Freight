@@ -1,8 +1,8 @@
 //! `freight install` and `freight package` — copy build outputs to the system.
 
-use std::path::{Path, PathBuf};
 use std::fs;
 use std::io::{Seek, Write};
+use std::path::{Path, PathBuf};
 
 use crate::build::build_project_at;
 use crate::error::FreightError;
@@ -34,11 +34,11 @@ pub struct InstallOptions {
 impl Default for InstallOptions {
     fn default() -> Self {
         Self {
-            prefix:   default_prefix(),
-            destdir:  None,
-            release:  true,
+            prefix: default_prefix(),
+            destdir: None,
+            release: true,
             no_build: false,
-            target:   None,
+            target: None,
         }
     }
 }
@@ -54,17 +54,17 @@ pub enum InstalledKind {
 impl InstalledKind {
     pub fn label(&self) -> &'static str {
         match self {
-            Self::Binary    => "binary",
+            Self::Binary => "binary",
             Self::StaticLib => "static-lib",
             Self::SharedLib => "shared-lib",
-            Self::Header    => "header",
-            Self::Symlink   => "symlink",
+            Self::Header => "header",
+            Self::Symlink => "symlink",
         }
     }
 }
 
 pub struct InstalledItem {
-    pub dst:  PathBuf,
+    pub dst: PathBuf,
     pub kind: InstalledKind,
 }
 
@@ -75,23 +75,36 @@ pub struct InstallResult {
 // ── Public entry points ───────────────────────────────────────────────────────
 
 /// Build (unless `opts.no_build`) and install all outputs to `opts.prefix`.
-pub fn install_project(project_dir: &Path, opts: &InstallOptions) -> Result<InstallResult, FreightError> {
+pub fn install_project(
+    project_dir: &Path,
+    opts: &InstallOptions,
+) -> Result<InstallResult, FreightError> {
     let manifest = load_manifest(project_dir)?;
-    let profile  = if opts.release { "release" } else { "dev" };
+    let profile = if opts.release { "release" } else { "dev" };
 
     if !opts.no_build {
-        build_project_at(project_dir, profile, &[], true, opts.target.as_deref(), &[], &silent())?;
+        build_project_at(
+            project_dir,
+            profile,
+            &[],
+            true,
+            opts.target.as_deref(),
+            &[],
+            &silent(),
+        )?;
     }
 
     // Derive target OS/arch: prefer the explicit override, then ~/.freight/config.toml, then host.
     let global_target = GlobalConfig::load().target;
-    let target_str = opts.target.as_deref()
-        .or_else(|| global_target.as_deref());
-    let (target_arch, target_os) = target_str
-        .map(parse_triple)
-        .unwrap_or_else(|| (std::env::consts::ARCH.to_string(), std::env::consts::OS.to_string()));
+    let target_str = opts.target.as_deref().or_else(|| global_target.as_deref());
+    let (target_arch, target_os) = target_str.map(parse_triple).unwrap_or_else(|| {
+        (
+            std::env::consts::ARCH.to_string(),
+            std::env::consts::OS.to_string(),
+        )
+    });
 
-    let root    = install_root(&opts.prefix, opts.destdir.as_deref());
+    let root = install_root(&opts.prefix, opts.destdir.as_deref());
     let bin_dir = root.join("bin");
     let lib_dir = root.join("lib");
     let mut items: Vec<InstalledItem> = Vec::new();
@@ -110,7 +123,10 @@ pub fn install_project(project_dir: &Path, opts: &InstallOptions) -> Result<Inst
         let dst = bin_dir.join(&bin_file);
         copy_file(&src, &dst)?;
         set_mode(&dst, 0o755)?;
-        items.push(InstalledItem { dst, kind: InstalledKind::Binary });
+        items.push(InstalledItem {
+            dst,
+            kind: InstalledKind::Binary,
+        });
     }
 
     // ── Library ───────────────────────────────────────────────────────────────
@@ -122,20 +138,25 @@ pub fn install_project(project_dir: &Path, opts: &InstallOptions) -> Result<Inst
             match lib.lib_type {
                 LibType::Static => {
                     let fname = format!("lib{}.a", manifest.package.name);
-                    let src   = project_dir.join("target").join(profile).join(&fname);
+                    let src = project_dir.join("target").join(profile).join(&fname);
                     if src.exists() {
                         let dst = lib_dir.join(&fname);
                         copy_file(&src, &dst)?;
                         set_mode(&dst, 0o644)?;
-                        items.push(InstalledItem { dst, kind: InstalledKind::StaticLib });
+                        items.push(InstalledItem {
+                            dst,
+                            kind: InstalledKind::StaticLib,
+                        });
                     }
                 }
                 LibType::Shared => {
                     install_shared_lib(
-                        project_dir, profile,
+                        project_dir,
+                        profile,
                         &manifest.package.name,
                         &manifest.package.version,
-                        &lib_dir, &opts.prefix,
+                        &lib_dir,
+                        &opts.prefix,
                         &target_os,
                         &mut items,
                     )?;
@@ -153,7 +174,10 @@ pub fn install_project(project_dir: &Path, opts: &InstallOptions) -> Result<Inst
                 if src.is_file() {
                     let dst = inc_dst.join(src.file_name().unwrap());
                     std::fs::copy(&src, &dst)?;
-                    items.push(InstalledItem { dst, kind: InstalledKind::Header });
+                    items.push(InstalledItem {
+                        dst,
+                        kind: InstalledKind::Header,
+                    });
                 }
             }
         }
@@ -162,7 +186,9 @@ pub fn install_project(project_dir: &Path, opts: &InstallOptions) -> Result<Inst
     // On Linux targets: refresh the dynamic linker cache when installing shared
     // libs to a real system path (not a destdir-staged install).
     if target_os == "linux"
-        && items.iter().any(|i| matches!(i.kind, InstalledKind::SharedLib))
+        && items
+            .iter()
+            .any(|i| matches!(i.kind, InstalledKind::SharedLib))
         && opts.destdir.is_none()
     {
         run_ldconfig(&lib_dir);
@@ -180,9 +206,13 @@ pub fn install_project(project_dir: &Path, opts: &InstallOptions) -> Result<Inst
 /// `target` is an optional cross-compilation triple (e.g. `aarch64-linux-gnu`).
 /// When provided it overrides the manifest's `[compiler] target` and is used to
 /// derive the arch/os components of the archive filename.
-pub fn package_project(project_dir: &Path, release: bool, target: Option<&str>) -> Result<PathBuf, FreightError> {
+pub fn package_project(
+    project_dir: &Path,
+    release: bool,
+    target: Option<&str>,
+) -> Result<PathBuf, FreightError> {
     let manifest = load_manifest(project_dir)?;
-    let profile  = if release { "release" } else { "dev" };
+    let profile = if release { "release" } else { "dev" };
 
     build_project_at(project_dir, profile, &[], true, target, &[], &silent())?;
 
@@ -190,30 +220,37 @@ pub fn package_project(project_dir: &Path, release: bool, target: Option<&str>) 
     let (pkg_arch, pkg_os) = target
         .or_else(|| global_target.as_deref())
         .map(parse_triple)
-        .unwrap_or_else(|| (std::env::consts::ARCH.to_string(), std::env::consts::OS.to_string()));
+        .unwrap_or_else(|| {
+            (
+                std::env::consts::ARCH.to_string(),
+                std::env::consts::OS.to_string(),
+            )
+        });
 
     let stem = format!(
         "{}-{}-{}-{}",
-        manifest.package.name,
-        manifest.package.version,
-        pkg_arch,
-        pkg_os,
+        manifest.package.name, manifest.package.version, pkg_arch, pkg_os,
     );
 
     let pkg_dir = project_dir.join("target").join("package");
     fs::create_dir_all(&pkg_dir)?;
 
     let staging = pkg_dir.join(&stem);
-    if staging.exists() { fs::remove_dir_all(&staging)?; }
+    if staging.exists() {
+        fs::remove_dir_all(&staging)?;
+    }
 
     // Install directly into the staging dir (prefix = staging, no destdir).
-    install_project(project_dir, &InstallOptions {
-        prefix:   staging.clone(),
-        destdir:  None,
-        release,
-        no_build: true,
-        target:   target.map(str::to_string),
-    })?;
+    install_project(
+        project_dir,
+        &InstallOptions {
+            prefix: staging.clone(),
+            destdir: None,
+            release,
+            no_build: true,
+            target: target.map(str::to_string),
+        },
+    )?;
 
     let archive = if pkg_os == "windows" {
         let archive = pkg_dir.join(format!("{stem}.zip"));
@@ -243,35 +280,54 @@ fn install_shared_lib(
 ) -> Result<(), FreightError> {
     match target_os {
         "linux" => {
-            let src = project_dir.join("target").join(profile).join(format!("lib{name}.so"));
-            if !src.exists() { return Ok(()); }
+            let src = project_dir
+                .join("target")
+                .join(profile)
+                .join(format!("lib{name}.so"));
+            if !src.exists() {
+                return Ok(());
+            }
 
-            let major      = version.split('.').next().unwrap_or("0");
-            let versioned  = format!("lib{name}.so.{version}");
-            let soname     = format!("lib{name}.so.{major}");
+            let major = version.split('.').next().unwrap_or("0");
+            let versioned = format!("lib{name}.so.{version}");
+            let soname = format!("lib{name}.so.{major}");
             let unversioned = format!("lib{name}.so");
 
             // Install the full versioned file.
             let dst = lib_dir.join(&versioned);
             copy_file(&src, &dst)?;
             set_mode(&dst, 0o755)?;
-            items.push(InstalledItem { dst, kind: InstalledKind::SharedLib });
+            items.push(InstalledItem {
+                dst,
+                kind: InstalledKind::SharedLib,
+            });
 
             // libfoo.so.1   → libfoo.so.1.2.3   (SONAME link)
             make_symlink(lib_dir, &soname, &versioned)?;
-            items.push(InstalledItem { dst: lib_dir.join(&soname), kind: InstalledKind::Symlink });
+            items.push(InstalledItem {
+                dst: lib_dir.join(&soname),
+                kind: InstalledKind::Symlink,
+            });
 
             // libfoo.so     → libfoo.so.1         (linker-time link)
             make_symlink(lib_dir, &unversioned, &soname)?;
-            items.push(InstalledItem { dst: lib_dir.join(&unversioned), kind: InstalledKind::Symlink });
+            items.push(InstalledItem {
+                dst: lib_dir.join(&unversioned),
+                kind: InstalledKind::Symlink,
+            });
         }
 
         "macos" => {
-            let src = project_dir.join("target").join(profile).join(format!("lib{name}.dylib"));
-            if !src.exists() { return Ok(()); }
+            let src = project_dir
+                .join("target")
+                .join(profile)
+                .join(format!("lib{name}.dylib"));
+            if !src.exists() {
+                return Ok(());
+            }
 
             let fname = format!("lib{name}.dylib");
-            let dst   = lib_dir.join(&fname);
+            let dst = lib_dir.join(&fname);
             copy_file(&src, &dst)?;
             set_mode(&dst, 0o755)?;
 
@@ -279,30 +335,51 @@ fn install_shared_lib(
             // at its installed location without extra DYLD_LIBRARY_PATH magic.
             let install_name = prefix.join("lib").join(&fname);
             let _ = std::process::Command::new("install_name_tool")
-                .args(["-id", &install_name.to_string_lossy(), &dst.to_string_lossy().into_owned()])
+                .args([
+                    "-id",
+                    &install_name.to_string_lossy(),
+                    &dst.to_string_lossy().into_owned(),
+                ])
                 .status();
 
-            items.push(InstalledItem { dst, kind: InstalledKind::SharedLib });
+            items.push(InstalledItem {
+                dst,
+                kind: InstalledKind::SharedLib,
+            });
         }
 
         _ => {
             // Windows — DLLs live in bin/, not lib/.
-            let src = project_dir.join("target").join(profile).join(format!("{name}.dll"));
-            if !src.exists() { return Ok(()); }
+            let src = project_dir
+                .join("target")
+                .join(profile)
+                .join(format!("{name}.dll"));
+            if !src.exists() {
+                return Ok(());
+            }
 
             let bin_dir = lib_dir.parent().unwrap_or(lib_dir).join("bin");
             fs::create_dir_all(&bin_dir)?;
 
             let dst = bin_dir.join(format!("{name}.dll"));
             copy_file(&src, &dst)?;
-            items.push(InstalledItem { dst, kind: InstalledKind::SharedLib });
+            items.push(InstalledItem {
+                dst,
+                kind: InstalledKind::SharedLib,
+            });
 
             // Import lib alongside the static libs if present.
-            let imp_src = project_dir.join("target").join(profile).join(format!("{name}.lib"));
+            let imp_src = project_dir
+                .join("target")
+                .join(profile)
+                .join(format!("{name}.lib"));
             if imp_src.exists() {
                 let imp_dst = lib_dir.join(format!("{name}.lib"));
                 copy_file(&imp_src, &imp_dst)?;
-                items.push(InstalledItem { dst: imp_dst, kind: InstalledKind::StaticLib });
+                items.push(InstalledItem {
+                    dst: imp_dst,
+                    kind: InstalledKind::StaticLib,
+                });
             }
         }
     }
@@ -324,7 +401,9 @@ fn install_root(prefix: &Path, destdir: Option<&Path>) -> PathBuf {
 }
 
 fn copy_file(src: &Path, dst: &Path) -> Result<(), FreightError> {
-    if let Some(p) = dst.parent() { fs::create_dir_all(p)?; }
+    if let Some(p) = dst.parent() {
+        fs::create_dir_all(p)?;
+    }
     fs::copy(src, dst).map(|_| ())?;
     Ok(())
 }
@@ -345,7 +424,9 @@ fn set_mode(_path: &Path, _mode: u32) -> Result<(), FreightError> {
 fn make_symlink(dir: &Path, link_name: &str, target: &str) -> Result<(), FreightError> {
     let link = dir.join(link_name);
     // Remove stale link so we can re-link cleanly.
-    if link.symlink_metadata().is_ok() { fs::remove_file(&link)?; }
+    if link.symlink_metadata().is_ok() {
+        fs::remove_file(&link)?;
+    }
     std::os::unix::fs::symlink(target, &link)?;
     Ok(())
 }
@@ -354,7 +435,6 @@ fn make_symlink(dir: &Path, link_name: &str, target: &str) -> Result<(), Freight
 fn make_symlink(_dir: &Path, _link: &str, _target: &str) -> Result<(), FreightError> {
     Ok(()) // Symlinks on Windows require elevated rights; skip silently.
 }
-
 
 fn executable_name(name: &str, target_os: &str) -> String {
     if target_os == "windows" && !name.ends_with(".exe") {
@@ -433,7 +513,12 @@ fn create_zip_archive(parent: &Path, stem: &str, archive: &Path) -> Result<(), F
     Ok(())
 }
 
-fn collect_zip_files(root: &Path, dir: &Path, stem: &str, files: &mut Vec<(String, PathBuf)>) -> Result<(), FreightError> {
+fn collect_zip_files(
+    root: &Path,
+    dir: &Path,
+    stem: &str,
+    files: &mut Vec<(String, PathBuf)>,
+) -> Result<(), FreightError> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
@@ -441,7 +526,8 @@ fn collect_zip_files(root: &Path, dir: &Path, stem: &str, files: &mut Vec<(Strin
             collect_zip_files(root, &path, stem, files)?;
         } else if path.is_file() {
             let rel = path.strip_prefix(root).unwrap_or(&path);
-            let rel = rel.components()
+            let rel = rel
+                .components()
                 .map(|c| c.as_os_str().to_string_lossy())
                 .collect::<Vec<_>>()
                 .join("/");
@@ -474,12 +560,20 @@ fn crc32(bytes: &[u8]) -> u32 {
 fn create_tarball(parent: &Path, stem: &str, archive: &Path) -> Result<(), FreightError> {
     // `tar` is available on Linux, macOS, and Windows 10+.
     let status = std::process::Command::new("tar")
-        .args(["-czf", &archive.to_string_lossy(), "-C", &parent.to_string_lossy(), stem])
+        .args([
+            "-czf",
+            &archive.to_string_lossy(),
+            "-C",
+            &parent.to_string_lossy(),
+            stem,
+        ])
         .status()
         .map_err(|e| FreightError::InstallFailed(format!("tar not found: {e}")))?;
 
     if !status.success() {
-        return Err(FreightError::InstallFailed("tar exited with non-zero status".into()));
+        return Err(FreightError::InstallFailed(
+            "tar exited with non-zero status".into(),
+        ));
     }
     Ok(())
 }
@@ -488,9 +582,7 @@ fn run_ldconfig(lib_dir: &Path) {
     // Only meaningful on a Linux host; no-op when cross-compiling from another OS.
     if cfg!(target_os = "linux") {
         // Non-fatal — fails silently when not running as root.
-        let _ = std::process::Command::new("ldconfig")
-            .arg(lib_dir)
-            .status();
+        let _ = std::process::Command::new("ldconfig").arg(lib_dir).status();
     }
 }
 
@@ -501,4 +593,3 @@ fn default_prefix() -> PathBuf {
         PathBuf::from("/usr/local")
     }
 }
-

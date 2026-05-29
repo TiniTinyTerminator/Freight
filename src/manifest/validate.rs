@@ -3,7 +3,9 @@ use std::path::Path;
 
 use semver::Version;
 
-use super::types::{known_arch_keys, known_platform_keys, Dependency, DetailedDep, LibType, Manifest, Profile};
+use super::types::{
+    known_arch_keys, known_platform_keys, Dependency, DetailedDep, LibType, Manifest, Profile,
+};
 use crate::toolchain::CompilerTemplate;
 
 const VALID_WARNINGS: &[&str] = &["none", "default", "all", "error"];
@@ -16,7 +18,10 @@ pub struct ValidationError {
 
 impl ValidationError {
     fn new(ctx: &str, msg: impl Into<String>) -> Self {
-        Self { context: ctx.to_string(), message: msg.into() }
+        Self {
+            context: ctx.to_string(),
+            message: msg.into(),
+        }
     }
 }
 
@@ -70,12 +75,18 @@ fn validate_features(m: &Manifest, errors: &mut Vec<ValidationError>) {
     }
 
     // Detect cycles via DFS.
-    let keys: Vec<&String> = m.features.keys().filter(|k| k.as_str() != "default").collect();
+    let keys: Vec<&String> = m
+        .features
+        .keys()
+        .filter(|k| k.as_str() != "default")
+        .collect();
     for start in &keys {
         let mut visited = HashSet::new();
         let mut stack = vec![start.as_str()];
         while let Some(cur) = stack.pop() {
-            if cur == "default" { continue; }
+            if cur == "default" {
+                continue;
+            }
             if !visited.insert(cur) {
                 errors.push(ValidationError::new(
                     &format!("[features.{start}]"),
@@ -84,36 +95,40 @@ fn validate_features(m: &Manifest, errors: &mut Vec<ValidationError>) {
                 break;
             }
             if let Some(deps) = m.features.get(cur) {
-                for d in deps { stack.push(d.as_str()); }
+                for d in deps {
+                    stack.push(d.as_str());
+                }
             }
         }
     }
 
     // Validate features requested on dep declarations.
     for (dep_name, dep) in &m.dependencies {
-        let Dependency::Detailed(d) = dep else { continue };
+        let Dependency::Detailed(d) = dep else {
+            continue;
+        };
         for feat in &d.features {
             // We can't validate features on foreign/registry deps (no local manifest to check),
             // but we can catch obviously wrong things if it's a path dep with a loaded manifest.
             // For now, just flag if `default-features = false` with no features listed.
-            let _ = (dep_name, feat);  // reserved for future cross-manifest checks
+            let _ = (dep_name, feat); // reserved for future cross-manifest checks
         }
     }
 }
 
 fn validate_foreign_deps(m: &Manifest, errors: &mut Vec<ValidationError>) {
     for (name, dep) in &m.dependencies {
-        let Dependency::Detailed(d) = dep else { continue };
+        let Dependency::Detailed(d) = dep else {
+            continue;
+        };
         let ctx = format!("[dependencies.{name}]");
 
         if let Some(repo) = &d.repo {
             if repo.is_empty() {
                 errors.push(ValidationError::new(&ctx, "repo must not be empty"));
             }
-            let is_version_dep = d.version.is_some()
-                && d.path.is_none()
-                && d.git.is_none()
-                && d.url.is_none();
+            let is_version_dep =
+                d.version.is_some() && d.path.is_none() && d.git.is_none() && d.url.is_none();
             if !is_version_dep {
                 errors.push(ValidationError::new(
                     &ctx,
@@ -121,7 +136,6 @@ fn validate_foreign_deps(m: &Manifest, errors: &mut Vec<ValidationError>) {
                 ));
             }
         }
-
     }
 }
 
@@ -176,7 +190,7 @@ fn validate_dep_env_filters(m: &Manifest, errors: &mut Vec<ValidationError>) {
 }
 
 fn validate_os_arch_keys(m: &Manifest, errors: &mut Vec<ValidationError>) {
-    let known_os   = known_platform_keys();
+    let known_os = known_platform_keys();
     let known_arch = known_arch_keys();
     for key in m.os.keys() {
         let lc = key.to_ascii_lowercase();
@@ -185,7 +199,8 @@ fn validate_os_arch_keys(m: &Manifest, errors: &mut Vec<ValidationError>) {
                 &format!("[os.{key}]"),
                 format!(
                     "unknown OS key {:?}; expected one of: {}",
-                    key, known_os.join(", "),
+                    key,
+                    known_os.join(", "),
                 ),
             ));
         }
@@ -197,7 +212,8 @@ fn validate_os_arch_keys(m: &Manifest, errors: &mut Vec<ValidationError>) {
                 &format!("[arch.{key}]"),
                 format!(
                     "unknown arch key {:?}; expected one of: {}",
-                    key, known_arch.join(", "),
+                    key,
+                    known_arch.join(", "),
                 ),
             ));
         }
@@ -212,14 +228,20 @@ fn validate_package(m: &Manifest, errors: &mut Vec<ValidationError>) {
     } else if !is_valid_package_name(&pkg.name) {
         errors.push(ValidationError::new(
             "[package]",
-            format!("name {:?} contains invalid characters (use letters, digits, - or _)", pkg.name),
+            format!(
+                "name {:?} contains invalid characters (use letters, digits, - or _)",
+                pkg.name
+            ),
         ));
     }
 
     if Version::parse(&pkg.version).is_err() {
         errors.push(ValidationError::new(
             "[package]",
-            format!("version {:?} is not valid semver (expected major.minor.patch)", pkg.version),
+            format!(
+                "version {:?} is not valid semver (expected major.minor.patch)",
+                pkg.version
+            ),
         ));
     }
 
@@ -248,16 +270,22 @@ fn validate_package(m: &Manifest, errors: &mut Vec<ValidationError>) {
     }
 }
 
-fn validate_language(m: &Manifest, templates: &[CompilerTemplate], errors: &mut Vec<ValidationError>) {
+fn validate_language(
+    m: &Manifest,
+    templates: &[CompilerTemplate],
+    errors: &mut Vec<ValidationError>,
+) {
     for (key, settings) in &m.language {
         let ctx = format!("[language.{key}]");
 
-        let handling: Vec<&CompilerTemplate> = templates.iter()
+        let handling: Vec<&CompilerTemplate> = templates
+            .iter()
             .filter(|t| t.linking.contains_key(key.as_str()))
             .collect();
 
         if !templates.is_empty() && handling.is_empty() {
-            let mut known: Vec<String> = templates.iter()
+            let mut known: Vec<String> = templates
+                .iter()
                 .flat_map(|t| t.linking.keys().cloned())
                 .collect::<HashSet<_>>()
                 .into_iter()
@@ -265,13 +293,17 @@ fn validate_language(m: &Manifest, templates: &[CompilerTemplate], errors: &mut 
             known.sort();
             errors.push(ValidationError::new(
                 &ctx,
-                format!("{key:?} is not a supported language key; known keys: {}", known.join(", ")),
+                format!(
+                    "{key:?} is not a supported language key; known keys: {}",
+                    known.join(", ")
+                ),
             ));
             continue;
         }
 
         if let Some(std) = &settings.std {
-            let valid_stds: HashSet<&str> = handling.iter()
+            let valid_stds: HashSet<&str> = handling
+                .iter()
                 .flat_map(|t| t.standards.keys().map(String::as_str))
                 .collect();
             // Empty valid_stds means the language uses no -std= flag; treat any value as docs.
@@ -280,7 +312,11 @@ fn validate_language(m: &Manifest, templates: &[CompilerTemplate], errors: &mut 
                 sorted.sort();
                 errors.push(ValidationError::new(
                     &ctx,
-                    format!("std {:?} is not valid for {key}; valid standards: {}", std, sorted.join(", ")),
+                    format!(
+                        "std {:?} is not valid for {key}; valid standards: {}",
+                        std,
+                        sorted.join(", ")
+                    ),
                 ));
             }
         }
@@ -288,7 +324,8 @@ fn validate_language(m: &Manifest, templates: &[CompilerTemplate], errors: &mut 
         // Validate stdlib (C++) — checked against the union of flags_stdlib keys.
         if key == "cpp" {
             if let Some(stdlib) = &settings.stdlib {
-                let valid: HashSet<&str> = handling.iter()
+                let valid: HashSet<&str> = handling
+                    .iter()
                     .flat_map(|t| t.flags_stdlib.keys().map(String::as_str))
                     .collect();
                 if !valid.is_empty() && !valid.contains(stdlib.as_str()) {
@@ -296,12 +333,15 @@ fn validate_language(m: &Manifest, templates: &[CompilerTemplate], errors: &mut 
                     sorted.sort();
                     errors.push(ValidationError::new(
                         &ctx,
-                        format!("stdlib {:?} is not supported; valid values: {}", stdlib, sorted.join(", ")),
+                        format!(
+                            "stdlib {:?} is not supported; valid values: {}",
+                            stdlib,
+                            sorted.join(", ")
+                        ),
                     ));
                 }
             }
         }
-
     }
 }
 
@@ -350,10 +390,13 @@ fn validate_compiler(m: &Manifest, errors: &mut Vec<ValidationError>) {
     if !VALID_WARNINGS.contains(&cc.warnings.as_str()) {
         errors.push(ValidationError::new(
             "[compiler]",
-            format!("warnings {:?} is not valid; choose one of: {}", cc.warnings, VALID_WARNINGS.join(", ")),
+            format!(
+                "warnings {:?} is not valid; choose one of: {}",
+                cc.warnings,
+                VALID_WARNINGS.join(", ")
+            ),
         ));
     }
-
 }
 
 fn validate_profiles(m: &Manifest, errors: &mut Vec<ValidationError>) {
@@ -378,7 +421,9 @@ fn validate_profile(p: &Profile, ctx: &str, errors: &mut Vec<ValidationError>) {
 
 fn is_valid_package_name(name: &str) -> bool {
     !name.is_empty()
-        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 /// Check ABI compatibility of path dependencies against the current project.
@@ -402,13 +447,14 @@ pub fn validate_dep_compat(
 
     // Collect all ABIs the project's languages are compatible with,
     // always including each language's own ABI (a language links with itself).
-    let allowed_abis: HashSet<&str> = project_langs.iter()
+    let allowed_abis: HashSet<&str> = project_langs
+        .iter()
         .flat_map(|&lang| {
-            templates.iter()
+            templates
+                .iter()
                 .filter_map(move |t| t.linking.get(lang))
                 .flat_map(|l| {
-                    std::iter::once(l.abi.as_str())
-                        .chain(l.compatible.iter().map(String::as_str))
+                    std::iter::once(l.abi.as_str()).chain(l.compatible.iter().map(String::as_str))
                 })
         })
         .collect();
@@ -423,8 +469,12 @@ pub fn validate_dep_compat(
         };
 
         let dep_dir = base_dir.join(rel_path);
-        let Ok(src) = std::fs::read_to_string(dep_dir.join("freight.toml")) else { continue };
-        let Ok(dep_manifest) = toml_edit::de::from_str::<Manifest>(&src) else { continue };
+        let Ok(src) = std::fs::read_to_string(dep_dir.join("freight.toml")) else {
+            continue;
+        };
+        let Ok(dep_manifest) = toml_edit::de::from_str::<Manifest>(&src) else {
+            continue;
+        };
 
         match dep_manifest.supports_current_platform() {
             Ok(true) => {}
@@ -446,7 +496,8 @@ pub fn validate_dep_compat(
         }
 
         for dep_lang in dep_manifest.language.keys() {
-            let dep_abi = templates.iter()
+            let dep_abi = templates
+                .iter()
                 .filter_map(|t| t.linking.get(dep_lang.as_str()))
                 .map(|l| l.abi.as_str())
                 .next();
@@ -467,9 +518,13 @@ pub fn validate_dep_compat(
             // For C and C++, the dep's standard must not be newer than the project's.
             // A library compiled with a newer std may use features unavailable to the caller.
             if matches!(dep_lang.as_str(), "c" | "cpp") {
-                let proj_std = manifest.language.get(dep_lang.as_str())
+                let proj_std = manifest
+                    .language
+                    .get(dep_lang.as_str())
                     .and_then(|l| l.std.as_deref());
-                let dep_std = dep_manifest.language.get(dep_lang.as_str())
+                let dep_std = dep_manifest
+                    .language
+                    .get(dep_lang.as_str())
                     .and_then(|l| l.std.as_deref());
 
                 if let (Some(ps), Some(ds)) = (proj_std, dep_std) {
@@ -501,7 +556,7 @@ fn validate_lang_std_consistency(m: &Manifest, errors: &mut Vec<ValidationError>
         return;
     }
 
-    let c_std   = m.language.get("c")  .and_then(|l| l.std.as_deref());
+    let c_std = m.language.get("c").and_then(|l| l.std.as_deref());
     let cpp_std = m.language.get("cpp").and_then(|l| l.std.as_deref());
 
     match (c_std, cpp_std) {
@@ -530,9 +585,15 @@ fn validate_lang_std_consistency(m: &Manifest, errors: &mut Vec<ValidationError>
 /// Returns 0 for unknown or non-versioned standards (treated as "no constraint").
 fn std_year(std: &str) -> u32 {
     match std {
-        "c11"   => 11, "c17" => 17, "c23" => 23,
-        "c++11" => 11, "c++14" => 14, "c++17" => 17, "c++20" => 20, "c++23" => 23,
-        _       => 0,
+        "c11" => 11,
+        "c17" => 17,
+        "c23" => 23,
+        "c++11" => 11,
+        "c++14" => 14,
+        "c++17" => 17,
+        "c++20" => 20,
+        "c++23" => 23,
+        _ => 0,
     }
 }
 
@@ -590,12 +651,18 @@ debug     = false
     }
 
     fn field_errors(s: &str, ctx: &str) -> Vec<ValidationError> {
-        errors(s).into_iter().filter(|e| e.context.contains(ctx)).collect()
+        errors(s)
+            .into_iter()
+            .filter(|e| e.context.contains(ctx))
+            .collect()
     }
 
     #[test]
     fn full_manifest_is_valid() {
-        assert!(errors(FULL_MANIFEST).is_empty(), "full manifest should be valid");
+        assert!(
+            errors(FULL_MANIFEST).is_empty(),
+            "full manifest should be valid"
+        );
     }
 
     #[test]
@@ -646,7 +713,8 @@ src  = "src/main.cpp"
         } else {
             std::env::consts::OS
         };
-        let s = format!(r#"
+        let s = format!(
+            r#"
 [package]
 name    = "foo"
 version = "0.1.0"
@@ -654,7 +722,8 @@ supports = "{platform}"
 [[bin]]
 name = "foo"
 src  = "src/main.cpp"
-"#);
+"#
+        );
 
         assert!(field_errors(&s, "[package]").is_empty());
     }
@@ -666,7 +735,8 @@ src  = "src/main.cpp"
         } else {
             "windows"
         };
-        let s = format!(r#"
+        let s = format!(
+            r#"
 [package]
 name    = "foo"
 version = "0.1.0"
@@ -674,11 +744,13 @@ supports = "{unsupported}"
 [[bin]]
 name = "foo"
 src  = "src/main.cpp"
-"#);
+"#
+        );
 
         let errs = field_errors(&s, "[package]");
         assert!(
-            errs.iter().any(|e| e.message.contains("current platform is not supported")),
+            errs.iter()
+                .any(|e| e.message.contains("current platform is not supported")),
             "expected unsupported-platform error, got {errs:?}"
         );
     }
@@ -697,7 +769,8 @@ src  = "src/main.cpp"
 
         let errs = field_errors(s, "[package]");
         assert!(
-            errs.iter().any(|e| e.message.contains("invalid supports expression")),
+            errs.iter()
+                .any(|e| e.message.contains("invalid supports expression")),
             "expected invalid-expression error, got {errs:?}"
         );
     }
@@ -824,7 +897,11 @@ name    = ""
 version = "bad"
 "#;
         let errs = errors(s);
-        assert!(errs.len() >= 3, "expected at least 3 errors (name, version, no targets), got {}", errs.len());
+        assert!(
+            errs.len() >= 3,
+            "expected at least 3 errors (name, version, no targets), got {}",
+            errs.len()
+        );
     }
 
     // ── Dependency language compatibility ─────────────────────────────────────
@@ -880,7 +957,10 @@ cpplib = { path = "cpplib" }
 "#;
         let manifest = load_manifest_str(s).unwrap();
         let errs = validate_dep_compat(&manifest, dir.path(), &test_templates());
-        assert!(!errs.is_empty(), "c project should not be able to use a C++ dep");
+        assert!(
+            !errs.is_empty(),
+            "c project should not be able to use a C++ dep"
+        );
         assert!(errs[0].context.contains("cpplib"));
     }
 
@@ -903,7 +983,10 @@ cpplib = { path = "cpplib" }
 "#;
         let manifest = load_manifest_str(s).unwrap();
         let errs = validate_dep_compat(&manifest, dir.path(), &test_templates());
-        assert!(!errs.is_empty(), "fortran project should not be able to use a C++ dep");
+        assert!(
+            !errs.is_empty(),
+            "fortran project should not be able to use a C++ dep"
+        );
     }
 
     #[test]
@@ -983,7 +1066,10 @@ ghost = { path = "does-not-exist" }
 "#;
         let manifest = load_manifest_str(s).unwrap();
         let errs = validate_dep_compat(&manifest, dir.path(), &test_templates());
-        assert!(errs.is_empty(), "missing dep dir should be silently skipped");
+        assert!(
+            errs.is_empty(),
+            "missing dep dir should be silently skipped"
+        );
     }
 
     #[test]
@@ -998,7 +1084,8 @@ ghost = { path = "does-not-exist" }
         };
         std::fs::write(
             dep_dir.join("freight.toml"),
-            format!(r#"
+            format!(
+                r#"
 [package]
 name = "unsupported"
 version = "0.1.0"
@@ -1007,7 +1094,8 @@ supports = "{unsupported}"
 [[bin]]
 name = "unsupported"
 src = "src/main.c"
-"#),
+"#
+            ),
         )
         .unwrap();
 
@@ -1066,7 +1154,10 @@ std = "c23"
 name = "foo"
 src  = "src/main.cpp"
 "#;
-        assert!(!field_errors(s, "[language]").is_empty(), "c23 with c++17 should error");
+        assert!(
+            !field_errors(s, "[language]").is_empty(),
+            "c23 with c++17 should error"
+        );
     }
 
     #[test]
@@ -1082,7 +1173,10 @@ std = "c++20"
 name = "foo"
 src  = "src/main.cpp"
 "#;
-        assert!(!field_errors(s, "[language]").is_empty(), "one std missing should error");
+        assert!(
+            !field_errors(s, "[language]").is_empty(),
+            "one std missing should error"
+        );
     }
 
     #[test]
@@ -1169,7 +1263,10 @@ libpng = ">=1.6"
 "#;
         let manifest = load_manifest_str(s).unwrap();
         let errs = validate_dep_compat(&manifest, dir.path(), &test_templates());
-        assert!(errs.is_empty(), "version deps should not trigger compat check");
+        assert!(
+            errs.is_empty(),
+            "version deps should not trigger compat check"
+        );
     }
 
     #[test]
@@ -1186,7 +1283,10 @@ linux   = { features = ["pthread"], os = "linux" }
 windows = { features = ["ws2_32"], os = "windows" }
 sse_lib = "1"
 "#;
-        assert!(field_errors(s, "[dependencies.").is_empty(), "known os/arch should validate clean");
+        assert!(
+            field_errors(s, "[dependencies.").is_empty(),
+            "known os/arch should validate clean"
+        );
     }
 
     #[test]
@@ -1220,7 +1320,9 @@ mylib = { version = "1", arch = "pdp11" }
 "#;
         let errs = field_errors(s, "[dependencies.mylib]");
         assert!(!errs.is_empty());
-        assert!(errs.iter().any(|e| e.message.contains("unknown arch value")));
+        assert!(errs
+            .iter()
+            .any(|e| e.message.contains("unknown arch value")));
     }
 
     #[test]

@@ -1,10 +1,7 @@
-use freight_core::dep_cmds::{
-    manifest_add_dep, fetch_git_deps,
-    DetailedDep, GitDepAction,
-};
-use freight_core::manifest::types::Dependency;
+use freight_core::dep_cmds::{fetch_git_deps, manifest_add_dep, DetailedDep, GitDepAction};
 use freight_core::manifest::find_manifest_dir;
-use freight_core::registry::repos::{repo_by_name, registries_in_order};
+use freight_core::manifest::types::Dependency;
+use freight_core::registry::repos::{registries_in_order, repo_by_name};
 use freight_core::toolchain::cache::GlobalConfig;
 
 use crate::output::{print_error, print_status, print_success, print_warning};
@@ -69,10 +66,16 @@ fn url_is_archive(url: &str) -> bool {
     if url.starts_with("ssh://") || url.starts_with("git@") {
         return false;
     }
-    let path = url.split('?').next().unwrap_or(url).split('#').next().unwrap_or(url);
+    let path = url
+        .split('?')
+        .next()
+        .unwrap_or(url)
+        .split('#')
+        .next()
+        .unwrap_or(url);
     const ARCHIVE_EXTS: &[&str] = &[
-        ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".tar.zst", ".zip", ".7z",
-        ".whl", ".gem", ".hpp", ".h", ".c",
+        ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".tar.zst", ".zip", ".7z", ".whl", ".gem",
+        ".hpp", ".h", ".c",
     ];
     ARCHIVE_EXTS.iter().any(|ext| path.ends_with(ext))
 }
@@ -81,16 +84,27 @@ fn url_dep_name(url: &str) -> String {
     let path_part = if url.starts_with("git@") {
         url.splitn(2, ':').nth(1).unwrap_or(url)
     } else {
-        url.split('?').next().unwrap_or(url).split('#').next().unwrap_or(url)
+        url.split('?')
+            .next()
+            .unwrap_or(url)
+            .split('#')
+            .next()
+            .unwrap_or(url)
     };
-    let last = path_part.rsplit('/').find(|s| !s.is_empty()).unwrap_or("dep");
+    let last = path_part
+        .rsplit('/')
+        .find(|s| !s.is_empty())
+        .unwrap_or("dep");
     const STRIP_SUFFIXES: &[&str] = &[
-        ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".tar.zst",
-        ".zip", ".7z", ".git", ".hpp", ".h", ".c",
+        ".tar.gz", ".tgz", ".tar.bz2", ".tar.xz", ".tar.zst", ".zip", ".7z", ".git", ".hpp", ".h",
+        ".c",
     ];
     let mut name = last;
     for suffix in STRIP_SUFFIXES {
-        if let Some(s) = name.strip_suffix(suffix) { name = s; break; }
+        if let Some(s) = name.strip_suffix(suffix) {
+            name = s;
+            break;
+        }
     }
     name.to_string()
 }
@@ -107,11 +121,17 @@ pub fn cmd_add(
 ) {
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
-        Err(e) => { print_error(&format!("cannot read cwd: {e}")); return; }
+        Err(e) => {
+            print_error(&format!("cannot read cwd: {e}"));
+            return;
+        }
     };
     let project_dir = match find_manifest_dir(&cwd) {
         Some(d) => d,
-        None => { print_error("no freight.toml found"); return; }
+        None => {
+            print_error("no freight.toml found");
+            return;
+        }
     };
 
     // Auto-detect git / URL archive when the package argument is a raw URL.
@@ -137,7 +157,11 @@ pub fn cmd_add(
             print_error(&e.to_string());
             return;
         }
-        let section = if dev { "dev-dependencies" } else { "dependencies" };
+        let section = if dev {
+            "dev-dependencies"
+        } else {
+            "dependencies"
+        };
         print_success(&format!("added `{dep_name}` to [{section}]"));
         if matches!(&dep, Dependency::Detailed(d) if d.git.is_some()) {
             print_status("fetch", &format!("cloning `{dep_name}`…"));
@@ -209,7 +233,10 @@ pub fn cmd_add(
         let (ver, repo_key) = if let Some(rname) = repo {
             let repo_impl = match repo_by_name(rname, &config) {
                 Ok(r) => r,
-                Err(e) => { print_error(&e.to_string()); return; }
+                Err(e) => {
+                    print_error(&e.to_string());
+                    return;
+                }
             };
             let key = repo_impl.repo_key().to_string();
             let v = if let Some(pinned) = pinned_version {
@@ -226,7 +253,9 @@ pub fn cmd_add(
                         return;
                     }
                     Err(e) => {
-                        print_warning(&format!("repo unreachable ({e}); adding with version \"*\""));
+                        print_warning(&format!(
+                            "repo unreachable ({e}); adding with version \"*\""
+                        ));
                         "*".to_string()
                     }
                 }
@@ -239,10 +268,17 @@ pub fn cmd_add(
             let all_repos = registries_in_order(&config);
             let mut found: Option<(String, String)> = None;
             for r in &all_repos {
-                let display = if r.repo_key().is_empty() { "freight.dev" } else { r.repo_key() };
+                let display = if r.repo_key().is_empty() {
+                    "freight.dev"
+                } else {
+                    r.repo_key()
+                };
                 match r.lookup(dep_name, channel_arg) {
                     Ok(Some(info)) => {
-                        print_status("resolved", &format!("`{dep_name}` → {} (via {display})", info.latest));
+                        print_status(
+                            "resolved",
+                            &format!("`{dep_name}` → {} (via {display})", info.latest),
+                        );
                         found = Some((info.latest, r.repo_key().to_string()));
                         break;
                     }
@@ -256,7 +292,9 @@ pub fn cmd_add(
             match found {
                 Some(pair) => pair,
                 None => {
-                    print_error(&format!("`{dep_name}` not found in any configured registry"));
+                    print_error(&format!(
+                        "`{dep_name}` not found in any configured registry"
+                    ));
                     return;
                 }
             }
@@ -267,7 +305,11 @@ pub fn cmd_add(
         } else {
             Dependency::Detailed(DetailedDep {
                 version: Some(ver),
-                repo: if repo_key.is_empty() { None } else { Some(repo_key) },
+                repo: if repo_key.is_empty() {
+                    None
+                } else {
+                    Some(repo_key)
+                },
                 channel: channel_arg.map(str::to_string),
                 ..Default::default()
             })
@@ -279,7 +321,11 @@ pub fn cmd_add(
         return;
     }
 
-    let section = if dev { "dev-dependencies" } else { "dependencies" };
+    let section = if dev {
+        "dev-dependencies"
+    } else {
+        "dependencies"
+    };
     print_success(&format!("added `{dep_name}` to [{section}]"));
 
     if matches!(&dep, Dependency::Detailed(d) if d.git.is_some()) {
@@ -290,7 +336,9 @@ pub fn cmd_add(
                     if o.name == dep_name {
                         match o.action {
                             GitDepAction::Cloned => print_success(&format!("cloned `{dep_name}`")),
-                            GitDepAction::AlreadyPresent => print_status("ok", &format!("`{dep_name}` already present")),
+                            GitDepAction::AlreadyPresent => {
+                                print_status("ok", &format!("`{dep_name}` already present"))
+                            }
                             _ => {}
                         }
                     }

@@ -70,10 +70,16 @@ pub fn run_protoc(
     // ── Output directory ──────────────────────────────────────────────────────
 
     let out_dir = {
-        let rel = settings.extra.get("dest")
+        let rel = settings
+            .extra
+            .get("dest")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("target").join(profile).join("proto-gen"));
-        if rel.is_absolute() { rel } else { project_dir.join(rel) }
+        if rel.is_absolute() {
+            rel
+        } else {
+            project_dir.join(rel)
+        }
     };
     std::fs::create_dir_all(&out_dir)?;
 
@@ -82,10 +88,7 @@ pub fn run_protoc(
     // Default roots: src/ and project root.
     // Extra roots come from `srcs = "proto/"` (comma-separated).
 
-    let mut proto_paths: Vec<PathBuf> = vec![
-        project_dir.join("src"),
-        project_dir.to_path_buf(),
-    ];
+    let mut proto_paths: Vec<PathBuf> = vec![project_dir.join("src"), project_dir.to_path_buf()];
     if let Some(extra) = settings.extra.get("srcs") {
         for p in extra.split(',').map(str::trim).filter(|s| !s.is_empty()) {
             proto_paths.push(project_dir.join(p));
@@ -97,7 +100,8 @@ pub fn run_protoc(
     let protoc_bin = resolve_bin("protoc", tool_paths);
 
     let cpp_out_arg = format!("--cpp_out={}", out_dir.display());
-    let proto_path_flags: Vec<String> = proto_paths.iter()
+    let proto_path_flags: Vec<String> = proto_paths
+        .iter()
         .filter(|p| p.is_dir())
         .map(|p| format!("--proto_path={}", p.display()))
         .collect();
@@ -107,16 +111,23 @@ pub fn run_protoc(
     for proto_rel in &proto_files {
         let abs = project_dir.join(proto_rel);
 
-        let stem = abs.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown");
+        let stem = abs
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown");
         let pb_cc = out_dir.join(format!("{stem}.pb.cc"));
-        let pb_h  = out_dir.join(format!("{stem}.pb.h"));
+        let pb_h = out_dir.join(format!("{stem}.pb.h"));
 
         if is_up_to_date(&abs, &pb_cc, &pb_h) {
-            progress(BuildEvent::Fresh { path: proto_rel.clone() });
+            progress(BuildEvent::Fresh {
+                path: proto_rel.clone(),
+            });
             continue;
         }
 
-        progress(BuildEvent::Compiling { path: proto_rel.clone() });
+        progress(BuildEvent::Compiling {
+            path: proto_rel.clone(),
+        });
 
         let mut cmd = Command::new(&protoc_bin);
         cmd.arg(&cpp_out_arg);
@@ -159,7 +170,9 @@ pub fn run_protoc(
 /// Used to skip the "no source files" guard in `load_project_at` for proto-only projects.
 pub fn has_proto_files(project_dir: &Path) -> bool {
     let src_dir = project_dir.join("src");
-    if !src_dir.is_dir() { return false; }
+    if !src_dir.is_dir() {
+        return false;
+    }
     walk_has_proto(&src_dir)
 }
 
@@ -167,7 +180,9 @@ pub fn has_proto_files(project_dir: &Path) -> bool {
 
 fn discover_proto_files(project_dir: &Path) -> Vec<PathBuf> {
     let src_dir = project_dir.join("src");
-    if !src_dir.is_dir() { return vec![]; }
+    if !src_dir.is_dir() {
+        return vec![];
+    }
     let mut files = Vec::new();
     walk_proto(&src_dir, project_dir, &mut files);
     files.sort();
@@ -175,7 +190,9 @@ fn discover_proto_files(project_dir: &Path) -> Vec<PathBuf> {
 }
 
 fn walk_proto(dir: &Path, project_dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for entry in rd.flatten() {
         let p = entry.path();
         if p.is_dir() {
@@ -189,18 +206,26 @@ fn walk_proto(dir: &Path, project_dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 fn walk_has_proto(dir: &Path) -> bool {
-    let Ok(rd) = std::fs::read_dir(dir) else { return false };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return false;
+    };
     for entry in rd.flatten() {
         let p = entry.path();
-        if p.is_dir() && walk_has_proto(&p) { return true; }
-        if p.extension().and_then(|e| e.to_str()) == Some("proto") { return true; }
+        if p.is_dir() && walk_has_proto(&p) {
+            return true;
+        }
+        if p.extension().and_then(|e| e.to_str()) == Some("proto") {
+            return true;
+        }
     }
     false
 }
 
 /// Returns `true` when both `pb_cc` and `pb_h` exist and are newer than `proto_src`.
 fn is_up_to_date(proto_src: &Path, pb_cc: &Path, pb_h: &Path) -> bool {
-    let Some(pm) = mtime(proto_src) else { return false };
+    let Some(pm) = mtime(proto_src) else {
+        return false;
+    };
     match (mtime(pb_cc), mtime(pb_h)) {
         (Some(cc), Some(h)) => pm < cc && pm < h,
         _ => false,
@@ -213,7 +238,9 @@ fn mtime(p: &Path) -> Option<SystemTime> {
 
 /// Collect all `.pb.cc` files in `out_dir` as `SourceFile { lang_key: "cpp" }`.
 fn collect_generated_cc_files(out_dir: &Path, project_dir: &Path) -> Vec<SourceFile> {
-    let Ok(rd) = std::fs::read_dir(out_dir) else { return vec![] };
+    let Ok(rd) = std::fs::read_dir(out_dir) else {
+        return vec![];
+    };
     let mut sources: Vec<SourceFile> = rd
         .flatten()
         .filter_map(|e| {
@@ -221,7 +248,10 @@ fn collect_generated_cc_files(out_dir: &Path, project_dir: &Path) -> Vec<SourceF
             let fname = p.file_name()?.to_str()?;
             if fname.ends_with(".pb.cc") {
                 let rel = p.strip_prefix(project_dir).unwrap_or(&p).to_path_buf();
-                Some(SourceFile { path: rel, lang_key: "cpp".to_string() })
+                Some(SourceFile {
+                    path: rel,
+                    lang_key: "cpp".to_string(),
+                })
             } else {
                 None
             }
@@ -232,7 +262,9 @@ fn collect_generated_cc_files(out_dir: &Path, project_dir: &Path) -> Vec<SourceF
 }
 
 fn prepend_tool_paths_to_env(cmd: &mut Command, tool_paths: &[PathBuf]) {
-    if tool_paths.is_empty() { return; }
+    if tool_paths.is_empty() {
+        return;
+    }
     let current = std::env::var_os("PATH").unwrap_or_default();
     let mut parts: Vec<PathBuf> = tool_paths.to_vec();
     parts.extend(std::env::split_paths(&current));

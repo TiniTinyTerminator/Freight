@@ -25,7 +25,7 @@ pub struct LinkResult {
 /// - `[lib] type = "shared"` → `target/{profile}/lib{name}.so` (Linux), `.dylib` (macOS), `.dll` (Windows)
 /// - `[lib] type = "header-only"` → nothing to link
 ///
-/// `dep_libs` are pre-built `.a` archives from `.deps/` that are linked in
+/// `dep_libs` are pre-built `.a` archives from `target/deps/` that are linked in
 /// before any system libraries.
 pub fn link_targets(
     project_dir: &Path,
@@ -43,22 +43,38 @@ pub fn link_targets(
     let target_os = link_target_os(manifest);
 
     for bin in &manifest.bins {
-        let out = project_dir.join("target").join(profile).join(executable_name(&bin.name, &target_os));
+        let out = project_dir
+            .join("target")
+            .join(profile)
+            .join(executable_name(&bin.name, &target_os));
         let linker = select_linker(manifest, backend, detected, templates)
             .ok_or_else(|| FreightError::CompilerNotFound("no suitable linker found".into()))?;
 
         // Exclude other bins' entry-point objects so each binary only has one main().
-        let other_entry_objs: HashSet<PathBuf> = manifest.bins.iter()
+        let other_entry_objs: HashSet<PathBuf> = manifest
+            .bins
+            .iter()
             .filter(|b| b.src != bin.src)
             .map(|b| object_path(project_dir, profile, Path::new(&b.src)))
             .collect();
-        let bin_objects: Vec<PathBuf> = objects.iter()
+        let bin_objects: Vec<PathBuf> = objects
+            .iter()
             .filter(|o| !other_entry_objs.contains(*o))
             .cloned()
             .collect();
 
-        progress(BuildEvent::Linking { name: bin.name.clone() });
-        link_executable(&bin_objects, &out, linker, manifest, profile, dep_libs, extra_link_flags)?;
+        progress(BuildEvent::Linking {
+            name: bin.name.clone(),
+        });
+        link_executable(
+            &bin_objects,
+            &out,
+            linker,
+            manifest,
+            profile,
+            dep_libs,
+            extra_link_flags,
+        )?;
         if link_settings(manifest, profile).strip {
             strip_output(&out, linker)?;
         }
@@ -70,21 +86,39 @@ pub fn link_targets(
         if lib.link.is_none() {
             match lib.lib_type {
                 LibType::Static => {
-                    let out = project_dir.join("target").join(profile)
+                    let out = project_dir
+                        .join("target")
+                        .join(profile)
                         .join(format!("lib{}.a", manifest.package.name));
-                    let linker = select_linker(manifest, backend, detected, templates)
-                        .ok_or_else(|| FreightError::CompilerNotFound("no suitable linker found".into()))?;
-                    progress(BuildEvent::Archiving { name: format!("lib{}.a", manifest.package.name) });
+                    let linker =
+                        select_linker(manifest, backend, detected, templates).ok_or_else(|| {
+                            FreightError::CompilerNotFound("no suitable linker found".into())
+                        })?;
+                    progress(BuildEvent::Archiving {
+                        name: format!("lib{}.a", manifest.package.name),
+                    });
                     link_static(&out, objects, linker.template.ar_binary())?;
                     outputs.push(out);
                 }
                 LibType::Shared => {
                     let lib_name = shared_lib_name(&manifest.package.name, &target_os);
                     let out = project_dir.join("target").join(profile).join(&lib_name);
-                    let linker = select_linker(manifest, backend, detected, templates)
-                        .ok_or_else(|| FreightError::CompilerNotFound("no suitable linker found".into()))?;
-                    progress(BuildEvent::Linking { name: lib_name.clone() });
-                    link_shared(objects, &out, linker, manifest, profile, dep_libs, extra_link_flags)?;
+                    let linker =
+                        select_linker(manifest, backend, detected, templates).ok_or_else(|| {
+                            FreightError::CompilerNotFound("no suitable linker found".into())
+                        })?;
+                    progress(BuildEvent::Linking {
+                        name: lib_name.clone(),
+                    });
+                    link_shared(
+                        objects,
+                        &out,
+                        linker,
+                        manifest,
+                        profile,
+                        dep_libs,
+                        extra_link_flags,
+                    )?;
                     if link_settings(manifest, profile).strip {
                         strip_output(&out, linker)?;
                     }
@@ -112,7 +146,15 @@ pub fn link_test_binary(
 ) -> Result<(), FreightError> {
     let linker = select_linker(manifest, backend, detected, templates)
         .ok_or_else(|| FreightError::CompilerNotFound("no suitable linker found".into()))?;
-    link_executable(objects, out, linker, manifest, profile, dep_libs, extra_link_flags)
+    link_executable(
+        objects,
+        out,
+        linker,
+        manifest,
+        profile,
+        dep_libs,
+        extra_link_flags,
+    )
 }
 
 /// Archive a set of object files into a static library.
@@ -128,7 +170,8 @@ fn has_lang(manifest: &Manifest, lang_key: &str, detected: &[DetectedCompiler]) 
     if manifest.language.contains_key(lang_key) {
         return true;
     }
-    let exts: Vec<&str> = detected.iter()
+    let exts: Vec<&str> = detected
+        .iter()
         .filter_map(|d| d.template.linking.get(lang_key))
         .flat_map(|l| l.extensions.iter().map(String::as_str))
         .collect();
@@ -137,7 +180,10 @@ fn has_lang(manifest: &Manifest, lang_key: &str, detected: &[DetectedCompiler]) 
     }
     let has = |src: &str| exts.iter().any(|e| src.ends_with(*e));
     manifest.bins.iter().any(|b| has(&b.src))
-        || manifest.lib.as_ref().map_or(false, |l| l.srcs.iter().any(|s| has(s)))
+        || manifest
+            .lib
+            .as_ref()
+            .map_or(false, |l| l.srcs.iter().any(|s| has(s)))
 }
 
 /// Pick the compiler binary that drives the final link step.
@@ -157,16 +203,22 @@ pub fn select_linker<'a>(
     for (lang_key, _) in &manifest.language {
         for d in detected {
             if let Some(l) = d.template.linking.get(lang_key.as_str()) {
-                if l.linker.is_empty() { continue; }
-                let found = detected.iter()
+                if l.linker.is_empty() {
+                    continue;
+                }
+                let found = detected
+                    .iter()
                     .find(|dd| dd.template.linking.values().any(|li| li.abi == l.linker));
-                if found.is_some() { return found; }
+                if found.is_some() {
+                    return found;
+                }
             }
         }
     }
 
     const PRIORITY: &[&str] = &[
-        "cpp", "objcpp", "cuda", "hip", "sycl", "objc", "c", "fortran", "ada", "d", "zig", "opencl", "ispc",
+        "cpp", "objcpp", "cuda", "hip", "sycl", "objc", "c", "fortran", "ada", "d", "zig",
+        "opencl", "ispc",
     ];
 
     // Non-auto backend: prefer a linker from the requested family first.
@@ -175,27 +227,33 @@ pub fn select_linker<'a>(
         // First: prefer a linker whose own lang_key matches the backend name (e.g. zig_native
         // for backend="zig"). This ensures zig build-exe is preferred over zig c++ for
         // zig+cpp projects, because zig build-exe handles startup correctly in both cases.
-        if let Some(own) = detected.iter()
-            .find(|d| d.template.linking.contains_key(family)
-                && (d.template.family == family || d.template.name == family))
-        {
+        if let Some(own) = detected.iter().find(|d| {
+            d.template.linking.contains_key(family)
+                && (d.template.family == family || d.template.name == family)
+        }) {
             return Some(own);
         }
         for &lang in PRIORITY {
             if has_lang(manifest, lang, detected) {
-                let found = detected.iter()
-                    .find(|d| d.template.linking.contains_key(lang)
-                        && (d.template.family == family || d.template.name == family));
-                if found.is_some() { return found; }
+                let found = detected.iter().find(|d| {
+                    d.template.linking.contains_key(lang)
+                        && (d.template.family == family || d.template.name == family)
+                });
+                if found.is_some() {
+                    return found;
+                }
             }
         }
     }
 
     for &lang in PRIORITY {
         if has_lang(manifest, lang, detected) {
-            let found = detected.iter()
+            let found = detected
+                .iter()
                 .find(|d| d.template.linking.contains_key(lang));
-            if found.is_some() { return found; }
+            if found.is_some() {
+                return found;
+            }
         }
     }
 
@@ -225,15 +283,28 @@ fn link_executable(
         let obj_dir = out.parent().map(|p| p.join("objs")).unwrap_or_default();
         let _ = std::fs::create_dir_all(&obj_dir);
         cmd.current_dir(&obj_dir);
-        cmd.args(linker.template.assemble_link_flags(&link_settings(manifest, profile)));
+        cmd.args(
+            linker
+                .template
+                .assemble_link_flags(&link_settings(manifest, profile)),
+        );
         cmd.args(objects);
         cmd.args(linker.template.output_bin_flag(out));
         return run_cmd(cmd, out);
     } else {
-        let link_sub = linker.template.link_subcommand.as_deref()
+        let link_sub = linker
+            .template
+            .link_subcommand
+            .as_deref()
             .or(linker.template.subcommand.as_deref());
-        if let Some(sub) = link_sub { cmd.arg(sub); }
-        cmd.args(linker.template.assemble_link_flags(&link_settings(manifest, profile)));
+        if let Some(sub) = link_sub {
+            cmd.arg(sub);
+        }
+        cmd.args(
+            linker
+                .template
+                .assemble_link_flags(&link_settings(manifest, profile)),
+        );
         cmd.args(objects);
         cmd.args(dep_libs);
         for flag in collect_system_lib_flags(manifest, &linker.template) {
@@ -268,7 +339,10 @@ fn executable_name(name: &str, target_os: &str) -> String {
 }
 
 fn link_target_os(manifest: &Manifest) -> String {
-    manifest.compiler.target.as_deref()
+    manifest
+        .compiler
+        .target
+        .as_deref()
         .map(parse_triple)
         .map(|(_, os)| os)
         .unwrap_or_else(|| std::env::consts::OS.to_string())
@@ -284,12 +358,25 @@ fn link_shared(
     extra_link_flags: &[String],
 ) -> Result<(), FreightError> {
     let target_os = link_target_os(manifest);
-    let shared_flag = if target_os == "macos" { "-dynamiclib" } else { "-shared" };
+    let shared_flag = if target_os == "macos" {
+        "-dynamiclib"
+    } else {
+        "-shared"
+    };
     let mut cmd = Command::new(&linker.path);
-    let link_sub = linker.template.link_subcommand.as_deref()
+    let link_sub = linker
+        .template
+        .link_subcommand
+        .as_deref()
         .or(linker.template.subcommand.as_deref());
-    if let Some(sub) = link_sub { cmd.arg(sub); }
-    cmd.args(linker.template.assemble_link_flags(&link_settings(manifest, profile)));
+    if let Some(sub) = link_sub {
+        cmd.arg(sub);
+    }
+    cmd.args(
+        linker
+            .template
+            .assemble_link_flags(&link_settings(manifest, profile)),
+    );
     cmd.arg(shared_flag);
     cmd.args(objects);
     cmd.args(dep_libs);
@@ -302,7 +389,9 @@ fn link_shared(
 }
 
 fn strip_output(out: &Path, linker: &DetectedCompiler) -> Result<(), FreightError> {
-    let Some(strip_bin) = linker.template.strip_binary() else { return Ok(()) };
+    let Some(strip_bin) = linker.template.strip_binary() else {
+        return Ok(());
+    };
     let status = Command::new(strip_bin)
         .arg(out)
         .status()
@@ -322,10 +411,16 @@ fn run_cmd(mut cmd: Command, out: &Path) -> Result<(), FreightError> {
         super::compile::print_cmd(&cmd);
     }
     let result = cmd.output().map_err(FreightError::Io)?;
-    if result.status.success() { return Ok(()); }
+    if result.status.success() {
+        return Ok(());
+    }
     let stderr = String::from_utf8_lossy(&result.stderr).into_owned();
     let stdout = String::from_utf8_lossy(&result.stdout).into_owned();
-    let diag = if stdout.is_empty() { stderr } else { format!("{stdout}\n{stderr}") };
+    let diag = if stdout.is_empty() {
+        stderr
+    } else {
+        format!("{stdout}\n{stderr}")
+    };
     Err(FreightError::CompileFailed(
         out.to_string_lossy().into_owned(),
         diag.trim().to_owned(),
@@ -343,24 +438,27 @@ fn collect_system_lib_flags(manifest: &Manifest, linker: &CompilerTemplate) -> V
     use crate::manifest::types::is_platform_dep;
     let effective = manifest.effective_dependencies();
     let is_macos = std::env::consts::OS == "macos";
-    effective.iter()
+    effective
+        .iter()
         .chain(manifest.dev_dependencies.iter())
-        .filter(|(name, dep)| {
-            is_platform_dep(name) && matches!(dep, Dependency::Detailed(_))
-        })
+        .filter(|(name, dep)| is_platform_dep(name) && matches!(dep, Dependency::Detailed(_)))
         .flat_map(|(_, dep)| {
-            let Dependency::Detailed(d) = dep else { return vec![]; };
-            d.features.iter().map(|feat| {
-                if is_macos && feat.chars().next().map_or(false, |c| c.is_uppercase()) {
-                    format!("-framework {feat}")
-                } else {
-                    linker.system_lib_flag(feat)
-                }
-            }).collect::<Vec<_>>()
+            let Dependency::Detailed(d) = dep else {
+                return vec![];
+            };
+            d.features
+                .iter()
+                .map(|feat| {
+                    if is_macos && feat.chars().next().map_or(false, |c| c.is_uppercase()) {
+                        format!("-framework {feat}")
+                    } else {
+                        linker.system_lib_flag(feat)
+                    }
+                })
+                .collect::<Vec<_>>()
         })
         .collect()
 }
-
 
 /// Strip link-irrelevant fields from BuildSettings before passing to the linker.
 /// The linker doesn't want -std=, -Wall, -D, or -I flags.
@@ -378,8 +476,8 @@ pub fn link_settings(manifest: &Manifest, profile: &str) -> BuildSettings {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
     use crate::toolchain::CompilerTemplate;
+    use std::path::PathBuf;
 
     fn templates() -> Vec<CompilerTemplate> {
         crate::toolchain::load_all_templates()
@@ -393,12 +491,15 @@ mod tests {
     }
 
     fn fake_detected(templates: &[CompilerTemplate]) -> Vec<DetectedCompiler> {
-        templates.iter().map(|t| DetectedCompiler {
-            template: t.clone(),
-            version: "0.0.0".into(),
-            path: PathBuf::from(format!("/usr/bin/{}", t.binary)),
-            cpu_extensions: vec![],
-        }).collect()
+        templates
+            .iter()
+            .map(|t| DetectedCompiler {
+                template: t.clone(),
+                version: "0.0.0".into(),
+                path: PathBuf::from(format!("/usr/bin/{}", t.binary)),
+                cpu_extensions: vec![],
+            })
+            .collect()
     }
 
     fn manifest(lang_key: &str) -> crate::manifest::types::Manifest {
@@ -427,8 +528,11 @@ mod tests {
         let detected = fake_detected(&ts);
         let m = manifest("cuda");
         let linker = select_linker(&m, &Backend::default(), &detected, &ts).unwrap();
-        assert!(linker.template.linking.values().any(|l| l.abi == "cuda"),
-            "CUDA should use nvcc as linker, got: {}", linker.template.name);
+        assert!(
+            linker.template.linking.values().any(|l| l.abi == "cuda"),
+            "CUDA should use nvcc as linker, got: {}",
+            linker.template.name
+        );
     }
 
     #[test]
@@ -495,8 +599,11 @@ backend = "ldc2"
         let m = crate::manifest::load_manifest_str(manifest_src).unwrap();
         let backend = m.compiler.backend.clone();
         let linker = select_linker(&m, &backend, &detected, &ts).unwrap();
-        assert_eq!(linker.template.name, "ldc2",
-            "ldc2 backend must use ldc2 as the linker, not '{}'", linker.template.name);
+        assert_eq!(
+            linker.template.name, "ldc2",
+            "ldc2 backend must use ldc2 as the linker, not '{}'",
+            linker.template.name
+        );
     }
 
     // ── collect_system_lib_flags ──────────────────────────────────────────────
@@ -541,9 +648,15 @@ windows = { features = ["ws2_32", "crypt32"] }
 "#;
         let m = crate::manifest::load_manifest_str(manifest_src).unwrap();
         let flags = collect_system_lib_flags(&m, &msvc());
-        assert!(flags.contains(&"ws2_32.lib".to_string()), "MSVC should use {{name}}.lib, got: {flags:?}");
+        assert!(
+            flags.contains(&"ws2_32.lib".to_string()),
+            "MSVC should use {{name}}.lib, got: {flags:?}"
+        );
         assert!(flags.contains(&"crypt32.lib".to_string()));
-        assert!(!flags.iter().any(|f| f.starts_with("-l")), "MSVC must not emit -l flags");
+        assert!(
+            !flags.iter().any(|f| f.starts_with("-l")),
+            "MSVC must not emit -l flags"
+        );
     }
 
     // ── link_settings ─────────────────────────────────────────────────────────
@@ -586,7 +699,7 @@ strip = true
 "#;
         let m = crate::manifest::load_manifest_str(manifest_src).unwrap();
         let s = link_settings(&m, "release");
-        assert!(s.lto,   "LTO should be preserved for link step");
+        assert!(s.lto, "LTO should be preserved for link step");
         assert!(s.strip, "strip should be preserved for link step");
     }
 }

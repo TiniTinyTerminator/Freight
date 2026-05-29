@@ -5,53 +5,53 @@
 
 // (token, canonical) pairs — all lowercase
 static ARCH_TOKENS: &[(&str, &str)] = &[
-    ("x86_64",      "x86_64"),
-    ("amd64",       "x86_64"),
-    ("x86-64",      "x86_64"),
-    ("aarch64",     "aarch64"),
-    ("arm64",       "aarch64"),
-    ("arm",         "arm"),
-    ("armv7",       "arm"),
-    ("armv6",       "arm"),
-    ("armhf",       "arm"),
-    ("armel",       "arm"),
-    ("i686",        "i686"),
-    ("i386",        "i686"),
-    ("i586",        "i686"),
-    ("mips",        "mips"),
-    ("mipsel",      "mips"),
-    ("mips64",      "mips64"),
-    ("mips64el",    "mips64"),
-    ("powerpc",     "powerpc"),
-    ("ppc",         "powerpc"),
-    ("powerpc64",   "powerpc64"),
-    ("ppc64",       "powerpc64"),
-    ("ppc64le",     "powerpc64"),
-    ("riscv32",     "riscv32"),
-    ("riscv64",     "riscv64"),
-    ("riscv64gc",   "riscv64"),
-    ("s390x",       "s390x"),
-    ("sparc64",     "sparc64"),
-    ("sparc",       "sparc64"),
+    ("x86_64", "x86_64"),
+    ("amd64", "x86_64"),
+    ("x86-64", "x86_64"),
+    ("aarch64", "aarch64"),
+    ("arm64", "aarch64"),
+    ("arm", "arm"),
+    ("armv7", "arm"),
+    ("armv6", "arm"),
+    ("armhf", "arm"),
+    ("armel", "arm"),
+    ("i686", "i686"),
+    ("i386", "i686"),
+    ("i586", "i686"),
+    ("mips", "mips"),
+    ("mipsel", "mips"),
+    ("mips64", "mips64"),
+    ("mips64el", "mips64"),
+    ("powerpc", "powerpc"),
+    ("ppc", "powerpc"),
+    ("powerpc64", "powerpc64"),
+    ("ppc64", "powerpc64"),
+    ("ppc64le", "powerpc64"),
+    ("riscv32", "riscv32"),
+    ("riscv64", "riscv64"),
+    ("riscv64gc", "riscv64"),
+    ("s390x", "s390x"),
+    ("sparc64", "sparc64"),
+    ("sparc", "sparc64"),
     ("loongarch64", "loongarch64"),
-    ("wasm32",      "wasm32"),
+    ("wasm32", "wasm32"),
 ];
 
 static OS_TOKENS: &[(&str, &str)] = &[
-    ("linux",     "linux"),
-    ("windows",   "windows"),
-    ("macos",     "macos"),
-    ("darwin",    "macos"),
-    ("freebsd",   "freebsd"),
-    ("openbsd",   "openbsd"),
-    ("netbsd",    "netbsd"),
+    ("linux", "linux"),
+    ("windows", "windows"),
+    ("macos", "macos"),
+    ("darwin", "macos"),
+    ("freebsd", "freebsd"),
+    ("openbsd", "openbsd"),
+    ("netbsd", "netbsd"),
     ("dragonfly", "dragonfly"),
-    ("android",   "android"),
-    ("ios",       "ios"),
-    ("solaris",   "solaris"),
-    ("illumos",   "illumos"),
-    ("fuchsia",   "fuchsia"),
-    ("none",      "none"),
+    ("android", "android"),
+    ("ios", "ios"),
+    ("solaris", "solaris"),
+    ("illumos", "illumos"),
+    ("fuchsia", "fuchsia"),
+    ("none", "none"),
 ];
 
 // ── Triple parsing ────────────────────────────────────────────────────────────
@@ -74,7 +74,7 @@ static OS_TOKENS: &[(&str, &str)] = &[
 /// unrecognised vendor tokens (`unknown`, `pc`, `apple`) are skipped.
 pub fn parse_triple(triple: &str) -> (String, String) {
     let mut arch_out: Option<&str> = None;
-    let mut os_out:   Option<&str> = None;
+    let mut os_out: Option<&str> = None;
 
     for part in triple.split('-') {
         let lower = part.to_lowercase();
@@ -91,9 +91,11 @@ pub fn parse_triple(triple: &str) -> (String, String) {
         }
     }
 
-    let arch = arch_out.map(str::to_string)
+    let arch = arch_out
+        .map(str::to_string)
         .unwrap_or_else(|| std::env::consts::ARCH.to_string());
-    let os   = os_out.map(str::to_string)
+    let os = os_out
+        .map(str::to_string)
         .unwrap_or_else(|| std::env::consts::OS.to_string());
     (arch, os)
 }
@@ -106,17 +108,38 @@ mod tests {
 
     #[test]
     fn full_triple() {
-        assert_eq!(parse_triple("aarch64-linux-gnu"),   ("aarch64".into(), "linux".into()));
-        assert_eq!(parse_triple("x86_64-windows-msvc"), ("x86_64".into(),  "windows".into()));
-        assert_eq!(parse_triple("x86_64-macos-clang"),  ("x86_64".into(),  "macos".into()));
+        assert_eq!(
+            parse_triple("aarch64-linux-gnu"),
+            ("aarch64".into(), "linux".into())
+        );
+        assert_eq!(
+            parse_triple("x86_64-windows-msvc"),
+            ("x86_64".into(), "windows".into())
+        );
+        assert_eq!(
+            parse_triple("x86_64-macos-clang"),
+            ("x86_64".into(), "macos".into())
+        );
     }
 
     #[test]
     fn gnu_4part_triples() {
-        assert_eq!(parse_triple("x86_64-unknown-linux-gnu"),  ("x86_64".into(),  "linux".into()));
-        assert_eq!(parse_triple("x86_64-pc-windows-msvc"),    ("x86_64".into(),  "windows".into()));
-        assert_eq!(parse_triple("x86_64-apple-darwin"),       ("x86_64".into(),  "macos".into()));
-        assert_eq!(parse_triple("aarch64-unknown-linux-gnu"), ("aarch64".into(), "linux".into()));
+        assert_eq!(
+            parse_triple("x86_64-unknown-linux-gnu"),
+            ("x86_64".into(), "linux".into())
+        );
+        assert_eq!(
+            parse_triple("x86_64-pc-windows-msvc"),
+            ("x86_64".into(), "windows".into())
+        );
+        assert_eq!(
+            parse_triple("x86_64-apple-darwin"),
+            ("x86_64".into(), "macos".into())
+        );
+        assert_eq!(
+            parse_triple("aarch64-unknown-linux-gnu"),
+            ("aarch64".into(), "linux".into())
+        );
     }
 
     #[test]
@@ -149,8 +172,17 @@ mod tests {
 
     #[test]
     fn normalises_aliases() {
-        assert_eq!(parse_triple("amd64-linux-gnu"),   ("x86_64".into(),  "linux".into()));
-        assert_eq!(parse_triple("arm64-linux-gnu"),   ("aarch64".into(), "linux".into()));
-        assert_eq!(parse_triple("x86_64-darwin-gnu"), ("x86_64".into(),  "macos".into()));
+        assert_eq!(
+            parse_triple("amd64-linux-gnu"),
+            ("x86_64".into(), "linux".into())
+        );
+        assert_eq!(
+            parse_triple("arm64-linux-gnu"),
+            ("aarch64".into(), "linux".into())
+        );
+        assert_eq!(
+            parse_triple("x86_64-darwin-gnu"),
+            ("x86_64".into(), "macos".into())
+        );
     }
 }

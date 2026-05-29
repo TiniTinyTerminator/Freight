@@ -1,9 +1,6 @@
-use freight_core::dep_cmds::{
-    fetch_url_deps, invalidate_url_dep, update_git_deps,
-    GitDepAction,
-};
-use freight_core::manifest::types::Dependency;
+use freight_core::dep_cmds::{fetch_url_deps, invalidate_url_dep, update_git_deps, GitDepAction};
 use freight_core::manifest::load_manifest;
+use freight_core::manifest::types::Dependency;
 
 use crate::output::{print_error, print_status, print_success};
 
@@ -25,12 +22,17 @@ fn cmd_update(package: Option<&str>) {
     };
     let manifest = match load_manifest(&project_dir) {
         Ok(m) => m,
-        Err(e) => { print_error(&e.to_string()); return; }
+        Err(e) => {
+            print_error(&e.to_string());
+            return;
+        }
     };
 
     let target = package.map(|p| p.to_string());
 
-    let path_count = manifest.dependencies.iter()
+    let path_count = manifest
+        .dependencies
+        .iter()
         .filter(|(name, dep)| {
             target.as_deref().map_or(true, |t| t == name.as_str())
                 && matches!(dep, Dependency::Detailed(d) if d.path.is_some())
@@ -42,15 +44,22 @@ fn cmd_update(package: Option<&str>) {
             for o in outcomes {
                 match o.action {
                     GitDepAction::Updated => print_success(&format!("updated `{}`", o.name)),
-                    GitDepAction::Skipped => print_status("skip", &format!("`{}` (rev-pinned)", o.name)),
+                    GitDepAction::Skipped => {
+                        print_status("skip", &format!("`{}` (rev-pinned)", o.name))
+                    }
                     _ => {}
                 }
             }
         }
-        Err(e) => { print_error(&e.to_string()); return; }
+        Err(e) => {
+            print_error(&e.to_string());
+            return;
+        }
     }
 
-    let url_count = manifest.dependencies.iter()
+    let url_count = manifest
+        .dependencies
+        .iter()
         .filter(|(name, dep)| {
             target.as_deref().map_or(true, |t| t == name.as_str())
                 && matches!(dep, Dependency::Detailed(d) if d.url.is_some())
@@ -72,12 +81,18 @@ fn cmd_update(package: Option<&str>) {
                     print_success(&format!("re-fetched `{name}`"));
                 }
             }
-            Err(e) => { print_error(&e.to_string()); return; }
+            Err(e) => {
+                print_error(&e.to_string());
+                return;
+            }
         }
     }
 
     if path_count == 0
-        && !manifest.dependencies.values().any(|d| matches!(d, Dependency::Detailed(dd) if dd.git.is_some()))
+        && !manifest
+            .dependencies
+            .values()
+            .any(|d| matches!(d, Dependency::Detailed(dd) if dd.git.is_some()))
         && url_count == 0
     {
         if let Some(pkg) = package {

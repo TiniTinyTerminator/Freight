@@ -33,7 +33,10 @@ fn cmd_yank(version_arg: &str, undo: bool, repo: Option<&str>) {
         };
         let manifest = match load_manifest(&project_dir) {
             Ok(m) => m,
-            Err(e) => { print_error(&e.to_string()); return; }
+            Err(e) => {
+                print_error(&e.to_string());
+                return;
+            }
         };
         (manifest.package.name.clone(), version_arg)
     };
@@ -42,12 +45,15 @@ fn cmd_yank(version_arg: &str, undo: bool, repo: Option<&str>) {
     let registry: FreightRegistry = if let Some(rname) = repo {
         match config.registries.iter().find(|r| r.name == rname) {
             Some(c) => FreightRegistry::from_config(c),
-            None    => { print_error(&format!("unknown registry `{rname}`")); return; }
+            None => {
+                print_error(&format!("unknown registry `{rname}`"));
+                return;
+            }
         }
     } else {
         match config.registries.first() {
             Some(c) => FreightRegistry::from_config(c),
-            None    => FreightRegistry::default_registry(),
+            None => FreightRegistry::default_registry(),
         }
     };
 

@@ -15,7 +15,12 @@ use super::theme::{self, FormStatus};
 pub fn center_rect(width: u16, height: u16, area: Rect) -> Rect {
     let x = area.x + area.width.saturating_sub(width) / 2;
     let y = area.y + area.height.saturating_sub(height) / 2;
-    Rect { x, y, width: width.min(area.width), height: height.min(area.height) }
+    Rect {
+        x,
+        y,
+        width: width.min(area.width),
+        height: height.min(area.height),
+    }
 }
 
 // ── Popup helpers ─────────────────────────────────────────────────────────────
@@ -83,13 +88,13 @@ pub fn render_status(frame: &mut Frame, area: Rect, status: &FormStatus, done_te
 /// `value` is the displayed text. `mask` controls whether to show bullet
 /// characters instead of the actual content (for password fields).
 pub fn render_field(
-    frame:   &mut Frame,
-    area:    Rect,
-    label:   &str,
-    value:   &str,
-    mask:    bool,
-    active:  bool,
-    status:  &FormStatus,
+    frame: &mut Frame,
+    area: Rect,
+    label: &str,
+    value: &str,
+    mask: bool,
+    active: bool,
+    status: &FormStatus,
 ) {
     let display: String = if mask {
         "•".repeat(value.chars().count())

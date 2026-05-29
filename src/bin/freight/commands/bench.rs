@@ -31,7 +31,12 @@ impl Args {
     }
 }
 
-pub fn cmd_bench(filter: Option<&str>, package: Option<&str>, features: &[String], use_defaults: bool) {
+pub fn cmd_bench(
+    filter: Option<&str>,
+    package: Option<&str>,
+    features: &[String],
+    use_defaults: bool,
+) {
     let progress = super::build::make_progress();
     if super::build::at_workspace_root() {
         match bench_workspace_with(filter, package, features, use_defaults, &progress) {
@@ -43,7 +48,10 @@ pub fn cmd_bench(filter: Option<&str>, package: Option<&str>, features: &[String
                 }
                 print_bench_table(&summary.results);
             }
-            Err(e) => { println!(); print_error(&e.to_string()); }
+            Err(e) => {
+                println!();
+                print_error(&e.to_string());
+            }
         }
         return;
     }
@@ -62,21 +70,35 @@ pub fn cmd_bench(filter: Option<&str>, package: Option<&str>, features: &[String
             }
             print_bench_table(&summary.results);
         }
-        Err(e) => { println!(); print_error(&e.to_string()); }
+        Err(e) => {
+            println!();
+            print_error(&e.to_string());
+        }
     }
 }
 
 fn print_bench_table(results: &[BenchResult]) {
     use owo_colors::OwoColorize;
-    let name_width = results.iter().map(|r| r.name.len()).max().unwrap_or(10).max(10);
-    println!("{:>12}  {:<width$}  {:>12}  {:>12}  {:>12}  {}",
+    let name_width = results
+        .iter()
+        .map(|r| r.name.len())
+        .max()
+        .unwrap_or(10)
+        .max(10);
+    println!(
+        "{:>12}  {:<width$}  {:>12}  {:>12}  {:>12}  {}",
         "bench".bold().cyan(),
-        "name", "mean", "min", "max", "runs",
+        "name",
+        "mean",
+        "min",
+        "max",
+        "runs",
         width = name_width,
     );
     println!("{}", "─".repeat(name_width + 52));
     for r in results {
-        println!("{:>12}  {:<width$}  {:>12}  {:>12}  {:>12}  {}",
+        println!(
+            "{:>12}  {:<width$}  {:>12}  {:>12}  {:>12}  {}",
             "",
             r.name,
             fmt_duration(r.mean_ns),

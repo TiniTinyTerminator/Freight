@@ -39,7 +39,7 @@ pub fn pkg_config_query_for_target(
 ) -> Result<PkgConfigResult, FreightError> {
     let is_static = std::env::var_os("PKG_CONFIG_ALL_STATIC").is_some();
     let cflags = run_pkg_config(query, "--cflags", target, is_static, None)?;
-    let libs   = run_pkg_config(query, "--libs",   target, is_static, None)?;
+    let libs = run_pkg_config(query, "--libs", target, is_static, None)?;
 
     let include_dirs = cflags
         .split_ascii_whitespace()
@@ -49,7 +49,10 @@ pub fn pkg_config_query_for_target(
 
     let link_flags = libs.split_ascii_whitespace().map(str::to_owned).collect();
 
-    Ok(PkgConfigResult { include_dirs, link_flags })
+    Ok(PkgConfigResult {
+        include_dirs,
+        link_flags,
+    })
 }
 
 /// Like [`pkg_config_query`] but prepends `extra_paths` to `PKG_CONFIG_PATH`.
@@ -61,7 +64,8 @@ pub fn pkg_config_query_with_path(
     extra_paths: &[PathBuf],
 ) -> Result<PkgConfigResult, FreightError> {
     let existing = std::env::var("PKG_CONFIG_PATH").unwrap_or_default();
-    let mut parts: Vec<String> = extra_paths.iter()
+    let mut parts: Vec<String> = extra_paths
+        .iter()
         .map(|p| p.display().to_string())
         .collect();
     if !existing.is_empty() {
@@ -70,7 +74,7 @@ pub fn pkg_config_query_with_path(
     let pkg_config_path = parts.join(":");
 
     let cflags = run_pkg_config(query, "--cflags", None, false, Some(&pkg_config_path))?;
-    let libs   = run_pkg_config(query, "--libs",   None, false, Some(&pkg_config_path))?;
+    let libs = run_pkg_config(query, "--libs", None, false, Some(&pkg_config_path))?;
 
     let include_dirs = cflags
         .split_ascii_whitespace()
@@ -80,7 +84,10 @@ pub fn pkg_config_query_with_path(
 
     let link_flags = libs.split_ascii_whitespace().map(str::to_owned).collect();
 
-    Ok(PkgConfigResult { include_dirs, link_flags })
+    Ok(PkgConfigResult {
+        include_dirs,
+        link_flags,
+    })
 }
 
 /// Run `pkg-config --modversion` for the package name extracted from `query`.
@@ -92,7 +99,9 @@ pub fn pkg_config_version(query: &str) -> String {
         .output()
         .or_else(|e| {
             if e.kind() == std::io::ErrorKind::NotFound {
-                Command::new("pkgconf").args(["--modversion", pkg_name]).output()
+                Command::new("pkgconf")
+                    .args(["--modversion", pkg_name])
+                    .output()
             } else {
                 Err(e)
             }
@@ -133,8 +142,8 @@ fn run_pkg_config(
 ) -> Result<String, FreightError> {
     let parts: Vec<&str> = query.split_whitespace().collect();
 
-    let exe = targeted_env_var("PKG_CONFIG", target)
-        .unwrap_or_else(|| OsString::from("pkg-config"));
+    let exe =
+        targeted_env_var("PKG_CONFIG", target).unwrap_or_else(|| OsString::from("pkg-config"));
 
     let out = build_command(&exe, flag, &parts, is_static, target, override_path)
         .output()

@@ -77,7 +77,12 @@ impl DetectedDebugger {
 
     /// Build the `Command` to launch this debugger interactively with `binary`.
     /// `extra_flags` (from [`assemble_flags`]) are inserted before the program separator.
-    pub fn launch_command(&self, binary: &Path, extra_flags: &[String], args: &[String]) -> Command {
+    pub fn launch_command(
+        &self,
+        binary: &Path,
+        extra_flags: &[String],
+        args: &[String],
+    ) -> Command {
         let mut cmd = Command::new(&self.path);
         cmd.args(extra_flags);
         let sep = &self.template.launch.separator;
@@ -120,9 +125,8 @@ impl DetectedDebugger {
                 cfg["MIMode"] = serde_json::Value::String(mi_mode.clone());
             }
             let dbg_path = self.dap_path.as_ref().unwrap_or(&self.path);
-            cfg["miDebuggerPath"] = serde_json::Value::String(
-                dbg_path.to_string_lossy().into_owned()
-            );
+            cfg["miDebuggerPath"] =
+                serde_json::Value::String(dbg_path.to_string_lossy().into_owned());
             cfg
         }
     }
@@ -144,7 +148,9 @@ fn gdb() -> DebuggerTemplate {
         binary: "gdb".into(),
         version_arg: "--version".into(),
         version_regex: r"GNU gdb[^\d]+(\d+\.\d+)".into(),
-        launch: LaunchConfig { separator: "--args".into() },
+        launch: LaunchConfig {
+            separator: "--args".into(),
+        },
         dap: DapConfig {
             binaries: vec![],
             vscode_type: "cppdbg".into(),
@@ -164,7 +170,9 @@ fn lldb() -> DebuggerTemplate {
         binary: "lldb".into(),
         version_arg: "--version".into(),
         version_regex: r"\b(\d+\.\d+\.\d+)\b".into(),
-        launch: LaunchConfig { separator: "--".into() },
+        launch: LaunchConfig {
+            separator: "--".into(),
+        },
         dap: DapConfig {
             binaries: vec!["lldb-dap".into(), "lldb-vscode".into()],
             vscode_type: "lldb".into(),
@@ -188,7 +196,9 @@ fn rr() -> DebuggerTemplate {
         version_arg: "--version".into(),
         version_regex: r"rr version (\d+\.\d+\.\d+)".into(),
         // rr takes the program as first positional arg; no separator token
-        launch: LaunchConfig { separator: "replay".into() },
+        launch: LaunchConfig {
+            separator: "replay".into(),
+        },
         dap: DapConfig {
             binaries: vec![],
             vscode_type: "cppdbg".into(),
@@ -210,7 +220,9 @@ fn cdb() -> DebuggerTemplate {
         binary: "cdb.exe".into(),
         version_arg: "".into(),
         version_regex: r"(\d+\.\d+\.\d+\.\d+)".into(),
-        launch: LaunchConfig { separator: "-o".into() },
+        launch: LaunchConfig {
+            separator: "-o".into(),
+        },
         dap: DapConfig {
             binaries: vec![],
             vscode_type: "cppdbg".into(),
@@ -228,7 +240,9 @@ fn windbg() -> DebuggerTemplate {
         binary: "windbg.exe".into(),
         version_arg: "".into(),
         version_regex: r"(\d+\.\d+\.\d+\.\d+)".into(),
-        launch: LaunchConfig { separator: "--".into() },
+        launch: LaunchConfig {
+            separator: "--".into(),
+        },
         dap: DapConfig {
             binaries: vec![],
             vscode_type: "cppdbg".into(),
@@ -243,10 +257,17 @@ fn windbg() -> DebuggerTemplate {
 pub fn detect_debuggers(templates: &[DebuggerTemplate]) -> Vec<DetectedDebugger> {
     let mut found = Vec::new();
     for template in templates {
-        let Some(path) = which(&template.binary) else { continue };
+        let Some(path) = which(&template.binary) else {
+            continue;
+        };
         let version = query_version(template, &path).unwrap_or_else(|| "unknown".into());
         let dap_path = template.dap.binaries.iter().find_map(|b| which(b));
-        found.push(DetectedDebugger { template: template.clone(), version, path, dap_path });
+        found.push(DetectedDebugger {
+            template: template.clone(),
+            version,
+            path,
+            dap_path,
+        });
     }
     found
 }
@@ -257,7 +278,9 @@ fn which(binary: &str) -> Option<PathBuf> {
     let path_var = std::env::var_os("PATH")?;
     for dir in std::env::split_paths(&path_var) {
         let candidate = dir.join(binary);
-        if candidate.is_file() { return Some(candidate); }
+        if candidate.is_file() {
+            return Some(candidate);
+        }
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -274,7 +297,10 @@ fn which(binary: &str) -> Option<PathBuf> {
 }
 
 fn query_version(template: &DebuggerTemplate, path: &Path) -> Option<String> {
-    let out = Command::new(path).arg(&template.version_arg).output().ok()?;
+    let out = Command::new(path)
+        .arg(&template.version_arg)
+        .output()
+        .ok()?;
     let text = format!(
         "{}{}",
         String::from_utf8_lossy(&out.stdout),

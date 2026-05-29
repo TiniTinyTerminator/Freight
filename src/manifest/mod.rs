@@ -20,9 +20,8 @@ pub fn load_manifest_str(src: &str) -> Result<Manifest, FreightError> {
 /// Load `freight.toml` from `dir`.
 pub fn load_manifest(dir: &Path) -> Result<Manifest, FreightError> {
     let path = dir.join("freight.toml");
-    let src = std::fs::read_to_string(&path).map_err(|_| {
-        FreightError::ManifestNotFound(dir.to_string_lossy().into_owned())
-    })?;
+    let src = std::fs::read_to_string(&path)
+        .map_err(|_| FreightError::ManifestNotFound(dir.to_string_lossy().into_owned()))?;
     load_manifest_str(&src)
 }
 

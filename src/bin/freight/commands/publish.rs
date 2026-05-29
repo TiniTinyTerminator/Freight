@@ -37,23 +37,42 @@ fn cmd_publish(dry_run: bool, repo: Option<&str>) {
     };
     let manifest = match load_manifest(&project_dir) {
         Ok(m) => m,
-        Err(e) => { print_error(&e.to_string()); return; }
+        Err(e) => {
+            print_error(&e.to_string());
+            return;
+        }
     };
 
-    let name    = &manifest.package.name;
+    let name = &manifest.package.name;
     let version = &manifest.package.version;
-    let description = if manifest.package.description.is_empty() { None } else { Some(manifest.package.description.as_str()) };
-    let license     = if manifest.package.license.is_empty()     { None } else { Some(manifest.package.license.as_str())     };
+    let description = if manifest.package.description.is_empty() {
+        None
+    } else {
+        Some(manifest.package.description.as_str())
+    };
+    let license = if manifest.package.license.is_empty() {
+        None
+    } else {
+        Some(manifest.package.license.as_str())
+    };
 
     if dry_run {
         print_status("dry-run", &format!("would publish {name}@{version}"));
-        if let Some(d) = description { print_status("description", d); }
-        if let Some(l) = license     { print_status("license", l); }
+        if let Some(d) = description {
+            print_status("description", d);
+        }
+        if let Some(l) = license {
+            print_status("license", l);
+        }
         return;
     }
 
-    let archive = project_dir.join("target").join(format!("{name}-{version}.tar.gz"));
-    if let Some(p) = archive.parent() { std::fs::create_dir_all(p).ok(); }
+    let archive = project_dir
+        .join("target")
+        .join(format!("{name}-{version}.tar.gz"));
+    if let Some(p) = archive.parent() {
+        std::fs::create_dir_all(p).ok();
+    }
 
     print_status("packaging", &format!("{name}@{version}"));
 
@@ -61,7 +80,6 @@ fn cmd_publish(dry_run: bool, repo: Option<&str>) {
         .current_dir(&project_dir)
         .args([
             "--exclude=./target",
-            "--exclude=./.deps",
             "--exclude=./.freight-build",
             "-czf",
             &archive.to_string_lossy(),
@@ -78,31 +96,51 @@ fn cmd_publish(dry_run: bool, repo: Option<&str>) {
 
     let tarball = match std::fs::read(&archive) {
         Ok(b) => b,
-        Err(e) => { print_error(&format!("cannot read tarball: {e}")); return; }
+        Err(e) => {
+            print_error(&format!("cannot read tarball: {e}"));
+            return;
+        }
     };
     let _ = std::fs::remove_file(&archive);
 
     let config = {
         let mut cfg = GlobalConfig::load();
-        if let Some(local) = GlobalConfig::load_local(&project_dir) { cfg.apply_local(local); }
+        if let Some(local) = GlobalConfig::load_local(&project_dir) {
+            cfg.apply_local(local);
+        }
         cfg
     };
 
     let registry: FreightRegistry = if let Some(rname) = repo {
         match config.registries.iter().find(|r| r.name == rname) {
             Some(c) => FreightRegistry::from_config(c),
-            None    => { print_error(&format!("unknown registry `{rname}`")); return; }
+            None => {
+                print_error(&format!("unknown registry `{rname}`"));
+                return;
+            }
         }
     } else {
         match config.registries.first() {
             Some(c) => FreightRegistry::from_config(c),
-            None    => FreightRegistry::default_registry(),
+            None => FreightRegistry::default_registry(),
         }
     };
 
-    print_status("publishing", &format!("{name}@{version} ({} bytes)", tarball.len()));
+    print_status(
+        "publishing",
+        &format!("{name}@{version} ({} bytes)", tarball.len()),
+    );
 
-    match registry.publish_package(name, version, None, description, license, &tarball, None, None) {
+    match registry.publish_package(
+        name,
+        version,
+        None,
+        description,
+        license,
+        &tarball,
+        None,
+        None,
+    ) {
         Ok(()) => print_success(&format!("published {name}@{version}")),
         Err(e) => print_error(&e.to_string()),
     }
@@ -111,26 +149,41 @@ fn cmd_publish(dry_run: bool, repo: Option<&str>) {
 fn cmd_publish_prebuilt(triple: Option<&str>, repo: Option<&str>) {
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
-        Err(e) => { print_error(&format!("cannot read cwd: {e}")); return; }
+        Err(e) => {
+            print_error(&format!("cannot read cwd: {e}"));
+            return;
+        }
     };
     let project_dir = match find_manifest_dir(&cwd) {
         Some(d) => d,
-        None => { print_error("no freight.toml found"); return; }
+        None => {
+            print_error("no freight.toml found");
+            return;
+        }
     };
     let manifest = match load_manifest(&project_dir) {
         Ok(m) => m,
-        Err(e) => { print_error(&e.to_string()); return; }
+        Err(e) => {
+            print_error(&e.to_string());
+            return;
+        }
     };
 
     let triple = triple.map(str::to_string).unwrap_or_else(host_triple);
-    let name    = &manifest.package.name;
+    let name = &manifest.package.name;
     let version = &manifest.package.version;
 
-    print_status("prebuilt", &format!("packaging `{name}@{version}` for {triple}…"));
+    print_status(
+        "prebuilt",
+        &format!("packaging `{name}@{version}` for {triple}…"),
+    );
 
     let tarball = match build_prebuilt_tarball(&project_dir, &manifest, &triple) {
-        Ok(t)  => t,
-        Err(e) => { print_error(&format!("packaging failed: {e}")); return; }
+        Ok(t) => t,
+        Err(e) => {
+            print_error(&format!("packaging failed: {e}"));
+            return;
+        }
     };
 
     let config = {
@@ -143,12 +196,15 @@ fn cmd_publish_prebuilt(triple: Option<&str>, repo: Option<&str>) {
     let registry: FreightRegistry = if let Some(rname) = repo {
         match config.registries.iter().find(|c| c.name == rname) {
             Some(c) => FreightRegistry::from_config(c),
-            None    => { print_error(&format!("registry `{rname}` not found in config")); return; }
+            None => {
+                print_error(&format!("registry `{rname}` not found in config"));
+                return;
+            }
         }
     } else {
         match config.registries.first() {
             Some(c) => FreightRegistry::from_config(c),
-            None    => FreightRegistry::default_registry(),
+            None => FreightRegistry::default_registry(),
         }
     };
 
@@ -163,14 +219,14 @@ fn cmd_publish_prebuilt(triple: Option<&str>, repo: Option<&str>) {
 
 fn build_prebuilt_tarball(
     project_dir: &std::path::Path,
-    manifest:    &Manifest,
-    _triple:     &str,
+    manifest: &Manifest,
+    _triple: &str,
 ) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
-    let name    = &manifest.package.name;
+    let name = &manifest.package.name;
     let version = &manifest.package.version;
-    let desc    = &manifest.package.description;
+    let desc = &manifest.package.description;
 
-    let enc  = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    let enc = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
     let mut ar = tar::Builder::new(enc);
 
     let include_dir = project_dir.join("include");
@@ -201,7 +257,7 @@ fn build_prebuilt_tarball(
          Libs: -L${{libdir}} -l{name}\n",
     );
     let pc_bytes = pc.as_bytes();
-    let pc_path  = format!("lib/pkgconfig/{name}.pc");
+    let pc_path = format!("lib/pkgconfig/{name}.pc");
     let mut header = tar::Header::new_gnu();
     header.set_size(pc_bytes.len() as u64);
     header.set_mode(0o644);

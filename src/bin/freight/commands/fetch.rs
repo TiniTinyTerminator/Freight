@@ -1,9 +1,9 @@
 use freight_core::dep_cmds::{
-    fetch_git_deps, fetch_package_deps, fetch_registry_deps, fetch_url_deps,
-    GitDepAction, PackageDepAction, RegistryDepAction,
+    fetch_git_deps, fetch_package_deps, fetch_registry_deps, fetch_url_deps, GitDepAction,
+    PackageDepAction, RegistryDepAction,
 };
-use freight_core::manifest::types::{Dependency, Manifest};
 use freight_core::manifest::load_manifest;
+use freight_core::manifest::types::{Dependency, Manifest};
 use freight_core::registry::freight_registry::FreightRegistry;
 use freight_core::registry::host_triple;
 use freight_core::toolchain::cache::GlobalConfig;
@@ -34,7 +34,10 @@ fn cmd_fetch(force_source: bool) {
     };
     let manifest = match load_manifest(&project_dir) {
         Ok(m) => m,
-        Err(e) => { print_error(&e.to_string()); return; }
+        Err(e) => {
+            print_error(&e.to_string());
+            return;
+        }
     };
 
     let mut all_ok = true;
@@ -68,13 +71,18 @@ fn cmd_fetch(force_source: bool) {
             for o in outcomes {
                 any_work = true;
                 match o.action {
-                    GitDepAction::Cloned         => print_success(&format!("cloned `{}`", o.name)),
-                    GitDepAction::AlreadyPresent => print_status("ok",   &format!("{} (git, up to date)", o.name)),
+                    GitDepAction::Cloned => print_success(&format!("cloned `{}`", o.name)),
+                    GitDepAction::AlreadyPresent => {
+                        print_status("ok", &format!("{} (git, up to date)", o.name))
+                    }
                     _ => {}
                 }
             }
         }
-        Err(e) => { print_error(&e.to_string()); all_ok = false; }
+        Err(e) => {
+            print_error(&e.to_string());
+            all_ok = false;
+        }
     }
 
     match fetch_url_deps(&project_dir) {
@@ -88,7 +96,10 @@ fn cmd_fetch(force_source: bool) {
                 }
             }
         }
-        Err(e) => { print_error(&e.to_string()); all_ok = false; }
+        Err(e) => {
+            print_error(&e.to_string());
+            all_ok = false;
+        }
     }
 
     match fetch_package_deps(&project_dir) {
@@ -115,7 +126,10 @@ fn cmd_fetch(force_source: bool) {
                 }
             }
         }
-        Err(e) => { print_error(&e.to_string()); all_ok = false; }
+        Err(e) => {
+            print_error(&e.to_string());
+            all_ok = false;
+        }
     }
 
     let config = {
@@ -128,14 +142,27 @@ fn cmd_fetch(force_source: bool) {
 
     if !force_source {
         let triple = host_triple();
-        fetch_prebuilt_deps(&manifest, &project_dir, &config, &triple, &mut any_work, &mut all_ok);
+        fetch_prebuilt_deps(
+            &manifest,
+            &project_dir,
+            &config,
+            &triple,
+            &mut any_work,
+            &mut all_ok,
+        );
     }
 
     match fetch_registry_deps(&project_dir, &config) {
         Ok(outcomes) => {
             for o in outcomes {
-                let sentinel = project_dir.join(".deps").join(&o.name).join(".freight-fetched");
-                if sentinel.exists() { continue; }
+                let sentinel = project_dir
+                    .join("target")
+                    .join("deps")
+                    .join(&o.name)
+                    .join(".freight-fetched");
+                if sentinel.exists() {
+                    continue;
+                }
                 any_work = true;
                 match o.action {
                     RegistryDepAction::AlreadyPresent => {
@@ -154,7 +181,10 @@ fn cmd_fetch(force_source: bool) {
                 }
             }
         }
-        Err(e) => { print_error(&e.to_string()); all_ok = false; }
+        Err(e) => {
+            print_error(&e.to_string());
+            all_ok = false;
+        }
     }
 
     if !any_work {
@@ -169,12 +199,12 @@ fn cmd_fetch(force_source: bool) {
 }
 
 fn fetch_prebuilt_deps(
-    manifest:    &Manifest,
+    manifest: &Manifest,
     project_dir: &std::path::Path,
-    config:      &GlobalConfig,
-    triple:      &str,
-    any_work:    &mut bool,
-    all_ok:      &mut bool,
+    config: &GlobalConfig,
+    triple: &str,
+    any_work: &mut bool,
+    all_ok: &mut bool,
 ) {
     for (name, dep) in &manifest.dependencies {
         let (version, repo_key, channel) = match dep {
@@ -186,41 +216,60 @@ fn fetch_prebuilt_deps(
                     && d.url.is_none()
                     && !freight_core::manifest::types::is_platform_dep(name) =>
             {
-                (d.version.as_deref().unwrap(), d.repo.as_deref(), d.channel.as_deref())
+                (
+                    d.version.as_deref().unwrap(),
+                    d.repo.as_deref(),
+                    d.channel.as_deref(),
+                )
             }
             _ => continue,
         };
 
-        if version.is_empty() || version == "*" { continue; }
+        if version.is_empty() || version == "*" {
+            continue;
+        }
 
-        let sentinel = project_dir.join(".deps").join(name).join(".freight-fetched");
-        if sentinel.exists() { continue; }
+        let sentinel = project_dir
+            .join("target")
+            .join("deps")
+            .join(name)
+            .join(".freight-fetched");
+        if sentinel.exists() {
+            continue;
+        }
 
         let registry = if let Some(rkey) = repo_key {
             match config.registries.iter().find(|r| r.name == rkey) {
                 Some(c) => FreightRegistry::from_config(c),
-                None    => continue,
+                None => continue,
             }
         } else {
             match config.registries.first() {
                 Some(c) => FreightRegistry::from_config(c),
-                None    => FreightRegistry::default_registry(),
+                None => FreightRegistry::default_registry(),
             }
         };
 
         let triples = match registry.list_prebuilt_triples(name, version, channel) {
-            Ok(t)  => t,
+            Ok(t) => t,
             Err(_) => continue,
         };
 
-        if !triples.contains(&triple.to_string()) { continue; }
+        if !triples.contains(&triple.to_string()) {
+            continue;
+        }
 
         *any_work = true;
-        print_status("prebuilt", &format!("downloading `{name}@{version}` ({triple})…"));
+        print_status(
+            "prebuilt",
+            &format!("downloading `{name}@{version}` ({triple})…"),
+        );
         match registry.download_prebuilt(name, version, channel, triple, project_dir) {
             Ok(_) => print_success(&format!("fetched `{name}@{version}` (prebuilt/{triple})")),
             Err(e) => {
-                print_warning(&format!("`{name}`: prebuilt download failed ({e}), will fall back to source"));
+                print_warning(&format!(
+                    "`{name}`: prebuilt download failed ({e}), will fall back to source"
+                ));
                 *all_ok = false;
             }
         }

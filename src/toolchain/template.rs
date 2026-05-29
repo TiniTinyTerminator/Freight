@@ -131,14 +131,12 @@ struct RawLinking {
     whole_program: bool,
 }
 
-
 // ── Builtin template construction types ──────────────────────────────────────
 
 /// Callback type for `compiler_option` / `language_option` handlers.
 /// Arguments: (value, compiler_version, host_arch, host_os, compiler_name).
 /// Returns extra flags to inject, or `Err(msg)` to abort the build.
-pub(super) type OptionHandlerFn =
-    fn(&str, &str, &str, &str, &str) -> Result<Vec<String>, String>;
+pub(super) type OptionHandlerFn = fn(&str, &str, &str, &str, &str) -> Result<Vec<String>, String>;
 
 #[derive(Clone, Debug)]
 pub(super) struct OptionHandler {
@@ -151,79 +149,104 @@ pub(super) struct OptionHandler {
 /// Option handlers are passed to `build()` directly so local `fn` items work.
 #[derive(Clone, Copy)]
 pub(super) struct TemplateDef {
-    pub name:            &'static str,
-    pub binary:          &'static str,
-    pub family:          &'static str,
-    pub version_arg:     &'static str,
-    pub version_regex:   &'static str,
-    pub alias:           Option<&'static str>,
-    pub subcommand:      Option<&'static str>,
+    pub name: &'static str,
+    pub binary: &'static str,
+    pub family: &'static str,
+    pub version_arg: &'static str,
+    pub version_regex: &'static str,
+    pub alias: Option<&'static str>,
+    pub subcommand: Option<&'static str>,
     pub link_subcommand: Option<&'static str>,
-    pub extensions:      &'static [&'static str],
-    pub opt_flags:       &'static [(&'static str, &'static str)],
-    pub debug:           &'static str,
-    pub warning_flags:   &'static [(&'static str, &'static str)],
-    pub lto:             &'static str,
-    pub lto_link:        &'static str,
-    pub sanitize:        &'static str,
+    pub extensions: &'static [&'static str],
+    pub opt_flags: &'static [(&'static str, &'static str)],
+    pub debug: &'static str,
+    pub warning_flags: &'static [(&'static str, &'static str)],
+    pub lto: &'static str,
+    pub lto_link: &'static str,
+    pub sanitize: &'static str,
     pub sanitizer_options: &'static [&'static str],
-    pub cpu_ext:         &'static str,
-    pub stdlib_flags:    &'static [(&'static str, &'static str)],
-    pub standards:           &'static [(&'static str, &'static str)],
+    pub cpu_ext: &'static str,
+    pub stdlib_flags: &'static [(&'static str, &'static str)],
+    pub standards: &'static [(&'static str, &'static str)],
     /// Minimum compiler version required for each standard, e.g.
     /// `&[("c++20", "10.0"), ("c++23", "12.0"), ("c++26", "14.0")]`.
     /// Standards absent from this map are assumed supported by all versions.
     pub standard_min_versions: &'static [(&'static str, &'static str)],
-    pub defaults:        &'static [(&'static str, &'static str)],
-    pub structure:       &'static [(&'static str, &'static str)],
-    pub module_style:    &'static str,
-    pub module_params:   &'static [(&'static str, &'static str)],
-    pub pch:             &'static [(&'static str, &'static str)],
+    pub defaults: &'static [(&'static str, &'static str)],
+    pub structure: &'static [(&'static str, &'static str)],
+    pub module_style: &'static str,
+    pub module_params: &'static [(&'static str, &'static str)],
+    pub pch: &'static [(&'static str, &'static str)],
     pub passthrough_enabled: bool,
-    pub passthrough_prefix:  &'static str,
-    pub always_flags:    &'static [&'static str],
-    pub linking:         &'static [LinkDef],
-    pub arch_flags:      &'static [(&'static str, &'static str)],
-    pub toolset:         &'static [(&'static str, &'static str)],
+    pub passthrough_prefix: &'static str,
+    pub always_flags: &'static [&'static str],
+    pub linking: &'static [LinkDef],
+    pub arch_flags: &'static [(&'static str, &'static str)],
+    pub toolset: &'static [(&'static str, &'static str)],
     pub requires_toolchain: &'static [&'static str],
-    pub required_tools:  &'static [&'static str],
-    pub required_env:    &'static [&'static str],
+    pub required_tools: &'static [&'static str],
+    pub required_env: &'static [&'static str],
     pub supported_archs: &'static [&'static str],
-    pub supported_os:    &'static [&'static str],
-    pub min_version:     Option<&'static str>,
-    pub kind:            &'static str,
+    pub supported_os: &'static [&'static str],
+    pub min_version: Option<&'static str>,
+    pub kind: &'static str,
 }
 
 /// Linking parameters for one language key within a `TemplateDef`.
 #[derive(Clone, Copy)]
 pub(super) struct LinkDef {
-    pub lang:           &'static str,
-    pub abi:            &'static str,
-    pub compatible:     &'static [&'static str],
-    pub extensions:     &'static [&'static str],
-    pub linker:         &'static str,
+    pub lang: &'static str,
+    pub abi: &'static str,
+    pub compatible: &'static [&'static str],
+    pub extensions: &'static [&'static str],
+    pub linker: &'static str,
     pub compile_binary: Option<&'static str>,
     /// When true the compiler handles compile + bind + link in a single invocation
     /// (e.g. gnatmake for Ada). The separate compile step is skipped; instead, the
     /// source file paths are passed directly to the linker binary in the link step.
-    pub whole_program:  bool,
+    pub whole_program: bool,
 }
 
 /// Zero-value `TemplateDef` — spread with `..EMPTY` and override only what you need.
 pub(super) const EMPTY: TemplateDef = TemplateDef {
-    name: "", binary: "", family: "",
-    version_arg: "--version", version_regex: "",
-    alias: None, subcommand: None, link_subcommand: None,
-    extensions: &[], opt_flags: &[],
-    debug: "", warning_flags: &[], lto: "", lto_link: "", sanitize: "",
-    sanitizer_options: &[], cpu_ext: "", stdlib_flags: &[],
-    standards: &[], standard_min_versions: &[], defaults: &[], structure: &[],
-    module_style: "", module_params: &[], pch: &[],
-    passthrough_enabled: false, passthrough_prefix: "",
-    always_flags: &[], linking: &[], arch_flags: &[], toolset: &[],
-    requires_toolchain: &[], required_tools: &[], required_env: &[],
-    supported_archs: &[], supported_os: &[],
-    min_version: None, kind: "",
+    name: "",
+    binary: "",
+    family: "",
+    version_arg: "--version",
+    version_regex: "",
+    alias: None,
+    subcommand: None,
+    link_subcommand: None,
+    extensions: &[],
+    opt_flags: &[],
+    debug: "",
+    warning_flags: &[],
+    lto: "",
+    lto_link: "",
+    sanitize: "",
+    sanitizer_options: &[],
+    cpu_ext: "",
+    stdlib_flags: &[],
+    standards: &[],
+    standard_min_versions: &[],
+    defaults: &[],
+    structure: &[],
+    module_style: "",
+    module_params: &[],
+    pch: &[],
+    passthrough_enabled: false,
+    passthrough_prefix: "",
+    always_flags: &[],
+    linking: &[],
+    arch_flags: &[],
+    toolset: &[],
+    requires_toolchain: &[],
+    required_tools: &[],
+    required_env: &[],
+    supported_archs: &[],
+    supported_os: &[],
+    min_version: None,
+    kind: "",
 };
 
 impl TemplateDef {
@@ -234,10 +257,17 @@ impl TemplateDef {
         compiler_options: &[(&str, OptionHandlerFn, Option<&str>)],
         language_options: &[(&str, OptionHandlerFn, Option<&str>)],
     ) -> CompilerTemplate {
-        fn s(v: &str) -> String { v.to_string() }
-        fn vs(arr: &[&str]) -> Vec<String> { arr.iter().map(|&v| v.to_string()).collect() }
+        fn s(v: &str) -> String {
+            v.to_string()
+        }
+        fn vs(arr: &[&str]) -> Vec<String> {
+            arr.iter().map(|&v| v.to_string()).collect()
+        }
         fn map(pairs: &[(&str, &str)]) -> HashMap<String, String> {
-            pairs.iter().map(|&(k, v)| (k.to_string(), v.to_string())).collect()
+            pairs
+                .iter()
+                .map(|&(k, v)| (k.to_string(), v.to_string()))
+                .collect()
         }
 
         let toolset: HashMap<String, String> = map(self.toolset);
@@ -249,38 +279,66 @@ impl TemplateDef {
 
         let sm = map(self.structure);
         let get = |k: &str| sm.get(k).cloned().unwrap_or_default();
-        let fallback   = get("output");
-        let output_obj = { let o = get("output_obj"); if !o.is_empty() { o } else { fallback.clone() } };
-        let output_bin = { let o = get("output_bin"); if !o.is_empty() { o } else { fallback } };
-        let system_lib    = { let v = get("system_lib");    if !v.is_empty() { v } else { "-l{name}".into() } };
-        let dep_file_mode = { let v = get("dep_file_mode"); if !v.is_empty() { v } else { "file".into() } };
+        let fallback = get("output");
+        let output_obj = {
+            let o = get("output_obj");
+            if !o.is_empty() {
+                o
+            } else {
+                fallback.clone()
+            }
+        };
+        let output_bin = {
+            let o = get("output_bin");
+            if !o.is_empty() {
+                o
+            } else {
+                fallback
+            }
+        };
+        let system_lib = {
+            let v = get("system_lib");
+            if !v.is_empty() {
+                v
+            } else {
+                "-l{name}".into()
+            }
+        };
+        let dep_file_mode = {
+            let v = get("dep_file_mode");
+            if !v.is_empty() {
+                v
+            } else {
+                "file".into()
+            }
+        };
 
         let structure = StructureFlags {
-            include_dir:  get("include_dir"),
-            define:       get("define"),
+            include_dir: get("include_dir"),
+            define: get("define"),
             define_value: get("define_value"),
-            output:       output_obj,
+            output: output_obj,
             output_bin,
             compile_only: get("compile_only"),
-            dep_file:     get("dep_file"),
+            dep_file: get("dep_file"),
             dep_file_mode,
             system_lib,
-            target:       get("target"),
-            sysroot:      get("sysroot"),
+            target: get("target"),
+            sysroot: get("sysroot"),
         };
 
         let pm = map(self.module_params);
         let gm = |k: &str| pm.get(k).cloned().unwrap_or_default();
         let modules = match self.module_style {
-            "gcc"   => ModuleStyle::Gcc {
-                enable_flag:      gm("enable_flag"),
-                compile_miu:      gm("compile_miu"),
-                import_module:    gm("import_module"),
+            "gcc" => ModuleStyle::Gcc {
+                enable_flag: gm("enable_flag"),
+                compile_miu: gm("compile_miu"),
+                import_module: gm("import_module"),
                 header_unit_flag: gm("header_unit"),
             },
             "clang" => ModuleStyle::Clang {
-                precompile:       gm("precompile"),
-                import_module:    gm("import_module"),
+                precompile: gm("precompile"),
+                import_module: gm("import_module"),
                 header_unit_flag: gm("header_unit"),
             },
             _ => ModuleStyle::Unsupported,
@@ -289,72 +347,97 @@ impl TemplateDef {
         let pm = map(self.pch);
         let gp = |k: &str| pm.get(k).cloned().unwrap_or_default();
         let pch = PchConfig {
-            compile:     gp("compile"),
-            use_flag:    gp("use"),
-            extension:   gp("extension"),
+            compile: gp("compile"),
+            use_flag: gp("use"),
+            extension: gp("extension"),
             clangd_flag: gp("clangd_flag"),
         };
 
-        let linking = self.linking.iter().map(|ld| {
-            (s(ld.lang), LinkingInfo {
-                abi:            s(ld.abi),
-                compatible:     vs(ld.compatible),
-                linker:         s(ld.linker),
-                extensions:     vs(ld.extensions),
-                compile_binary: ld.compile_binary.map(s),
-                whole_program:  ld.whole_program,
+        let linking = self
+            .linking
+            .iter()
+            .map(|ld| {
+                (
+                    s(ld.lang),
+                    LinkingInfo {
+                        abi: s(ld.abi),
+                        compatible: vs(ld.compatible),
+                        linker: s(ld.linker),
+                        extensions: vs(ld.extensions),
+                        compile_binary: ld.compile_binary.map(s),
+                        whole_program: ld.whole_program,
+                    },
+                )
             })
-        }).collect();
-
-        let compiler_option_handlers = compiler_options.iter()
-            .map(|&(k, f, d)| (s(k), OptionHandler { callback: f, default_value: d.map(s) }))
             .collect();
-        let language_option_handlers = language_options.iter()
-            .map(|&(k, f, d)| (s(k), OptionHandler { callback: f, default_value: d.map(s) }))
+
+        let compiler_option_handlers = compiler_options
+            .iter()
+            .map(|&(k, f, d)| {
+                (
+                    s(k),
+                    OptionHandler {
+                        callback: f,
+                        default_value: d.map(s),
+                    },
+                )
+            })
+            .collect();
+        let language_option_handlers = language_options
+            .iter()
+            .map(|&(k, f, d)| {
+                (
+                    s(k),
+                    OptionHandler {
+                        callback: f,
+                        default_value: d.map(s),
+                    },
+                )
+            })
             .collect();
 
         CompilerTemplate {
-            name:               s(self.name),
-            family:             s(self.family),
-            alias:              self.alias.map(s),
-            sanitizer_options:  vs(self.sanitizer_options),
+            name: s(self.name),
+            family: s(self.family),
+            alias: self.alias.map(s),
+            sanitizer_options: vs(self.sanitizer_options),
             binary,
-            version_arg:        s(self.version_arg),
-            version_regex:      s(self.version_regex),
-            extensions:             vs(self.extensions),
-            standards:              map(self.standards),
-            standard_min_versions:  map(self.standard_min_versions),
-            defaults:               map(self.defaults),
-            kind:               s(self.kind),
+            version_arg: s(self.version_arg),
+            version_regex: s(self.version_regex),
+            extensions: vs(self.extensions),
+            standards: map(self.standards),
+            standard_min_versions: map(self.standard_min_versions),
+            defaults: map(self.defaults),
+            kind: s(self.kind),
             structure,
             modules,
             passthrough: PassthroughConfig {
                 enabled: self.passthrough_enabled,
-                prefix:  s(self.passthrough_prefix),
+                prefix: s(self.passthrough_prefix),
             },
-            always_flags:       vs(self.always_flags),
-            subcommand:         self.subcommand.map(s),
-            link_subcommand:    self.link_subcommand.map(s),
-            supported_archs:    vs(self.supported_archs),
-            supported_os:       vs(self.supported_os),
-            required_tools:     vs(self.required_tools),
-            required_env:       vs(self.required_env),
-            min_version:        self.min_version.map(s),
+            always_flags: vs(self.always_flags),
+            subcommand: self.subcommand.map(s),
+            link_subcommand: self.link_subcommand.map(s),
+            supported_archs: vs(self.supported_archs),
+            supported_os: vs(self.supported_os),
+            required_tools: vs(self.required_tools),
+            required_env: vs(self.required_env),
+            min_version: self.min_version.map(s),
             requires_toolchain: vs(self.requires_toolchain),
-            arch_flags:         map(self.arch_flags),
+            arch_flags: map(self.arch_flags),
             toolset,
             pch,
             linking,
             compiler_option_handlers,
             language_option_handlers,
-            flags_opt:          map(self.opt_flags),
-            flags_debug:        s(self.debug),
-            flags_warnings:     map(self.warning_flags),
-            flags_lto:          s(self.lto),
-            flags_lto_link:     s(self.lto_link),
-            flags_sanitize:     s(self.sanitize),
+            flags_opt: map(self.opt_flags),
+            flags_debug: s(self.debug),
+            flags_warnings: map(self.warning_flags),
+            flags_lto: s(self.lto),
+            flags_lto_link: s(self.lto_link),
+            flags_sanitize: s(self.sanitize),
             flags_cpu_extension: s(self.cpu_ext),
-            flags_stdlib:       map(self.stdlib_flags),
+            flags_stdlib: map(self.stdlib_flags),
         }
     }
 }
@@ -609,16 +692,23 @@ impl CompilerTemplate {
 
         let modules = build_module_style(raw.modules);
 
-        let linking = raw.linking.into_iter().map(|(key, l)| {
-            (key, LinkingInfo {
-                abi: l.abi,
-                compatible: l.compatible,
-                linker: l.linker,
-                extensions: l.extensions,
-                compile_binary: l.compile_binary,
-                whole_program: l.whole_program,
+        let linking = raw
+            .linking
+            .into_iter()
+            .map(|(key, l)| {
+                (
+                    key,
+                    LinkingInfo {
+                        abi: l.abi,
+                        compatible: l.compatible,
+                        linker: l.linker,
+                        extensions: l.extensions,
+                        compile_binary: l.compile_binary,
+                        whole_program: l.whole_program,
+                    },
+                )
             })
-        }).collect();
+            .collect();
 
         let output_obj = if raw.structure.output_obj.is_empty() {
             raw.structure.output.clone()
@@ -763,7 +853,9 @@ impl CompilerTemplate {
         }
 
         // Language standard — manifest setting, then template default, then nothing.
-        let effective_std = settings.standard.as_deref()
+        let effective_std = settings
+            .standard
+            .as_deref()
             .or_else(|| self.defaults.get("std").map(String::as_str));
         if let Some(std) = effective_std {
             if let Some(f) = self.standards.get(std) {
@@ -779,7 +871,9 @@ impl CompilerTemplate {
         // Defines
         for def in &settings.defines {
             if let Some((name, value)) = def.split_once('=') {
-                let f = self.structure.define_value
+                let f = self
+                    .structure
+                    .define_value
                     .replace("{name}", name)
                     .replace("{value}", value);
                 flags.push(f);
@@ -791,7 +885,9 @@ impl CompilerTemplate {
 
         // Include paths
         for path in &settings.include_paths {
-            let f = self.structure.include_dir
+            let f = self
+                .structure
+                .include_dir
                 .replace("{path}", &path.to_string_lossy());
             flags.push(f);
         }
@@ -820,7 +916,9 @@ impl CompilerTemplate {
         // Sysroot (e.g. `--sysroot=/opt/sysroot`)
         if let Some(sysroot) = &settings.sysroot {
             if !self.structure.sysroot.is_empty() {
-                let f = self.structure.sysroot
+                let f = self
+                    .structure
+                    .sysroot
                     .replace("{path}", &sysroot.to_string_lossy());
                 push_flag_str(&mut flags, &f);
             }
@@ -835,7 +933,9 @@ impl CompilerTemplate {
         if !self.arch_flags.is_empty() {
             let os = std::env::consts::OS;
             let arch_os = format!("{}.{os}", settings.arch);
-            let arch_flag = self.arch_flags.get(&arch_os)
+            let arch_flag = self
+                .arch_flags
+                .get(&arch_os)
                 .or_else(|| self.arch_flags.get(&settings.arch))
                 .map(|s| s.as_str())
                 .unwrap_or("");
@@ -865,15 +965,27 @@ impl CompilerTemplate {
         flags
     }
 
-    fn derived_target_cpu_flags(&self, settings: &BuildSettings, existing_flags: &[String]) -> Vec<String> {
+    fn derived_target_cpu_flags(
+        &self,
+        settings: &BuildSettings,
+        existing_flags: &[String],
+    ) -> Vec<String> {
         if !settings.auto_cpu_tuning || !self.accepts_gnu_cpu_tuning_flags() {
             return vec![];
         }
-        if existing_flags.iter().chain(settings.extra_flags.iter()).any(|f| is_cpu_tuning_flag(f)) {
+        if existing_flags
+            .iter()
+            .chain(settings.extra_flags.iter())
+            .any(|f| is_cpu_tuning_flag(f))
+        {
             return vec![];
         }
-        let Some(target) = settings.target_triple.as_deref() else { return vec![] };
-        let Some(sysroot) = settings.sysroot.as_ref() else { return vec![] };
+        let Some(target) = settings.target_triple.as_deref() else {
+            return vec![];
+        };
+        let Some(sysroot) = settings.sysroot.as_ref() else {
+            return vec![];
+        };
         let target = target.to_ascii_lowercase();
         let sysroot = sysroot.to_string_lossy().to_ascii_lowercase();
         if self.structure.target.is_empty() && !target_matches_host(&target) {
@@ -881,11 +993,23 @@ impl CompilerTemplate {
         }
 
         if target.starts_with("aarch64") {
-            if let Some(cpu) = first_sysroot_token(&sysroot, &[
-                "neoverse-v2", "neoverse-v1", "neoverse-n2", "neoverse-n1",
-                "cortex-a78", "cortex-a76", "cortex-a75", "cortex-a73",
-                "cortex-a72", "cortex-a57", "cortex-a55", "cortex-a53",
-            ]) {
+            if let Some(cpu) = first_sysroot_token(
+                &sysroot,
+                &[
+                    "neoverse-v2",
+                    "neoverse-v1",
+                    "neoverse-n2",
+                    "neoverse-n1",
+                    "cortex-a78",
+                    "cortex-a76",
+                    "cortex-a75",
+                    "cortex-a73",
+                    "cortex-a72",
+                    "cortex-a57",
+                    "cortex-a55",
+                    "cortex-a53",
+                ],
+            ) {
                 return vec![format!("-mcpu={cpu}")];
             }
             return vec!["-march=armv8-a".to_string()];
@@ -893,17 +1017,35 @@ impl CompilerTemplate {
 
         if target.starts_with("arm") || target.starts_with("thumb") {
             let mut flags = Vec::new();
-            if let Some(cpu) = first_sysroot_token(&sysroot, &[
-                "cortex-m85", "cortex-m55", "cortex-m35p", "cortex-m33", "cortex-m23",
-                "cortex-m7", "cortex-m4", "cortex-m3", "cortex-m0plus", "cortex-m0",
-                "cortex-a9", "cortex-a8", "cortex-a7", "cortex-r5", "cortex-r4",
-            ]) {
+            if let Some(cpu) = first_sysroot_token(
+                &sysroot,
+                &[
+                    "cortex-m85",
+                    "cortex-m55",
+                    "cortex-m35p",
+                    "cortex-m33",
+                    "cortex-m23",
+                    "cortex-m7",
+                    "cortex-m4",
+                    "cortex-m3",
+                    "cortex-m0plus",
+                    "cortex-m0",
+                    "cortex-a9",
+                    "cortex-a8",
+                    "cortex-a7",
+                    "cortex-r5",
+                    "cortex-r4",
+                ],
+            ) {
                 flags.push(format!("-mcpu={cpu}"));
                 if cpu.starts_with("cortex-m") {
                     flags.push("-mthumb".to_string());
                 }
             }
-            if sysroot.contains("eabihf") || sysroot.contains("hardfloat") || sysroot.contains("hard-float") {
+            if sysroot.contains("eabihf")
+                || sysroot.contains("hardfloat")
+                || sysroot.contains("hard-float")
+            {
                 flags.push("-mfloat-abi=hard".to_string());
             } else if sysroot.contains("softfp") {
                 flags.push("-mfloat-abi=softfp".to_string());
@@ -913,20 +1055,30 @@ impl CompilerTemplate {
 
         if target.starts_with("riscv64") {
             let mut flags = Vec::new();
-            let march = first_sysroot_token(&sysroot, &["rv64gcv", "rv64gc", "rv64imafdc", "rv64imac"])
-                .unwrap_or("rv64gc");
+            let march =
+                first_sysroot_token(&sysroot, &["rv64gcv", "rv64gc", "rv64imafdc", "rv64imac"])
+                    .unwrap_or("rv64gc");
             flags.push(format!("-march={march}"));
-            let abi = first_sysroot_token(&sysroot, &["lp64d", "lp64f", "lp64"])
-                .unwrap_or("lp64d");
+            let abi = first_sysroot_token(&sysroot, &["lp64d", "lp64f", "lp64"]).unwrap_or("lp64d");
             flags.push(format!("-mabi={abi}"));
             return flags;
         }
 
         if target.starts_with("x86_64") {
-            if let Some(march) = first_sysroot_token(&sysroot, &[
-                "x86-64-v4", "x86-64-v3", "x86-64-v2", "znver4", "znver3", "znver2",
-                "skylake-avx512", "skylake", "haswell",
-            ]) {
+            if let Some(march) = first_sysroot_token(
+                &sysroot,
+                &[
+                    "x86-64-v4",
+                    "x86-64-v3",
+                    "x86-64-v2",
+                    "znver4",
+                    "znver3",
+                    "znver2",
+                    "skylake-avx512",
+                    "skylake",
+                    "haswell",
+                ],
+            ) {
                 return vec![format!("-march={march}")];
             }
         }
@@ -940,12 +1092,18 @@ impl CompilerTemplate {
             && (self.family == "gnu"
                 || self.family == "llvm"
                 || self.family == "intel"
-                || matches!(self.name.as_str(), "gcc" | "g++" | "clang" | "clang++" | "icpx"))
+                || matches!(
+                    self.name.as_str(),
+                    "gcc" | "g++" | "clang" | "clang++" | "icpx"
+                ))
     }
 
     /// Format the `-o <path>` flag pair.
     pub fn output_flag(&self, path: &std::path::Path) -> Vec<String> {
-        let s = self.structure.output.replace("{path}", &path.to_string_lossy());
+        let s = self
+            .structure
+            .output
+            .replace("{path}", &path.to_string_lossy());
         s.split_whitespace().map(str::to_owned).collect()
     }
 
@@ -960,7 +1118,8 @@ impl CompilerTemplate {
         if self.structure.dep_file.is_empty() {
             return vec![];
         }
-        self.structure.dep_file
+        self.structure
+            .dep_file
             .replace("{path}", &path.to_string_lossy())
             .split_whitespace()
             .map(str::to_owned)
@@ -975,7 +1134,10 @@ impl CompilerTemplate {
     /// Format the output flag for the **link step** (binary or shared lib).
     /// Uses `output_bin` when it differs from the compile-step output (e.g. MSVC `/Fe{path}`).
     pub fn output_bin_flag(&self, path: &std::path::Path) -> Vec<String> {
-        let s = self.structure.output_bin.replace("{path}", &path.to_string_lossy());
+        let s = self
+            .structure
+            .output_bin
+            .replace("{path}", &path.to_string_lossy());
         s.split_whitespace().map(str::to_owned).collect()
     }
 
@@ -987,7 +1149,10 @@ impl CompilerTemplate {
     /// The strip binary for this toolchain (`toolset["strip"]`), if one is defined and non-empty.
     /// Returns `None` for toolchains that have no standalone strip tool (e.g. MSVC).
     pub fn strip_binary(&self) -> Option<&str> {
-        self.toolset.get("strip").map(|s| s.as_str()).filter(|s| !s.is_empty())
+        self.toolset
+            .get("strip")
+            .map(|s| s.as_str())
+            .filter(|s| !s.is_empty())
     }
 
     /// Format a system-library link flag using this toolchain's template.
@@ -1010,7 +1175,14 @@ impl CompilerTemplate {
         arch: &str,
         os: &str,
     ) -> Result<Vec<String>, crate::error::FreightError> {
-        run_option_handlers(&self.language_option_handlers, options, version, arch, os, &self.name)
+        run_option_handlers(
+            &self.language_option_handlers,
+            options,
+            version,
+            arch,
+            os,
+            &self.name,
+        )
     }
 
     /// Run `compiler_option` handlers for the given freeform options map.
@@ -1023,7 +1195,14 @@ impl CompilerTemplate {
         arch: &str,
         os: &str,
     ) -> Result<Vec<String>, crate::error::FreightError> {
-        run_option_handlers(&self.compiler_option_handlers, options, version, arch, os, &self.name)
+        run_option_handlers(
+            &self.compiler_option_handlers,
+            options,
+            version,
+            arch,
+            os,
+            &self.name,
+        )
     }
 
     /// Assemble flags for the **link step**.
@@ -1042,7 +1221,11 @@ impl CompilerTemplate {
             push_flag_str(&mut flags, &self.flags_debug);
         }
 
-        let lto_f = if !self.flags_lto_link.is_empty() { &self.flags_lto_link } else { &self.flags_lto };
+        let lto_f = if !self.flags_lto_link.is_empty() {
+            &self.flags_lto_link
+        } else {
+            &self.flags_lto
+        };
         if settings.lto && !lto_f.is_empty() {
             push_flag_str(&mut flags, lto_f);
         }
@@ -1060,7 +1243,9 @@ impl CompilerTemplate {
 
         if let Some(sysroot) = &settings.sysroot {
             if !self.structure.sysroot.is_empty() {
-                let f = self.structure.sysroot
+                let f = self
+                    .structure
+                    .sysroot
                     .replace("{path}", &sysroot.to_string_lossy());
                 push_flag_str(&mut flags, &f);
             }
@@ -1079,8 +1264,12 @@ impl CompilerTemplate {
     /// Whether this template supports C++20 header unit precompilation.
     pub fn supports_header_units(&self) -> bool {
         match &self.modules {
-            ModuleStyle::Clang { header_unit_flag, .. } => !header_unit_flag.is_empty(),
-            ModuleStyle::Gcc   { header_unit_flag, .. } => !header_unit_flag.is_empty(),
+            ModuleStyle::Clang {
+                header_unit_flag, ..
+            } => !header_unit_flag.is_empty(),
+            ModuleStyle::Gcc {
+                header_unit_flag, ..
+            } => !header_unit_flag.is_empty(),
             ModuleStyle::Unsupported => false,
         }
     }
@@ -1102,18 +1291,30 @@ impl CompilerTemplate {
     ) -> Option<(std::path::PathBuf, Vec<String>)> {
         let mut args: Vec<String> = Vec::new();
         match &self.modules {
-            ModuleStyle::Clang { precompile, header_unit_flag, .. } => {
-                if header_unit_flag.is_empty() { return None; }
+            ModuleStyle::Clang {
+                precompile,
+                header_unit_flag,
+                ..
+            } => {
+                if header_unit_flag.is_empty() {
+                    return None;
+                }
                 push_flag_str(&mut args, std_flag);
                 args.extend_from_slice(include_flags);
-                push_flag_str(&mut args, precompile);        // --precompile
-                push_flag_str(&mut args, header_unit_flag);  // -x c++-header
+                push_flag_str(&mut args, precompile); // --precompile
+                push_flag_str(&mut args, header_unit_flag); // -x c++-header
             }
-            ModuleStyle::Gcc { enable_flag, header_unit_flag, .. } => {
-                if header_unit_flag.is_empty() { return None; }
+            ModuleStyle::Gcc {
+                enable_flag,
+                header_unit_flag,
+                ..
+            } => {
+                if header_unit_flag.is_empty() {
+                    return None;
+                }
                 push_flag_str(&mut args, std_flag);
-                push_flag_str(&mut args, enable_flag);       // -fmodules-ts
-                push_flag_str(&mut args, header_unit_flag);  // -fmodule-header
+                push_flag_str(&mut args, enable_flag); // -fmodules-ts
+                push_flag_str(&mut args, header_unit_flag); // -fmodule-header
                 args.extend_from_slice(include_flags);
             }
             ModuleStyle::Unsupported => return None,
@@ -1127,7 +1328,7 @@ impl CompilerTemplate {
     /// Returns `""` when the compiler does not support named modules.
     pub fn module_import_template(&self) -> &str {
         match &self.modules {
-            ModuleStyle::Gcc   { import_module, .. } => import_module,
+            ModuleStyle::Gcc { import_module, .. } => import_module,
             ModuleStyle::Clang { import_module, .. } => import_module,
             ModuleStyle::Unsupported => "",
         }
@@ -1137,16 +1338,32 @@ impl CompilerTemplate {
     ///
     /// `rel_path` is the path relative to its include directory, matching
     /// what a consumer writes in `import "rel_path";`.
-    pub fn header_unit_import_flag(&self, rel_path: &str, pcm_path: &std::path::Path) -> Option<String> {
+    pub fn header_unit_import_flag(
+        &self,
+        rel_path: &str,
+        pcm_path: &std::path::Path,
+    ) -> Option<String> {
         let (import_module, supported) = match &self.modules {
-            ModuleStyle::Clang { import_module, header_unit_flag, .. } => (import_module, !header_unit_flag.is_empty()),
-            ModuleStyle::Gcc   { import_module, header_unit_flag, .. } => (import_module, !header_unit_flag.is_empty()),
+            ModuleStyle::Clang {
+                import_module,
+                header_unit_flag,
+                ..
+            } => (import_module, !header_unit_flag.is_empty()),
+            ModuleStyle::Gcc {
+                import_module,
+                header_unit_flag,
+                ..
+            } => (import_module, !header_unit_flag.is_empty()),
             ModuleStyle::Unsupported => return None,
         };
-        if !supported { return None; }
-        Some(import_module
-            .replace("{name}", rel_path)
-            .replace("{pcm_path}", &pcm_path.to_string_lossy()))
+        if !supported {
+            return None;
+        }
+        Some(
+            import_module
+                .replace("{name}", rel_path)
+                .replace("{pcm_path}", &pcm_path.to_string_lossy()),
+        )
     }
 }
 
@@ -1187,10 +1404,9 @@ fn run_option_handlers(
                 None => continue,
             },
         };
-        let result = (handler.callback)(value, version, arch, os, name)
-            .map_err(|e| crate::error::FreightError::TemplateError(
-                format!("option handler '{key}' failed: {e}")
-            ))?;
+        let result = (handler.callback)(value, version, arch, os, name).map_err(|e| {
+            crate::error::FreightError::TemplateError(format!("option handler '{key}' failed: {e}"))
+        })?;
         flags.extend(result);
     }
     Ok(flags)
@@ -1199,9 +1415,7 @@ fn run_option_handlers(
 /// Component-by-component version comparison: `a >= b`.
 /// Accepts dotted-integer strings like `"14.2.0"` or `"10"`.
 fn std_version_ge(a: &str, b: &str) -> bool {
-    let parse = |s: &str| -> Vec<u64> {
-        s.split('.').map(|p| p.parse().unwrap_or(0)).collect()
-    };
+    let parse = |s: &str| -> Vec<u64> { s.split('.').map(|p| p.parse().unwrap_or(0)).collect() };
     let av = parse(a);
     let bv = parse(b);
     for i in 0..av.len().max(bv.len()) {
@@ -1209,8 +1423,8 @@ fn std_version_ge(a: &str, b: &str) -> bool {
         let y = bv.get(i).copied().unwrap_or(0);
         match x.cmp(&y) {
             std::cmp::Ordering::Greater => return true,
-            std::cmp::Ordering::Less    => return false,
-            std::cmp::Ordering::Equal   => {}
+            std::cmp::Ordering::Less => return false,
+            std::cmp::Ordering::Equal => {}
         }
     }
     true
@@ -1255,231 +1469,387 @@ mod tests {
 
     fn gcc() -> CompilerTemplate {
         TemplateDef {
-            name: "g++", binary: "g++",
+            name: "g++",
+            binary: "g++",
             family: "gnu",
             version_regex: r"(\d+\.\d+\.\d+)",
-            extensions: &[".cpp",".cxx",".cc"],
-            debug: "-g", lto: "-flto",
+            extensions: &[".cpp", ".cxx", ".cc"],
+            debug: "-g",
+            lto: "-flto",
             sanitize: "-fsanitize={values}",
-            sanitizer_options: &["address","undefined"],
+            sanitizer_options: &["address", "undefined"],
             module_style: "gcc",
-            opt_flags: &[("0","-O0"),("1","-O1"),("2","-O2"),("3","-O3"),("s","-Os")],
-            warning_flags: &[("none",""),("all","-Wall -Wextra -Wpedantic"),("error","-Werror")],
-            standards: &[
-                ("c++14","-std=c++14"),("c++17","-std=c++17"),
-                ("c++20","-std=c++20"),("c++23","-std=c++23"),
+            opt_flags: &[
+                ("0", "-O0"),
+                ("1", "-O1"),
+                ("2", "-O2"),
+                ("3", "-O3"),
+                ("s", "-Os"),
             ],
-            defaults: &[("std","c++17")],
+            warning_flags: &[
+                ("none", ""),
+                ("all", "-Wall -Wextra -Wpedantic"),
+                ("error", "-Werror"),
+            ],
+            standards: &[
+                ("c++14", "-std=c++14"),
+                ("c++17", "-std=c++17"),
+                ("c++20", "-std=c++20"),
+                ("c++23", "-std=c++23"),
+            ],
+            defaults: &[("std", "c++17")],
             structure: &[
-                ("include_dir","-I{path}"),("define","-D{name}"),("define_value","-D{name}={value}"),
-                ("output","-o {path}"),("compile_only","-c"),("dep_file","-MMD -MF {path}"),
-                ("sysroot","--sysroot={path}"),
+                ("include_dir", "-I{path}"),
+                ("define", "-D{name}"),
+                ("define_value", "-D{name}={value}"),
+                ("output", "-o {path}"),
+                ("compile_only", "-c"),
+                ("dep_file", "-MMD -MF {path}"),
+                ("sysroot", "--sysroot={path}"),
             ],
             module_params: &[
-                ("enable_flag","-fmodules-ts"),("compile_miu","-fmodule-output={pcm_path}"),
-                ("import_module","-fmodule-file={name}={pcm_path}"),("header_unit","-fmodule-header"),
+                ("enable_flag", "-fmodules-ts"),
+                ("compile_miu", "-fmodule-output={pcm_path}"),
+                ("import_module", "-fmodule-file={name}={pcm_path}"),
+                ("header_unit", "-fmodule-header"),
             ],
-            toolset: &[("ar","ar"),("strip","strip")],
+            toolset: &[("ar", "ar"), ("strip", "strip")],
             linking: &[LinkDef {
-                lang: "cpp", abi: "c++", compatible: &["c","fortran"],
-                extensions: &[".cpp",".cxx",".cc"], linker: "", compile_binary: None,
-                whole_program:  false,
+                lang: "cpp",
+                abi: "c++",
+                compatible: &["c", "fortran"],
+                extensions: &[".cpp", ".cxx", ".cc"],
+                linker: "",
+                compile_binary: None,
+                whole_program: false,
             }],
             ..EMPTY
-        }.build(&[], &[])
+        }
+        .build(&[], &[])
     }
 
     fn gcc_c() -> CompilerTemplate {
         TemplateDef {
-            name: "gcc", binary: "gcc",
+            name: "gcc",
+            binary: "gcc",
             family: "gnu",
             version_regex: r"(\d+\.\d+\.\d+)",
             extensions: &[".c"],
-            debug: "-g", lto: "-flto",
+            debug: "-g",
+            lto: "-flto",
             sanitize: "-fsanitize={values}",
-            opt_flags: &[("0","-O0"),("2","-O2"),("3","-O3")],
-            warning_flags: &[("all","-Wall -Wextra")],
-            standards: &[("c11","-std=c11"),("c17","-std=c17")],
-            defaults: &[("std","c11")],
+            opt_flags: &[("0", "-O0"), ("2", "-O2"), ("3", "-O3")],
+            warning_flags: &[("all", "-Wall -Wextra")],
+            standards: &[("c11", "-std=c11"), ("c17", "-std=c17")],
+            defaults: &[("std", "c11")],
             structure: &[
-                ("include_dir","-I{path}"),("define","-D{name}"),("define_value","-D{name}={value}"),
-                ("output","-o {path}"),("compile_only","-c"),("dep_file","-MMD -MF {path}"),
-                ("sysroot","--sysroot={path}"),
+                ("include_dir", "-I{path}"),
+                ("define", "-D{name}"),
+                ("define_value", "-D{name}={value}"),
+                ("output", "-o {path}"),
+                ("compile_only", "-c"),
+                ("dep_file", "-MMD -MF {path}"),
+                ("sysroot", "--sysroot={path}"),
             ],
-            toolset: &[("ar","ar"),("strip","strip")],
+            toolset: &[("ar", "ar"), ("strip", "strip")],
             linking: &[LinkDef {
-                lang: "c", abi: "c", compatible: &[],
-                extensions: &[".c"], linker: "", compile_binary: Some("gcc"),
-                whole_program:  false,
+                lang: "c",
+                abi: "c",
+                compatible: &[],
+                extensions: &[".c"],
+                linker: "",
+                compile_binary: Some("gcc"),
+                whole_program: false,
             }],
             ..EMPTY
-        }.build(&[], &[])
+        }
+        .build(&[], &[])
     }
 
     fn clang() -> CompilerTemplate {
         TemplateDef {
-            name: "clang++", binary: "clang++",
+            name: "clang++",
+            binary: "clang++",
             family: "llvm",
             version_regex: r"(\d+\.\d+\.\d+)",
-            extensions: &[".cpp",".cxx",".cc"],
-            debug: "-g", lto: "-flto",
+            extensions: &[".cpp", ".cxx", ".cc"],
+            debug: "-g",
+            lto: "-flto",
             sanitize: "-fsanitize={values}",
             module_style: "clang",
-            opt_flags: &[("0","-O0"),("2","-O2"),("3","-O3")],
-            warning_flags: &[("all","-Wall -Wextra -Wpedantic"),("error","-Werror")],
+            opt_flags: &[("0", "-O0"), ("2", "-O2"), ("3", "-O3")],
+            warning_flags: &[("all", "-Wall -Wextra -Wpedantic"), ("error", "-Werror")],
             standards: &[
-                ("c++14","-std=c++14"),("c++17","-std=c++17"),
-                ("c++20","-std=c++20"),("c++23","-std=c++23"),
+                ("c++14", "-std=c++14"),
+                ("c++17", "-std=c++17"),
+                ("c++20", "-std=c++20"),
+                ("c++23", "-std=c++23"),
             ],
-            defaults: &[("std","c++17")],
+            defaults: &[("std", "c++17")],
             structure: &[
-                ("include_dir","-I{path}"),("define","-D{name}"),("define_value","-D{name}={value}"),
-                ("output","-o {path}"),("compile_only","-c"),("dep_file","-MMD -MF {path}"),
-                ("target","--target={triple}"),("sysroot","--sysroot={path}"),
+                ("include_dir", "-I{path}"),
+                ("define", "-D{name}"),
+                ("define_value", "-D{name}={value}"),
+                ("output", "-o {path}"),
+                ("compile_only", "-c"),
+                ("dep_file", "-MMD -MF {path}"),
+                ("target", "--target={triple}"),
+                ("sysroot", "--sysroot={path}"),
             ],
             module_params: &[
-                ("precompile","--precompile"),
-                ("import_module","-fmodule-file={name}={pcm_path}"),
-                ("header_unit","-x c++-header"),
+                ("precompile", "--precompile"),
+                ("import_module", "-fmodule-file={name}={pcm_path}"),
+                ("header_unit", "-x c++-header"),
             ],
-            toolset: &[("ar","ar"),("strip","strip")],
+            toolset: &[("ar", "ar"), ("strip", "strip")],
             linking: &[
-                LinkDef { lang: "cpp", abi: "c++", compatible: &["c","fortran"], extensions: &[".cpp"], linker: "", compile_binary: None , whole_program: false },
-                LinkDef { lang: "c",   abi: "c",   compatible: &[],             extensions: &[".c"],   linker: "", compile_binary: None , whole_program: false },
+                LinkDef {
+                    lang: "cpp",
+                    abi: "c++",
+                    compatible: &["c", "fortran"],
+                    extensions: &[".cpp"],
+                    linker: "",
+                    compile_binary: None,
+                    whole_program: false,
+                },
+                LinkDef {
+                    lang: "c",
+                    abi: "c",
+                    compatible: &[],
+                    extensions: &[".c"],
+                    linker: "",
+                    compile_binary: None,
+                    whole_program: false,
+                },
             ],
             ..EMPTY
-        }.build(&[], &[])
+        }
+        .build(&[], &[])
     }
 
     fn nvcc() -> CompilerTemplate {
         TemplateDef {
-            name: "nvcc", binary: "nvcc",
+            name: "nvcc",
+            binary: "nvcc",
             family: "nvidia",
             version_regex: r"release (\d+\.\d+)",
             extensions: &[".cu"],
             passthrough_enabled: true,
             passthrough_prefix: "-Xcompiler",
-            always_flags: &["--expt-relaxed-constexpr","--extended-lambda"],
-            opt_flags: &[("0","-O0"),("2","-O2"),("3","-O3")],
+            always_flags: &["--expt-relaxed-constexpr", "--extended-lambda"],
+            opt_flags: &[("0", "-O0"), ("2", "-O2"), ("3", "-O3")],
             // Device-code C++ standard — nvcc 9+ supports c++14, nvcc 11+ supports c++17,
             // nvcc 12+ supports c++20.
             standards: &[
-                ("c++11","-std=c++11"),
-                ("c++14","-std=c++14"),
-                ("c++17","-std=c++17"),
-                ("c++20","-std=c++20"),
+                ("c++11", "-std=c++11"),
+                ("c++14", "-std=c++14"),
+                ("c++17", "-std=c++17"),
+                ("c++20", "-std=c++20"),
             ],
-            defaults: &[("std","c++17")],
+            defaults: &[("std", "c++17")],
             structure: &[
-                ("include_dir","-I{path}"),("define","-D{name}"),("define_value","-D{name}={value}"),
-                ("output","-o {path}"),("compile_only","-c"),
+                ("include_dir", "-I{path}"),
+                ("define", "-D{name}"),
+                ("define_value", "-D{name}={value}"),
+                ("output", "-o {path}"),
+                ("compile_only", "-c"),
             ],
             linking: &[LinkDef {
-                lang: "cuda", abi: "cuda", compatible: &[],
-                extensions: &[".cu"], linker: "c++", compile_binary: None,
-                whole_program:  false,
+                lang: "cuda",
+                abi: "cuda",
+                compatible: &[],
+                extensions: &[".cu"],
+                linker: "c++",
+                compile_binary: None,
+                whole_program: false,
             }],
             ..EMPTY
-        }.build(&[], &[])
+        }
+        .build(&[], &[])
     }
 
     fn msvc() -> CompilerTemplate {
         TemplateDef {
-            name: "msvc", binary: "cl.exe",
+            name: "msvc",
+            binary: "cl.exe",
             version_arg: "",
             version_regex: r"(\d+\.\d+)",
-            extensions: &[".cpp",".cxx",".c"],
-            debug: "/Zi", lto: "/GL", lto_link: "/LTCG",
-            opt_flags: &[("0","/Od"),("2","/O2"),("3","/O2")],
+            extensions: &[".cpp", ".cxx", ".c"],
+            debug: "/Zi",
+            lto: "/GL",
+            lto_link: "/LTCG",
+            opt_flags: &[("0", "/Od"), ("2", "/O2"), ("3", "/O2")],
             structure: &[
-                ("include_dir","/I{path}"),("define","/D{name}"),("define_value","/D{name}={value}"),
-                ("output_obj","/Fo{path}"),("output_bin","/Fe{path}"),("compile_only","/c"),
-                ("dep_file_mode","stdout"),("system_lib","{name}.lib"),
+                ("include_dir", "/I{path}"),
+                ("define", "/D{name}"),
+                ("define_value", "/D{name}={value}"),
+                ("output_obj", "/Fo{path}"),
+                ("output_bin", "/Fe{path}"),
+                ("compile_only", "/c"),
+                ("dep_file_mode", "stdout"),
+                ("system_lib", "{name}.lib"),
             ],
-            toolset: &[("ar","lib.exe")],
+            toolset: &[("ar", "lib.exe")],
             linking: &[LinkDef {
-                lang: "cpp", abi: "c++", compatible: &["c"],
-                extensions: &[".cpp"], linker: "", compile_binary: None,
-                whole_program:  false,
+                lang: "cpp",
+                abi: "c++",
+                compatible: &["c"],
+                extensions: &[".cpp"],
+                linker: "",
+                compile_binary: None,
+                whole_program: false,
             }],
             ..EMPTY
-        }.build(&[], &[])
+        }
+        .build(&[], &[])
     }
 
     fn gfortran() -> CompilerTemplate {
         TemplateDef {
-            name: "gfortran", binary: "gfortran",
+            name: "gfortran",
+            binary: "gfortran",
             family: "gnu",
             version_regex: r"(\d+\.\d+\.\d+)",
-            extensions: &[".f90",".f95",".f03",".f08",".f"],
-            debug: "-g", lto: "-flto",
-            opt_flags: &[("0","-O0"),("1","-O1"),("2","-O2"),("3","-O3"),("s","-Os")],
-            warning_flags: &[("none",""),("default",""),("all","-Wall"),("error","-Wall -Werror")],
-            standards: &[("f95","-std=f95"),("f2003","-std=f2003"),("f2008","-std=f2008"),("f2018","-std=f2018")],
-            defaults: &[("std","f2008")],
-            structure: &[
-                ("include_dir","-I{path}"),("define","-D{name}"),("define_value","-D{name}={value}"),
-                ("output","-o {path}"),("compile_only","-c"),("dep_file","-MMD -MF {path}"),
+            extensions: &[".f90", ".f95", ".f03", ".f08", ".f"],
+            debug: "-g",
+            lto: "-flto",
+            opt_flags: &[
+                ("0", "-O0"),
+                ("1", "-O1"),
+                ("2", "-O2"),
+                ("3", "-O3"),
+                ("s", "-Os"),
             ],
-            toolset: &[("ar","ar"),("strip","strip")],
+            warning_flags: &[
+                ("none", ""),
+                ("default", ""),
+                ("all", "-Wall"),
+                ("error", "-Wall -Werror"),
+            ],
+            standards: &[
+                ("f95", "-std=f95"),
+                ("f2003", "-std=f2003"),
+                ("f2008", "-std=f2008"),
+                ("f2018", "-std=f2018"),
+            ],
+            defaults: &[("std", "f2008")],
+            structure: &[
+                ("include_dir", "-I{path}"),
+                ("define", "-D{name}"),
+                ("define_value", "-D{name}={value}"),
+                ("output", "-o {path}"),
+                ("compile_only", "-c"),
+                ("dep_file", "-MMD -MF {path}"),
+            ],
+            toolset: &[("ar", "ar"), ("strip", "strip")],
             linking: &[LinkDef {
-                lang: "fortran", abi: "fortran", compatible: &["c"],
-                extensions: &[".f90",".f95",".f03",".f08",".f"], linker: "", compile_binary: None,
-                whole_program:  false,
+                lang: "fortran",
+                abi: "fortran",
+                compatible: &["c"],
+                extensions: &[".f90", ".f95", ".f03", ".f08", ".f"],
+                linker: "",
+                compile_binary: None,
+                whole_program: false,
             }],
             ..EMPTY
-        }.build(&[], &[])
+        }
+        .build(&[], &[])
     }
 
     fn dmd() -> CompilerTemplate {
         TemplateDef {
-            name: "dmd", binary: "dmd",
+            name: "dmd",
+            binary: "dmd",
             version_regex: r"v(\d+\.\d+\.\d+)",
             extensions: &[".d"],
             debug: "-g",
-            opt_flags: &[("0",""),("1","-O"),("2","-O"),("3","-O -release"),("s","-O -release")],
-            warning_flags: &[("none",""),("default",""),("all","-wi"),("error","-w")],
-            structure: &[
-                ("include_dir","-I{path}"),("define","-version={name}"),
-                ("output","-of{path}"),("compile_only","-c"),("dep_file_mode","none"),
-                ("system_lib","-L-l{name}"),
+            opt_flags: &[
+                ("0", ""),
+                ("1", "-O"),
+                ("2", "-O"),
+                ("3", "-O -release"),
+                ("s", "-O -release"),
             ],
-            toolset: &[("ar","ar")],
+            warning_flags: &[
+                ("none", ""),
+                ("default", ""),
+                ("all", "-wi"),
+                ("error", "-w"),
+            ],
+            structure: &[
+                ("include_dir", "-I{path}"),
+                ("define", "-version={name}"),
+                ("output", "-of{path}"),
+                ("compile_only", "-c"),
+                ("dep_file_mode", "none"),
+                ("system_lib", "-L-l{name}"),
+            ],
+            toolset: &[("ar", "ar")],
             linking: &[LinkDef {
-                lang: "d", abi: "d", compatible: &["c"],
-                extensions: &[".d"], linker: "", compile_binary: None,
-                whole_program:  false,
+                lang: "d",
+                abi: "d",
+                compatible: &["c"],
+                extensions: &[".d"],
+                linker: "",
+                compile_binary: None,
+                whole_program: false,
             }],
             ..EMPTY
-        }.build(&[], &[])
+        }
+        .build(&[], &[])
     }
 
     fn nasm() -> CompilerTemplate {
         TemplateDef {
-            name: "nasm", binary: "nasm",
+            name: "nasm",
+            binary: "nasm",
             version_regex: r"NASM version (\d+\.\d+(?:\.\d+)?)",
-            extensions: &[".asm",".nasm"],
-            supported_archs: &["x86","x86_64"],
+            extensions: &[".asm", ".nasm"],
+            supported_archs: &["x86", "x86_64"],
             requires_toolchain: &["c"],
             debug: "-g -F dwarf",
-            opt_flags: &[("0",""),("1",""),("2",""),("3",""),("s",""),("z","")],
-            warning_flags: &[("none",""),("default",""),("all","-w+all"),("error","-w+all -w+error")],
+            opt_flags: &[
+                ("0", ""),
+                ("1", ""),
+                ("2", ""),
+                ("3", ""),
+                ("s", ""),
+                ("z", ""),
+            ],
+            warning_flags: &[
+                ("none", ""),
+                ("default", ""),
+                ("all", "-w+all"),
+                ("error", "-w+all -w+error"),
+            ],
             structure: &[
-                ("include_dir","-I{path}"),("define","-D{name}"),("define_value","-D{name}={value}"),
-                ("output","-o {path}"),("compile_only",""),
+                ("include_dir", "-I{path}"),
+                ("define", "-D{name}"),
+                ("define_value", "-D{name}={value}"),
+                ("output", "-o {path}"),
+                ("compile_only", ""),
             ],
             arch_flags: &[
-                ("x86_64.linux","-f elf64"),("x86_64.macos","-f macho64"),("x86_64.windows","-f win64"),
-                ("x86.linux","-f elf32"),("x86.macos","-f macho32"),("x86.windows","-f win32"),
+                ("x86_64.linux", "-f elf64"),
+                ("x86_64.macos", "-f macho64"),
+                ("x86_64.windows", "-f win64"),
+                ("x86.linux", "-f elf32"),
+                ("x86.macos", "-f macho32"),
+                ("x86.windows", "-f win32"),
             ],
             linking: &[LinkDef {
-                lang: "asm", abi: "c", compatible: &["c","cpp"],
-                extensions: &[".asm",".nasm"], linker: "", compile_binary: None,
-                whole_program:  false,
+                lang: "asm",
+                abi: "c",
+                compatible: &["c", "cpp"],
+                extensions: &[".asm", ".nasm"],
+                linker: "",
+                compile_binary: None,
+                whole_program: false,
             }],
-            toolset: &[("as","nasm")],
+            toolset: &[("as", "nasm")],
             ..EMPTY
-        }.build(&[], &[])
+        }
+        .build(&[], &[])
     }
 
     // ── Option handlers ───────────────────────────────────────────────────────
@@ -1496,41 +1866,51 @@ mod tests {
             Ok(vec![format!("--dialect={v}")])
         }
         let t = TemplateDef {
-            name: "toy", binary: "toycc",
+            name: "toy",
+            binary: "toycc",
             version_regex: "(.*)",
             extensions: &[".toy"],
             structure: &[
-                ("output","-o {path}"),("compile_only","-c"),
-                ("include_dir","-I{path}"),("define","-D{name}"),("define_value","-D{name}={value}"),
+                ("output", "-o {path}"),
+                ("compile_only", "-c"),
+                ("include_dir", "-I{path}"),
+                ("define", "-D{name}"),
+                ("define_value", "-D{name}={value}"),
             ],
             ..EMPTY
-        }.build(
+        }
+        .build(
             &[
-                ("mode",    mode_h    as OptionHandlerFn, Some("safe")),
+                ("mode", mode_h as OptionHandlerFn, Some("safe")),
                 ("feature", feature_h as OptionHandlerFn, None),
             ],
-            &[
-                ("dialect", dialect_h as OptionHandlerFn, Some("portable")),
-            ],
+            &[("dialect", dialect_h as OptionHandlerFn, Some("portable"))],
         );
 
         let empty = HashMap::new();
         assert_eq!(
-            t.run_compiler_option_handlers(&empty, "1.0", "x86_64", "linux").unwrap(),
+            t.run_compiler_option_handlers(&empty, "1.0", "x86_64", "linux")
+                .unwrap(),
             vec!["--mode=safe".to_string()],
             "defaulted handler runs; handler without default and no value is skipped"
         );
         assert_eq!(
-            t.run_language_option_handlers(&empty, "1.0", "x86_64", "linux").unwrap(),
+            t.run_language_option_handlers(&empty, "1.0", "x86_64", "linux")
+                .unwrap(),
             vec!["--dialect=portable".to_string()]
         );
 
         let mut overridden = HashMap::new();
         overridden.insert("mode".to_string(), "fast".to_string());
         overridden.insert("feature".to_string(), "on".to_string());
-        let mut flags = t.run_compiler_option_handlers(&overridden, "1.0", "x86_64", "linux").unwrap();
+        let mut flags = t
+            .run_compiler_option_handlers(&overridden, "1.0", "x86_64", "linux")
+            .unwrap();
         flags.sort();
-        assert_eq!(flags, vec!["--feature=on".to_string(), "--mode=fast".to_string()]);
+        assert_eq!(
+            flags,
+            vec!["--feature=on".to_string(), "--mode=fast".to_string()]
+        );
     }
 
     #[test]
@@ -1540,7 +1920,10 @@ mod tests {
         assert_eq!(cpp.abi, "c++");
         assert!(cpp.compatible.contains(&"c".to_string()));
         assert!(cpp.compatible.contains(&"fortran".to_string()));
-        assert_eq!(cpp.compile_binary, None, "C++ uses the template's main binary (g++)");
+        assert_eq!(
+            cpp.compile_binary, None,
+            "C++ uses the template's main binary (g++)"
+        );
     }
 
     #[test]
@@ -1548,18 +1931,23 @@ mod tests {
         let t = gcc_c();
         let c = t.linking.get("c").expect("gcc should have linking.c");
         assert_eq!(c.abi, "c");
-        assert_eq!(c.compile_binary.as_deref(), Some("gcc"),
-            "C files must be compiled with gcc, not g++");
+        assert_eq!(
+            c.compile_binary.as_deref(),
+            Some("gcc"),
+            "C files must be compiled with gcc, not g++"
+        );
     }
 
     #[test]
     fn nvcc_linking_requires_cpp_linker() {
         let t = nvcc();
-        let cuda = t.linking.get("cuda").expect("nvcc should have linking.cuda");
+        let cuda = t
+            .linking
+            .get("cuda")
+            .expect("nvcc should have linking.cuda");
         assert_eq!(cuda.abi, "cuda");
         assert_eq!(cuda.linker, "c++");
     }
-
 
     #[test]
     fn gcc_fields() {
@@ -1578,7 +1966,13 @@ mod tests {
     #[test]
     fn gcc_module_style_is_gcc_variant() {
         assert!(matches!(gcc().modules, ModuleStyle::Gcc { .. }));
-        if let ModuleStyle::Gcc { enable_flag, compile_miu, import_module, .. } = gcc().modules {
+        if let ModuleStyle::Gcc {
+            enable_flag,
+            compile_miu,
+            import_module,
+            ..
+        } = gcc().modules
+        {
             assert_eq!(enable_flag, "-fmodules-ts");
             assert!(compile_miu.contains("{pcm_path}"));
             assert!(import_module.contains("{pcm_path}"));
@@ -1588,7 +1982,12 @@ mod tests {
     #[test]
     fn clang_module_style_is_clang_variant() {
         assert!(matches!(clang().modules, ModuleStyle::Clang { .. }));
-        if let ModuleStyle::Clang { precompile, import_module, .. } = clang().modules {
+        if let ModuleStyle::Clang {
+            precompile,
+            import_module,
+            ..
+        } = clang().modules
+        {
             assert_eq!(precompile, "--precompile");
             assert!(import_module.contains("{pcm_path}"));
         }
@@ -1597,13 +1996,18 @@ mod tests {
     #[test]
     fn gcc_supports_header_units() {
         let t = gcc();
-        assert!(t.supports_header_units(), "gcc template should support header units");
-        let (bin, args) = t.precompile_header_unit_cmd(
-            std::path::Path::new("/inc/foo.h"),
-            std::path::Path::new("/build/foo.h.pcm"),
-            "-std=c++20",
-            &["-I/inc".to_string()],
-        ).expect("should produce a command");
+        assert!(
+            t.supports_header_units(),
+            "gcc template should support header units"
+        );
+        let (bin, args) = t
+            .precompile_header_unit_cmd(
+                std::path::Path::new("/inc/foo.h"),
+                std::path::Path::new("/build/foo.h.pcm"),
+                "-std=c++20",
+                &["-I/inc".to_string()],
+            )
+            .expect("should produce a command");
         assert!(bin.to_string_lossy().contains("g++"));
         assert!(args.contains(&"-fmodules-ts".to_string()));
         assert!(args.contains(&"-fmodule-header".to_string()));
@@ -1614,28 +2018,43 @@ mod tests {
     #[test]
     fn clang_supports_header_units() {
         let t = clang();
-        assert!(t.supports_header_units(), "clang template should support header units");
-        let (bin, args) = t.precompile_header_unit_cmd(
-            std::path::Path::new("/inc/foo.h"),
-            std::path::Path::new("/build/foo.h.pcm"),
-            "-std=c++20",
-            &["-I/inc".to_string()],
-        ).expect("should produce a command");
+        assert!(
+            t.supports_header_units(),
+            "clang template should support header units"
+        );
+        let (bin, args) = t
+            .precompile_header_unit_cmd(
+                std::path::Path::new("/inc/foo.h"),
+                std::path::Path::new("/build/foo.h.pcm"),
+                "-std=c++20",
+                &["-I/inc".to_string()],
+            )
+            .expect("should produce a command");
         assert!(bin.to_string_lossy().contains("clang"));
         assert!(args.contains(&"--precompile".to_string()));
         assert!(args.contains(&"-x".to_string()));
         assert!(args.contains(&"c++-header".to_string()));
-        assert!(!args.contains(&"-fmodules-ts".to_string()), "clang doesn't need -fmodules-ts");
+        assert!(
+            !args.contains(&"-fmodules-ts".to_string()),
+            "clang doesn't need -fmodules-ts"
+        );
     }
 
     #[test]
     fn gcc_and_clang_header_unit_import_flags_match_format() {
         let header = std::path::Path::new("/build/foo.h.pcm");
-        let gcc_flag = gcc().header_unit_import_flag("mylib/foo.h", header).unwrap();
-        let clang_flag = clang().header_unit_import_flag("mylib/foo.h", header).unwrap();
+        let gcc_flag = gcc()
+            .header_unit_import_flag("mylib/foo.h", header)
+            .unwrap();
+        let clang_flag = clang()
+            .header_unit_import_flag("mylib/foo.h", header)
+            .unwrap();
         assert!(gcc_flag.contains("mylib/foo.h"));
         assert!(gcc_flag.contains("/build/foo.h.pcm"));
-        assert_eq!(gcc_flag, clang_flag, "import flag format must match between gcc and clang");
+        assert_eq!(
+            gcc_flag, clang_flag,
+            "import flag format must match between gcc and clang"
+        );
     }
 
     #[test]
@@ -1648,7 +2067,9 @@ mod tests {
         let t = nvcc();
         assert!(t.passthrough.enabled);
         assert_eq!(t.passthrough.prefix, "-Xcompiler");
-        assert!(t.always_flags.contains(&"--expt-relaxed-constexpr".to_string()));
+        assert!(t
+            .always_flags
+            .contains(&"--expt-relaxed-constexpr".to_string()));
         assert!(t.always_flags.contains(&"--extended-lambda".to_string()));
     }
 
@@ -1699,21 +2120,39 @@ mod tests {
         assert!(flags.contains(&"-O3".to_string()), "opt-level 3");
         assert!(flags.contains(&"-flto".to_string()), "lto");
         // Strip is a post-link step, not a compiler flag — -s must not appear here.
-        assert!(!flags.contains(&"-s".to_string()), "strip is post-link, not a compile flag");
+        assert!(
+            !flags.contains(&"-s".to_string()),
+            "strip is post-link, not a compile flag"
+        );
         assert!(!flags.contains(&"-g".to_string()), "no debug");
         // Default standard from _cpp.rhai must be applied even when manifest omits it.
-        assert!(flags.contains(&"-std=c++17".to_string()), "default c++17 standard");
+        assert!(
+            flags.contains(&"-std=c++17".to_string()),
+            "default c++17 standard"
+        );
     }
 
     #[test]
     fn default_standard_applied_when_not_set() {
         // C++ template defaults to c++17.
-        let cpp_flags = gcc().assemble_flags(&BuildSettings { standard: None, ..Default::default() });
-        assert!(cpp_flags.contains(&"-std=c++17".to_string()), "g++ default std is c++17");
+        let cpp_flags = gcc().assemble_flags(&BuildSettings {
+            standard: None,
+            ..Default::default()
+        });
+        assert!(
+            cpp_flags.contains(&"-std=c++17".to_string()),
+            "g++ default std is c++17"
+        );
 
         // C template defaults to c11.
-        let c_flags = gcc_c().assemble_flags(&BuildSettings { standard: None, ..Default::default() });
-        assert!(c_flags.contains(&"-std=c11".to_string()), "gcc default std is c11");
+        let c_flags = gcc_c().assemble_flags(&BuildSettings {
+            standard: None,
+            ..Default::default()
+        });
+        assert!(
+            c_flags.contains(&"-std=c11".to_string()),
+            "gcc default std is c11"
+        );
     }
 
     #[test]
@@ -1722,14 +2161,28 @@ mod tests {
             standard: Some("c++23".into()),
             ..Default::default()
         });
-        assert!(flags.contains(&"-std=c++23".to_string()), "explicit standard used");
-        assert!(!flags.contains(&"-std=c++17".to_string()), "default not emitted when overridden");
+        assert!(
+            flags.contains(&"-std=c++23".to_string()),
+            "explicit standard used"
+        );
+        assert!(
+            !flags.contains(&"-std=c++17".to_string()),
+            "default not emitted when overridden"
+        );
     }
 
     #[test]
     fn strip_binary_returns_strip_tool() {
-        assert_eq!(gcc().strip_binary(), Some("strip"), "gcc toolset should declare strip binary");
-        assert_eq!(clang().strip_binary(), Some("strip"), "clang toolset should declare strip binary");
+        assert_eq!(
+            gcc().strip_binary(),
+            Some("strip"),
+            "gcc toolset should declare strip binary"
+        );
+        assert_eq!(
+            clang().strip_binary(),
+            Some("strip"),
+            "clang toolset should declare strip binary"
+        );
     }
 
     #[test]
@@ -1740,7 +2193,10 @@ mod tests {
             strip: true,
             ..Default::default()
         });
-        assert!(!flags.contains(&"-s".to_string()), "strip flag must not appear in link flags");
+        assert!(
+            !flags.contains(&"-s".to_string()),
+            "strip flag must not appear in link flags"
+        );
     }
 
     #[test]
@@ -1772,7 +2228,10 @@ mod tests {
             sanitize: vec!["address".into()],
             ..Default::default()
         });
-        assert!(flags.iter().any(|f| f == "-fsanitize=address"), "single sanitizer");
+        assert!(
+            flags.iter().any(|f| f == "-fsanitize=address"),
+            "single sanitizer"
+        );
     }
 
     #[test]
@@ -1822,7 +2281,10 @@ mod tests {
     fn include_paths() {
         let flags = gcc().assemble_flags(&BuildSettings {
             opt_level: "2".into(),
-            include_paths: vec![PathBuf::from("include/"), PathBuf::from("third_party/include/")],
+            include_paths: vec![
+                PathBuf::from("include/"),
+                PathBuf::from("third_party/include/"),
+            ],
             ..Default::default()
         });
         assert!(flags.contains(&"-Iinclude/".to_string()));
@@ -1838,7 +2300,9 @@ mod tests {
             extra_flags: vec!["-march=native".into()],
             ..Default::default()
         });
-        let idx = flags.iter().position(|f| f == "-Xcompiler")
+        let idx = flags
+            .iter()
+            .position(|f| f == "-Xcompiler")
             .expect("-Xcompiler prefix should be present");
         assert_eq!(flags[idx + 1], "-march=native");
     }
@@ -1974,7 +2438,10 @@ mod tests {
             sysroot: Some(PathBuf::from("/opt/sysroots/cortex-a72-linux-gnu")),
             ..Default::default()
         });
-        assert!(flags.iter().any(|f| f == "-mcpu=cortex-a72"), "got: {flags:?}");
+        assert!(
+            flags.iter().any(|f| f == "-mcpu=cortex-a72"),
+            "got: {flags:?}"
+        );
     }
 
     #[test]
@@ -1985,7 +2452,10 @@ mod tests {
             sysroot: Some(PathBuf::from("/opt/sysroots/rv64gcv-lp64d")),
             ..Default::default()
         });
-        assert!(flags.iter().any(|f| f == "-march=rv64gcv"), "got: {flags:?}");
+        assert!(
+            flags.iter().any(|f| f == "-march=rv64gcv"),
+            "got: {flags:?}"
+        );
         assert!(flags.iter().any(|f| f == "-mabi=lp64d"), "got: {flags:?}");
     }
 
@@ -1998,7 +2468,12 @@ mod tests {
             auto_cpu_tuning: false,
             ..Default::default()
         });
-        assert!(!flags.iter().any(|f| f.starts_with("-mcpu") || f.starts_with("-march")), "got: {flags:?}");
+        assert!(
+            !flags
+                .iter()
+                .any(|f| f.starts_with("-mcpu") || f.starts_with("-march")),
+            "got: {flags:?}"
+        );
     }
 
     #[test]
@@ -2010,8 +2485,14 @@ mod tests {
             extra_flags: vec!["-march=armv8.2-a".into()],
             ..Default::default()
         });
-        assert!(flags.iter().any(|f| f == "-march=armv8.2-a"), "got: {flags:?}");
-        assert!(!flags.iter().any(|f| f == "-mcpu=cortex-a72"), "got: {flags:?}");
+        assert!(
+            flags.iter().any(|f| f == "-march=armv8.2-a"),
+            "got: {flags:?}"
+        );
+        assert!(
+            !flags.iter().any(|f| f == "-mcpu=cortex-a72"),
+            "got: {flags:?}"
+        );
     }
 
     #[test]
@@ -2058,14 +2539,29 @@ mod tests {
 
     #[test]
     fn msvc_lto_link_uses_ltcg_not_gl() {
-        let settings = BuildSettings { lto: true, ..Default::default() };
+        let settings = BuildSettings {
+            lto: true,
+            ..Default::default()
+        };
         let compile_flags = msvc().assemble_flags(&settings);
-        let link_flags   = msvc().assemble_link_flags(&settings);
+        let link_flags = msvc().assemble_link_flags(&settings);
         // Compile step gets /GL, link step gets /LTCG
-        assert!(compile_flags.contains(&"/GL".to_string()), "/GL should be in compile flags");
-        assert!(!compile_flags.contains(&"/LTCG".to_string()), "/LTCG must not appear at compile time");
-        assert!(link_flags.contains(&"/LTCG".to_string()), "/LTCG should be in link flags");
-        assert!(!link_flags.contains(&"/GL".to_string()), "/GL must not appear at link time");
+        assert!(
+            compile_flags.contains(&"/GL".to_string()),
+            "/GL should be in compile flags"
+        );
+        assert!(
+            !compile_flags.contains(&"/LTCG".to_string()),
+            "/LTCG must not appear at compile time"
+        );
+        assert!(
+            link_flags.contains(&"/LTCG".to_string()),
+            "/LTCG should be in link flags"
+        );
+        assert!(
+            !link_flags.contains(&"/GL".to_string()),
+            "/GL must not appear at link time"
+        );
     }
 
     #[test]
@@ -2080,16 +2576,27 @@ mod tests {
         let t = gfortran();
         assert!(t.extensions.contains(&".f90".to_string()));
         assert!(t.extensions.contains(&".f08".to_string()));
-        let link = t.linking.get("fortran").expect("gfortran must have linking.fortran");
+        let link = t
+            .linking
+            .get("fortran")
+            .expect("gfortran must have linking.fortran");
         assert_eq!(link.abi, "fortran");
-        assert!(link.compatible.contains(&"c".to_string()),
-            "Fortran can link against C libraries");
+        assert!(
+            link.compatible.contains(&"c".to_string()),
+            "Fortran can link against C libraries"
+        );
     }
 
     #[test]
     fn gfortran_default_standard_is_f2008() {
-        let flags = gfortran().assemble_flags(&BuildSettings { standard: None, ..Default::default() });
-        assert!(flags.contains(&"-std=f2008".to_string()), "gfortran default std is f2008");
+        let flags = gfortran().assemble_flags(&BuildSettings {
+            standard: None,
+            ..Default::default()
+        });
+        assert!(
+            flags.contains(&"-std=f2008".to_string()),
+            "gfortran default std is f2008"
+        );
     }
 
     #[test]
@@ -2105,8 +2612,11 @@ mod tests {
 
     #[test]
     fn gfortran_no_module_support() {
-        assert_eq!(gfortran().modules, ModuleStyle::Unsupported,
-            "Fortran uses its own module system, not the C++ module style");
+        assert_eq!(
+            gfortran().modules,
+            ModuleStyle::Unsupported,
+            "Fortran uses its own module system, not the C++ module style"
+        );
     }
 
     // ── D language (DMD) ──────────────────────────────────────────────────────
@@ -2117,8 +2627,10 @@ mod tests {
         assert!(t.extensions.contains(&".d".to_string()));
         let link = t.linking.get("d").expect("dmd must have linking.d");
         assert_eq!(link.abi, "d");
-        assert!(link.compatible.contains(&"c".to_string()),
-            "D can link against C libraries");
+        assert!(
+            link.compatible.contains(&"c".to_string()),
+            "D can link against C libraries"
+        );
     }
 
     #[test]
@@ -2127,20 +2639,28 @@ mod tests {
             defines: vec!["UseSomeFeature".into()],
             ..Default::default()
         });
-        assert!(flags.contains(&"-version=UseSomeFeature".to_string()),
-            "DMD uses -version= not -D for defines");
+        assert!(
+            flags.contains(&"-version=UseSomeFeature".to_string()),
+            "DMD uses -version= not -D for defines"
+        );
     }
 
     #[test]
     fn dmd_system_lib_uses_linker_passthrough() {
-        assert_eq!(dmd().system_lib_flag("curl"), "-L-lcurl",
-            "DMD passes linker flags via -L prefix");
+        assert_eq!(
+            dmd().system_lib_flag("curl"),
+            "-L-lcurl",
+            "DMD passes linker flags via -L prefix"
+        );
     }
 
     #[test]
     fn dmd_dep_file_mode_is_none() {
-        assert_eq!(dmd().dep_file_mode(), "none",
-            "DMD does not produce .d dep files (different meaning in D)");
+        assert_eq!(
+            dmd().dep_file_mode(),
+            "none",
+            "DMD does not produce .d dep files (different meaning in D)"
+        );
     }
 
     // ── Assembly (NASM) ───────────────────────────────────────────────────────
@@ -2160,8 +2680,10 @@ mod tests {
     fn nasm_arch_flags_for_elf64() {
         let t = nasm();
         // arch_flags are on the template, keyed by "arch.os"
-        assert!(t.arch_flags.contains_key("x86_64.linux"),
-            "nasm must have an arch flag for x86_64 linux");
+        assert!(
+            t.arch_flags.contains_key("x86_64.linux"),
+            "nasm must have an arch flag for x86_64 linux"
+        );
         assert_eq!(t.arch_flags["x86_64.linux"], "-f elf64");
         assert_eq!(t.arch_flags["x86_64.macos"], "-f macho64");
         assert_eq!(t.arch_flags["x86_64.windows"], "-f win64");
@@ -2173,8 +2695,10 @@ mod tests {
             debug: true,
             ..Default::default()
         });
-        assert!(flags.iter().any(|f| f.contains("dwarf")),
-            "NASM debug should include dwarf format, got: {flags:?}");
+        assert!(
+            flags.iter().any(|f| f.contains("dwarf")),
+            "NASM debug should include dwarf format, got: {flags:?}"
+        );
     }
 
     // ── Cross-language linking ─────────────────────────────────────────────────
@@ -2183,10 +2707,14 @@ mod tests {
     fn cpp_template_compatible_with_c_and_fortran() {
         let t = gcc();
         let link = t.linking.get("cpp").unwrap();
-        assert!(link.compatible.contains(&"c".to_string()),
-            "C++ can link C objects");
-        assert!(link.compatible.contains(&"fortran".to_string()),
-            "C++ can link Fortran objects");
+        assert!(
+            link.compatible.contains(&"c".to_string()),
+            "C++ can link C objects"
+        );
+        assert!(
+            link.compatible.contains(&"fortran".to_string()),
+            "C++ can link Fortran objects"
+        );
     }
 
     #[test]
@@ -2194,99 +2722,152 @@ mod tests {
         // C linker cannot link C++ — C++ requires the C++ runtime
         let t = gcc_c();
         let link = t.linking.get("c").unwrap();
-        assert!(!link.compatible.contains(&"cpp".to_string()),
-            "C linker must not claim C++ compatibility");
-        assert!(!link.compatible.contains(&"fortran".to_string()),
-            "C linker must not claim Fortran compatibility");
+        assert!(
+            !link.compatible.contains(&"cpp".to_string()),
+            "C linker must not claim C++ compatibility"
+        );
+        assert!(
+            !link.compatible.contains(&"fortran".to_string()),
+            "C linker must not claim Fortran compatibility"
+        );
     }
 
     #[test]
     fn d_compatible_with_c_not_cpp() {
         let t = dmd();
         let link = t.linking.get("d").unwrap();
-        assert!(link.compatible.contains(&"c".to_string()),
-            "D can link C objects");
-        assert!(!link.compatible.contains(&"cpp".to_string()),
-            "D does not claim C++ ABI compatibility");
+        assert!(
+            link.compatible.contains(&"c".to_string()),
+            "D can link C objects"
+        );
+        assert!(
+            !link.compatible.contains(&"cpp".to_string()),
+            "D does not claim C++ ABI compatibility"
+        );
     }
 
     #[test]
     fn fortran_compatible_with_c_not_cpp() {
         let t = gfortran();
         let link = t.linking.get("fortran").unwrap();
-        assert!(link.compatible.contains(&"c".to_string()),
-            "Fortran can link C objects");
-        assert!(!link.compatible.contains(&"cpp".to_string()),
-            "Fortran does not claim C++ ABI compatibility");
+        assert!(
+            link.compatible.contains(&"c".to_string()),
+            "Fortran can link C objects"
+        );
+        assert!(
+            !link.compatible.contains(&"cpp".to_string()),
+            "Fortran does not claim C++ ABI compatibility"
+        );
     }
 
     #[test]
     fn asm_compatible_with_both_c_and_cpp() {
         let t = nasm();
         let link = t.linking.get("asm").unwrap();
-        assert!(link.compatible.contains(&"c".to_string()),
-            "Assembly can be linked by a C linker");
-        assert!(link.compatible.contains(&"cpp".to_string()),
-            "Assembly can be linked by a C++ linker");
+        assert!(
+            link.compatible.contains(&"c".to_string()),
+            "Assembly can be linked by a C linker"
+        );
+        assert!(
+            link.compatible.contains(&"cpp".to_string()),
+            "Assembly can be linked by a C++ linker"
+        );
     }
 
     #[test]
     fn nvcc_cuda_linker_is_cpp() {
         let t = nvcc();
         let link = t.linking.get("cuda").unwrap();
-        assert_eq!(link.linker, "c++",
-            "CUDA requires a C++ linker for host code");
+        assert_eq!(
+            link.linker, "c++",
+            "CUDA requires a C++ linker for host code"
+        );
     }
 
     fn versioned_gpp() -> CompilerTemplate {
         TemplateDef {
-            name: "g++", binary: "g++", family: "gnu",
+            name: "g++",
+            binary: "g++",
+            family: "gnu",
             version_regex: r"(\d+\.\d+\.\d+)",
             extensions: &[".cpp"],
             standards: &[
-                ("c++17","-std=c++17"),("c++20","-std=c++20"),
-                ("c++23","-std=c++23"),("c++26","-std=c++26"),
+                ("c++17", "-std=c++17"),
+                ("c++20", "-std=c++20"),
+                ("c++23", "-std=c++23"),
+                ("c++26", "-std=c++26"),
             ],
             standard_min_versions: &[
-                ("c++17","7.0"),("c++20","10.0"),("c++23","12.0"),("c++26","14.0"),
+                ("c++17", "7.0"),
+                ("c++20", "10.0"),
+                ("c++23", "12.0"),
+                ("c++26", "14.0"),
             ],
-            defaults: &[("std","c++17")],
-            debug: "-g", lto: "-flto",
-            opt_flags: &[("2","-O2")],
-            warning_flags: &[("all","-Wall")],
+            defaults: &[("std", "c++17")],
+            debug: "-g",
+            lto: "-flto",
+            opt_flags: &[("2", "-O2")],
+            warning_flags: &[("all", "-Wall")],
             structure: &[
-                ("include_dir","-I{path}"),("define","-D{name}"),("define_value","-D{name}={value}"),
-                ("output","-o {path}"),("compile_only","-c"),("dep_file","-MMD -MF {path}"),
+                ("include_dir", "-I{path}"),
+                ("define", "-D{name}"),
+                ("define_value", "-D{name}={value}"),
+                ("output", "-o {path}"),
+                ("compile_only", "-c"),
+                ("dep_file", "-MMD -MF {path}"),
             ],
             linking: &[LinkDef {
-                lang: "cpp", abi: "c++", compatible: &["c"],
-                extensions: &[".cpp"], linker: "", compile_binary: None, whole_program: false,
+                lang: "cpp",
+                abi: "c++",
+                compatible: &["c"],
+                extensions: &[".cpp"],
+                linker: "",
+                compile_binary: None,
+                whole_program: false,
             }],
             ..EMPTY
-        }.build(&[], &[])
+        }
+        .build(&[], &[])
     }
 
     fn versioned_gcc_c() -> CompilerTemplate {
         TemplateDef {
-            name: "gcc", binary: "gcc", family: "gnu",
+            name: "gcc",
+            binary: "gcc",
+            family: "gnu",
             version_regex: r"(\d+\.\d+\.\d+)",
             extensions: &[".c"],
-            standards: &[("c11","-std=c11"),("c17","-std=c17"),("c23","-std=c23")],
-            standard_min_versions: &[("c17","8.0"),("c23","14.0")],
-            defaults: &[("std","c11")],
-            debug: "-g", lto: "-flto",
-            opt_flags: &[("2","-O2")],
-            warning_flags: &[("all","-Wall")],
+            standards: &[
+                ("c11", "-std=c11"),
+                ("c17", "-std=c17"),
+                ("c23", "-std=c23"),
+            ],
+            standard_min_versions: &[("c17", "8.0"), ("c23", "14.0")],
+            defaults: &[("std", "c11")],
+            debug: "-g",
+            lto: "-flto",
+            opt_flags: &[("2", "-O2")],
+            warning_flags: &[("all", "-Wall")],
             structure: &[
-                ("include_dir","-I{path}"),("define","-D{name}"),("define_value","-D{name}={value}"),
-                ("output","-o {path}"),("compile_only","-c"),("dep_file","-MMD -MF {path}"),
+                ("include_dir", "-I{path}"),
+                ("define", "-D{name}"),
+                ("define_value", "-D{name}={value}"),
+                ("output", "-o {path}"),
+                ("compile_only", "-c"),
+                ("dep_file", "-MMD -MF {path}"),
             ],
             linking: &[LinkDef {
-                lang: "c", abi: "c", compatible: &[],
-                extensions: &[".c"], linker: "", compile_binary: None, whole_program: false,
+                lang: "c",
+                abi: "c",
+                compatible: &[],
+                extensions: &[".c"],
+                linker: "",
+                compile_binary: None,
+                whole_program: false,
             }],
             ..EMPTY
-        }.build(&[], &[])
+        }
+        .build(&[], &[])
     }
 
     #[test]

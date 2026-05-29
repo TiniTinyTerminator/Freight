@@ -15,10 +15,10 @@ impl Args {
     }
 }
 
-use freight_core::manifest::{find_manifest_dir, load_manifest, load_workspace_manifest};
 use freight_core::manifest::types::Manifest;
+use freight_core::manifest::{find_manifest_dir, load_manifest, load_workspace_manifest};
 use freight_core::toolchain::{
-    DetectedTool, collect_sources, detect_tools, load_formatter_templates, select_formatter,
+    collect_sources, detect_tools, load_formatter_templates, select_formatter, DetectedTool,
 };
 
 use crate::output::{print_error, print_success, print_warning};
@@ -26,8 +26,14 @@ use crate::output::{print_error, print_success, print_warning};
 fn print_settings_ref(tool: &DetectedTool) {
     use owo_colors::OwoColorize;
     let t = &tool.template;
-    if t.settings.is_empty() { return; }
-    println!("  {} [formatter] settings for {}:", "hint:".dimmed(), t.name.bold());
+    if t.settings.is_empty() {
+        return;
+    }
+    println!(
+        "  {} [formatter] settings for {}:",
+        "hint:".dimmed(),
+        t.name.bold()
+    );
     let mut keys: Vec<&String> = t.settings.keys().collect();
     keys.sort();
     for key in keys {
@@ -49,7 +55,9 @@ fn fmt_project(project_dir: &Path, manifest: &Manifest, check: bool) -> bool {
             if let Some(name) = &manifest.formatter.name {
                 print_error(&format!("formatter '{name}' not found on PATH"));
             } else {
-                print_error("no formatter found on PATH — install clang-format or another formatter");
+                print_error(
+                    "no formatter found on PATH — install clang-format or another formatter",
+                );
             }
             return false;
         }
@@ -62,13 +70,20 @@ fn fmt_project(project_dir: &Path, manifest: &Manifest, check: bool) -> bool {
     let src_dir = project_dir.join("src");
     let files = collect_sources(&src_dir, &formatter.template.extensions);
     if files.is_empty() {
-        print_warning(&format!("no source files found to format in {}", project_dir.display()));
+        print_warning(&format!(
+            "no source files found to format in {}",
+            project_dir.display()
+        ));
         return true;
     }
 
     let mode = if check { "check" } else { "fix" };
     use owo_colors::OwoColorize;
-    let verb = if check { "Checking".bold().cyan().to_string() } else { "Formatting".bold().cyan().to_string() };
+    let verb = if check {
+        "Checking".bold().cyan().to_string()
+    } else {
+        "Formatting".bold().cyan().to_string()
+    };
     println!(
         "  {} {} files with {} {}",
         verb,
@@ -77,17 +92,26 @@ fn fmt_project(project_dir: &Path, manifest: &Manifest, check: bool) -> bool {
         formatter.version,
     );
 
-    match formatter.command(&manifest.formatter.settings, mode, &files).status() {
+    match formatter
+        .command(&manifest.formatter.settings, mode, &files)
+        .status()
+    {
         Ok(s) if s.success() => true,
         Ok(_) => false,
-        Err(e) => { print_error(&format!("failed to run formatter: {e}")); false }
+        Err(e) => {
+            print_error(&format!("failed to run formatter: {e}"));
+            false
+        }
     }
 }
 
 pub fn cmd_fmt(check: bool) {
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
-        Err(e) => { print_error(&format!("cannot read cwd: {e}")); return; }
+        Err(e) => {
+            print_error(&format!("cannot read cwd: {e}"));
+            return;
+        }
     };
 
     if let Some(ws) = load_workspace_manifest(&cwd) {
@@ -96,7 +120,11 @@ pub fn cmd_fmt(check: bool) {
             let member_dir = cwd.join(member);
             let manifest = match load_manifest(&member_dir) {
                 Ok(m) => m,
-                Err(e) => { print_error(&format!("{member}: {e}")); all_ok = false; continue; }
+                Err(e) => {
+                    print_error(&format!("{member}: {e}"));
+                    all_ok = false;
+                    continue;
+                }
             };
             use owo_colors::OwoColorize;
             println!("  {} {}", "member".bright_black(), member.bold());
@@ -120,11 +148,17 @@ pub fn cmd_fmt(check: bool) {
 
     let project_dir = match find_manifest_dir(&cwd) {
         Some(d) => d,
-        None => { print_error("no freight.toml found"); return; }
+        None => {
+            print_error("no freight.toml found");
+            return;
+        }
     };
     let manifest = match load_manifest(&project_dir) {
         Ok(m) => m,
-        Err(e) => { print_error(&e.to_string()); return; }
+        Err(e) => {
+            print_error(&e.to_string());
+            return;
+        }
     };
 
     let ok = fmt_project(&project_dir, &manifest, check);

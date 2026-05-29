@@ -33,7 +33,10 @@ pub fn compile_pch(
 
     let header_path = project_dir.join(header_rel);
     if !header_path.exists() {
-        eprintln!("warning: pch header '{}' not found, skipping PCH", header_rel);
+        eprintln!(
+            "warning: pch header '{}' not found, skipping PCH",
+            header_rel
+        );
         return Ok(None);
     }
 
@@ -50,14 +53,15 @@ pub fn compile_pch(
         let header_mtime = std::fs::metadata(&header_path)
             .and_then(|m| m.modified())
             .ok();
-        let pch_mtime = std::fs::metadata(&pch_out)
-            .and_then(|m| m.modified())
-            .ok();
+        let pch_mtime = std::fs::metadata(&pch_out).and_then(|m| m.modified()).ok();
         if let (Some(hm), Some(pm)) = (header_mtime, pch_mtime) {
             if pm >= hm {
                 let use_flag = expand_pch_use_flag(&pch_cfg.use_flag, &header_path, &pch_out);
                 let clangd_flag = expand_pch_clangd_flag(&pch_cfg.clangd_flag, &header_path);
-                return Ok(Some(CompiledPch { use_flag, clangd_flag }));
+                return Ok(Some(CompiledPch {
+                    use_flag,
+                    clangd_flag,
+                }));
             }
         }
     }
@@ -79,9 +83,9 @@ pub fn compile_pch(
     cmd.arg(&header_path);
     cmd.arg("-o").arg(&pch_out);
 
-    let status = cmd
-        .status()
-        .map_err(|e| FreightError::CompileFailed(format!("PCH compile failed: {e}"), String::new()))?;
+    let status = cmd.status().map_err(|e| {
+        FreightError::CompileFailed(format!("PCH compile failed: {e}"), String::new())
+    })?;
     if !status.success() {
         return Err(FreightError::CompileFailed(
             format!("PCH compilation of '{}' failed", header_rel),
@@ -91,7 +95,10 @@ pub fn compile_pch(
 
     let use_flag = expand_pch_use_flag(&pch_cfg.use_flag, &header_path, &pch_out);
     let clangd_flag = expand_pch_clangd_flag(&pch_cfg.clangd_flag, &header_path);
-    Ok(Some(CompiledPch { use_flag, clangd_flag }))
+    Ok(Some(CompiledPch {
+        use_flag,
+        clangd_flag,
+    }))
 }
 
 fn expand_pch_clangd_flag(template: &str, header_path: &Path) -> String {

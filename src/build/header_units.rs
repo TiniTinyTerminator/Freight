@@ -3,9 +3,9 @@ use std::process::Command;
 
 use walkdir::WalkDir;
 
+use super::compile::{is_up_to_date, select_compiler};
 use crate::manifest::types::Backend;
 use crate::toolchain::DetectedCompiler;
-use super::compile::{is_up_to_date, select_compiler};
 
 /// A header that has been precompiled as a C++20 header unit BMI.
 pub struct HeaderUnit {
@@ -36,25 +36,39 @@ pub fn precompile_dep_headers(
     detected: &[DetectedCompiler],
     profile: &str,
 ) -> Vec<HeaderUnit> {
-    if include_dirs.is_empty() { return vec![]; }
+    if include_dirs.is_empty() {
+        return vec![];
+    }
 
-    let Some(compiler) = select_compiler("cpp", backend, detected, None) else { return vec![]; };
-    if !compiler.template.supports_header_units() { return vec![]; }
+    let Some(compiler) = select_compiler("cpp", backend, detected, None) else {
+        return vec![];
+    };
+    if !compiler.template.supports_header_units() {
+        return vec![];
+    }
 
     let std_flag = match compiler.template.standards.get(cpp_std) {
         Some(f) => f.clone(),
         None => return vec![],
     };
 
-    let hu_dir = project_dir.join("target").join(profile).join("header-units");
+    let hu_dir = project_dir
+        .join("target")
+        .join(profile)
+        .join("header-units");
 
     let mut units: Vec<HeaderUnit> = Vec::new();
 
     for inc_dir in include_dirs {
-        if !inc_dir.is_dir() { continue; }
+        if !inc_dir.is_dir() {
+            continue;
+        }
 
         // Build the -I flag for this include dir so headers that include siblings compile.
-        let i_flag = compiler.template.structure.include_dir
+        let i_flag = compiler
+            .template
+            .structure
+            .include_dir
             .replace("{path}", &inc_dir.to_string_lossy());
         let include_flags: Vec<String> = i_flag.split_whitespace().map(str::to_owned).collect();
 
@@ -65,8 +79,13 @@ pub fn precompile_dep_headers(
             .filter(|e| e.file_type().is_file())
         {
             let header_abs = entry.path();
-            let ext = header_abs.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if !matches!(ext, "h" | "hpp" | "hh" | "hxx") { continue; }
+            let ext = header_abs
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("");
+            if !matches!(ext, "h" | "hpp" | "hh" | "hxx") {
+                continue;
+            }
 
             let rel_path = match header_abs.strip_prefix(inc_dir) {
                 Ok(r) => r.to_string_lossy().replace('\\', "/"),
@@ -83,12 +102,19 @@ pub fn precompile_dep_headers(
             }
 
             if let Some(parent) = pcm_path.parent() {
-                if std::fs::create_dir_all(parent).is_err() { continue; }
+                if std::fs::create_dir_all(parent).is_err() {
+                    continue;
+                }
             }
 
             let Some((binary, args)) = compiler.template.precompile_header_unit_cmd(
-                header_abs, &pcm_path, &std_flag, &include_flags,
-            ) else { continue; };
+                header_abs,
+                &pcm_path,
+                &std_flag,
+                &include_flags,
+            ) else {
+                continue;
+            };
 
             let status = Command::new(&binary).args(&args).output();
             match status {
@@ -111,7 +137,12 @@ pub fn precompile_dep_headers(
 
 /// Build the `-fmodule-file=rel_path=pcm_path` flags for each header unit.
 pub fn import_flags(units: &[HeaderUnit], compiler: &DetectedCompiler) -> Vec<String> {
-    units.iter()
-        .filter_map(|u| compiler.template.header_unit_import_flag(&u.rel_path, &u.pcm_path))
+    units
+        .iter()
+        .filter_map(|u| {
+            compiler
+                .template
+                .header_unit_import_flag(&u.rel_path, &u.pcm_path)
+        })
         .collect()
 }

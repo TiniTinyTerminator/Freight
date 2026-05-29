@@ -21,11 +21,11 @@ pub enum SystemPm {
 impl SystemPm {
     pub fn name(self) -> &'static str {
         match self {
-            Self::Apt    => "apt",
-            Self::Dnf    => "dnf",
+            Self::Apt => "apt",
+            Self::Dnf => "dnf",
             Self::Pacman => "pacman",
             Self::Zypper => "zypper",
-            Self::Brew   => "brew",
+            Self::Brew => "brew",
             Self::Winget => "winget",
         }
     }
@@ -33,11 +33,11 @@ impl SystemPm {
     /// Return a suggested install command for the given package name.
     pub fn install_hint(self, package: &str) -> String {
         match self {
-            Self::Apt    => format!("sudo apt install lib{package}-dev"),
-            Self::Dnf    => format!("sudo dnf install {package}-devel"),
+            Self::Apt => format!("sudo apt install lib{package}-dev"),
+            Self::Dnf => format!("sudo dnf install {package}-devel"),
             Self::Pacman => format!("sudo pacman -S {package}"),
             Self::Zypper => format!("sudo zypper install {package}-devel"),
-            Self::Brew   => format!("brew install {package}"),
+            Self::Brew => format!("brew install {package}"),
             Self::Winget => format!("winget install {package}"),
         }
     }
@@ -46,11 +46,11 @@ impl SystemPm {
 /// Detect the first available system package manager on `PATH`.
 pub fn detect() -> Option<SystemPm> {
     for (pm, binary) in [
-        (SystemPm::Apt,    "apt-get"),
-        (SystemPm::Dnf,    "dnf"),
+        (SystemPm::Apt, "apt-get"),
+        (SystemPm::Dnf, "dnf"),
         (SystemPm::Pacman, "pacman"),
         (SystemPm::Zypper, "zypper"),
-        (SystemPm::Brew,   "brew"),
+        (SystemPm::Brew, "brew"),
         (SystemPm::Winget, "winget"),
     ] {
         if is_on_path(binary) {

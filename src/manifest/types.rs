@@ -80,33 +80,47 @@ impl Manifest {
     pub fn build_settings_for(&self, profile_name: &str) -> BuildSettings {
         let mut defines = self.compiler.defines.clone();
         let mut flags = self.compiler.flags.clone();
-        let mut include_paths: Vec<PathBuf> = self
-            .compiler
-            .includes
-            .iter()
-            .map(PathBuf::from)
-            .collect();
+        let mut include_paths: Vec<PathBuf> =
+            self.compiler.includes.iter().map(PathBuf::from).collect();
 
         // Apply matching [os.*] overlays — family-first so `[os.unix]` is
         // applied before `[os.linux]` and the specific key wins.
         for os_key in host_platforms() {
-            if let Some(ov) = self.os.iter().find(|(k, _)| k.eq_ignore_ascii_case(os_key)).map(|(_, v)| v) {
+            if let Some(ov) = self
+                .os
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(os_key))
+                .map(|(_, v)| v)
+            {
                 merge_string_vec(&mut defines, &ov.defines);
                 merge_string_vec(&mut flags, &ov.flags);
                 for p in &ov.includes {
                     let buf = PathBuf::from(p);
-                    if !include_paths.contains(&buf) { include_paths.push(buf); }
+                    if !include_paths.contains(&buf) {
+                        include_paths.push(buf);
+                    }
                 }
             }
         }
         // Apply matching [arch.*] overlay.
-        let current_arch = self.target.arch.as_deref().unwrap_or(std::env::consts::ARCH);
-        if let Some(ov) = self.arch.iter().find(|(k, _)| k.eq_ignore_ascii_case(current_arch)).map(|(_, v)| v) {
+        let current_arch = self
+            .target
+            .arch
+            .as_deref()
+            .unwrap_or(std::env::consts::ARCH);
+        if let Some(ov) = self
+            .arch
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(current_arch))
+            .map(|(_, v)| v)
+        {
             merge_string_vec(&mut defines, &ov.defines);
             merge_string_vec(&mut flags, &ov.flags);
             for p in &ov.includes {
                 let buf = PathBuf::from(p);
-                if !include_paths.contains(&buf) { include_paths.push(buf); }
+                if !include_paths.contains(&buf) {
+                    include_paths.push(buf);
+                }
             }
         }
 
@@ -125,7 +139,10 @@ impl Manifest {
             target_triple: self.compiler.target.clone(),
             sysroot: self.compiler.sysroot.as_deref().map(PathBuf::from),
             auto_cpu_tuning: self.compiler.auto_cpu_tuning,
-            arch: self.target.arch.clone()
+            arch: self
+                .target
+                .arch
+                .clone()
                 .unwrap_or_else(|| std::env::consts::ARCH.to_string()),
             cpu_extensions: self.target.cpu_extensions.clone(),
             ..Default::default()
@@ -139,7 +156,11 @@ impl Manifest {
             debug: p.debug.unwrap_or(base.debug),
             lto: p.lto.unwrap_or(base.lto),
             strip: p.strip.unwrap_or(base.strip),
-            sanitize: if p.sanitize.is_empty() { base.sanitize } else { p.sanitize },
+            sanitize: if p.sanitize.is_empty() {
+                base.sanitize
+            } else {
+                p.sanitize
+            },
             ..base
         }
     }
@@ -155,25 +176,33 @@ impl Manifest {
         // Accumulate layers from leaf to root, then merge root-first.
         let mut chain: Vec<Profile> = Vec::new();
         loop {
-            if visited.len() >= 16 { break; } // max-hop guard
-            if visited.contains(&current_name) { break; } // cycle guard
+            if visited.len() >= 16 {
+                break;
+            } // max-hop guard
+            if visited.contains(&current_name) {
+                break;
+            } // cycle guard
             visited.push(current_name.clone());
             let p = match current_name.as_str() {
-                "dev"     => self.profile.dev.clone()?,
+                "dev" => self.profile.dev.clone()?,
                 "release" => self.profile.release.clone()?,
                 // Built-in bench default: release-speed + debug symbols, no strip.
                 // Overridable with [profile.bench] in freight.toml.
-                "bench" => self.profile.custom.get("bench").cloned()
+                "bench" => self
+                    .profile
+                    .custom
+                    .get("bench")
+                    .cloned()
                     .unwrap_or(Profile {
-                        inherits:  None,
+                        inherits: None,
                         opt_level: Some(3),
-                        debug:     Some(true),
-                        lto:       Some(false),
-                        strip:     Some(false),
-                        sanitize:  vec![],
-                        features:  vec![],
+                        debug: Some(true),
+                        lto: Some(false),
+                        strip: Some(false),
+                        sanitize: vec![],
+                        features: vec![],
                     }),
-                _       => self.profile.custom.get(&current_name).cloned()?,
+                _ => self.profile.custom.get(&current_name).cloned()?,
             };
             let next = p.inherits.clone();
             chain.push(p);
@@ -186,14 +215,26 @@ impl Manifest {
         // Root provides defaults; each child overrides.
         let mut merged = chain.pop()?; // root
         for child in chain.into_iter().rev() {
-            if child.opt_level.is_some() { merged.opt_level = child.opt_level; }
-            if child.debug.is_some()     { merged.debug     = child.debug; }
-            if child.lto.is_some()       { merged.lto       = child.lto; }
-            if child.strip.is_some()     { merged.strip      = child.strip; }
-            if !child.sanitize.is_empty() { merged.sanitize  = child.sanitize; }
+            if child.opt_level.is_some() {
+                merged.opt_level = child.opt_level;
+            }
+            if child.debug.is_some() {
+                merged.debug = child.debug;
+            }
+            if child.lto.is_some() {
+                merged.lto = child.lto;
+            }
+            if child.strip.is_some() {
+                merged.strip = child.strip;
+            }
+            if !child.sanitize.is_empty() {
+                merged.sanitize = child.sanitize;
+            }
             if !child.features.is_empty() {
                 for f in child.features {
-                    if !merged.features.contains(&f) { merged.features.push(f); }
+                    if !merged.features.contains(&f) {
+                        merged.features.push(f);
+                    }
                 }
             }
         }
@@ -211,13 +252,24 @@ impl Manifest {
     /// - `arch`: host CPU architecture allowlist
     pub fn effective_dependencies(&self) -> HashMap<String, Dependency> {
         let current_target = self.compiler.target.as_deref();
-        let current_arch = self.target.arch.as_deref().unwrap_or(std::env::consts::ARCH);
-        let mut out: HashMap<String, Dependency> = self.dependencies.iter()
+        let current_arch = self
+            .target
+            .arch
+            .as_deref()
+            .unwrap_or(std::env::consts::ARCH);
+        let mut out: HashMap<String, Dependency> = self
+            .dependencies
+            .iter()
             .filter(|(_, dep)| dep_matches_env(dep, current_target))
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
         for os_key in host_platforms() {
-            if let Some(ov) = self.os.iter().find(|(k, _)| k.eq_ignore_ascii_case(os_key)).map(|(_, v)| v) {
+            if let Some(ov) = self
+                .os
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(os_key))
+                .map(|(_, v)| v)
+            {
                 for (name, dep) in &ov.dependencies {
                     if dep_matches_env(dep, current_target) {
                         out.insert(name.clone(), dep.clone());
@@ -225,7 +277,12 @@ impl Manifest {
                 }
             }
         }
-        if let Some(ov) = self.arch.iter().find(|(k, _)| k.eq_ignore_ascii_case(current_arch)).map(|(_, v)| v) {
+        if let Some(ov) = self
+            .arch
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(current_arch))
+            .map(|(_, v)| v)
+        {
             for (name, dep) in &ov.dependencies {
                 if dep_matches_env(dep, current_target) {
                     out.insert(name.clone(), dep.clone());
@@ -239,19 +296,41 @@ impl Manifest {
     /// matching `[os.*]` and `[arch.*]` language overlays on top of the base.
     pub fn effective_language_settings(&self, lang_key: &str) -> LanguageSettings {
         let mut s = self.language.get(lang_key).cloned().unwrap_or_default();
-        let current_arch = self.target.arch.as_deref().unwrap_or(std::env::consts::ARCH);
+        let current_arch = self
+            .target
+            .arch
+            .as_deref()
+            .unwrap_or(std::env::consts::ARCH);
         for os_key in host_platforms() {
-            if let Some(ov) = self.os.iter().find(|(k, _)| k.eq_ignore_ascii_case(os_key)).map(|(_, v)| v) {
+            if let Some(ov) = self
+                .os
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(os_key))
+                .map(|(_, v)| v)
+            {
                 if let Some(lang_ov) = ov.language.get(lang_key) {
-                    if lang_ov.std.is_some()    { s.std    = lang_ov.std.clone(); }
-                    if lang_ov.stdlib.is_some() { s.stdlib = lang_ov.stdlib.clone(); }
+                    if lang_ov.std.is_some() {
+                        s.std = lang_ov.std.clone();
+                    }
+                    if lang_ov.stdlib.is_some() {
+                        s.stdlib = lang_ov.stdlib.clone();
+                    }
                 }
             }
         }
-        if let Some(ov) = self.arch.iter().find(|(k, _)| k.eq_ignore_ascii_case(current_arch)).map(|(_, v)| v) {
+        if let Some(ov) = self
+            .arch
+            .iter()
+            .find(|(k, _)| k.eq_ignore_ascii_case(current_arch))
+            .map(|(_, v)| v)
+        {
             if let Some(lang_ov) = ov.language.get(lang_key) {
-                if lang_ov.std.is_some()    { s.std    = lang_ov.std.clone(); }
-                if lang_ov.stdlib.is_some() { s.stdlib = lang_ov.stdlib.clone(); }
+                if lang_ov.std.is_some() {
+                    s.std = lang_ov.std.clone();
+                }
+                if lang_ov.stdlib.is_some() {
+                    s.stdlib = lang_ov.stdlib.clone();
+                }
             }
         }
         s
@@ -268,28 +347,40 @@ impl Manifest {
 /// - `arch`: only included when `std::env::consts::ARCH` appears in the list;
 ///   absent = unconditional.
 fn dep_matches_env(dep: &Dependency, current_target: Option<&str>) -> bool {
-    let Dependency::Detailed(d) = dep else { return true };
+    let Dependency::Detailed(d) = dep else {
+        return true;
+    };
 
     if let Some(targets) = &d.targets {
         let ok = match current_target {
             Some(t) => targets.iter().any(|wanted| wanted == t),
             None => false,
         };
-        if !ok { return false; }
+        if !ok {
+            return false;
+        }
     }
 
     if let Some(os_req) = &d.os {
         let host_plats = host_platforms();
         let ok = os_req.iter().any(|req| {
-            host_plats.iter().any(|p| p.eq_ignore_ascii_case(req.as_str()))
+            host_plats
+                .iter()
+                .any(|p| p.eq_ignore_ascii_case(req.as_str()))
         });
-        if !ok { return false; }
+        if !ok {
+            return false;
+        }
     }
 
     if let Some(arch_req) = &d.arch {
         let host_arch = std::env::consts::ARCH;
-        let ok = arch_req.iter().any(|req| req.eq_ignore_ascii_case(host_arch));
-        if !ok { return false; }
+        let ok = arch_req
+            .iter()
+            .any(|req| req.eq_ignore_ascii_case(host_arch));
+        if !ok {
+            return false;
+        }
     }
 
     true
@@ -311,8 +402,16 @@ pub fn host_platforms() -> Vec<&'static str> {
     let mut chain = Vec::new();
     let unix = matches!(
         os,
-        "linux" | "macos" | "freebsd" | "openbsd" | "netbsd" | "dragonfly"
-            | "android" | "ios" | "solaris" | "illumos"
+        "linux"
+            | "macos"
+            | "freebsd"
+            | "openbsd"
+            | "netbsd"
+            | "dragonfly"
+            | "android"
+            | "ios"
+            | "solaris"
+            | "illumos"
     );
     let bsd = matches!(os, "freebsd" | "openbsd" | "netbsd" | "dragonfly");
     if unix {
@@ -332,10 +431,19 @@ pub fn host_platforms() -> Vec<&'static str> {
 /// dep `os` fields. Used by validation.
 pub fn known_platform_keys() -> &'static [&'static str] {
     &[
-        "unix", "bsd",
-        "linux", "windows", "macos",
-        "freebsd", "openbsd", "netbsd", "dragonfly",
-        "android", "ios", "solaris", "illumos",
+        "unix",
+        "bsd",
+        "linux",
+        "windows",
+        "macos",
+        "freebsd",
+        "openbsd",
+        "netbsd",
+        "dragonfly",
+        "android",
+        "ios",
+        "solaris",
+        "illumos",
     ]
 }
 
@@ -343,14 +451,19 @@ pub fn known_platform_keys() -> &'static [&'static str] {
 /// Values mirror `std::env::consts::ARCH` plus common aliases.
 pub fn known_arch_keys() -> &'static [&'static str] {
     &[
-        "x86_64", "x86",
-        "aarch64", "arm",
-        "mips", "mips64",
-        "powerpc", "powerpc64",
+        "x86_64",
+        "x86",
+        "aarch64",
+        "arm",
+        "mips",
+        "mips64",
+        "powerpc",
+        "powerpc64",
         "riscv64",
         "s390x",
         "sparc64",
-        "wasm32", "wasm64",
+        "wasm32",
+        "wasm64",
     ]
 }
 
@@ -465,8 +578,17 @@ pub struct BinTarget {
 /// - macOS, leading uppercase → `-framework <Name>`
 /// - all others → toolchain `system_lib_flag` (`-l<name>` on GCC/Clang, `<name>.lib` on MSVC)
 pub const PLATFORM_PACKAGES: &[&str] = &[
-    "windows", "linux", "macos", "osx", "unix", "android", "ios",
-    "freebsd", "openbsd", "netbsd", "dragonfly",
+    "windows",
+    "linux",
+    "macos",
+    "osx",
+    "unix",
+    "android",
+    "ios",
+    "freebsd",
+    "openbsd",
+    "netbsd",
+    "dragonfly",
 ];
 
 pub fn is_platform_dep(name: &str) -> bool {
@@ -542,12 +664,17 @@ pub struct DetailedDep {
     /// Extra arguments forwarded verbatim to `cmake -S … -B …` during configure.
     /// Useful for silencing policy warnings on older CMakeLists.txt files, e.g.
     /// `cmake_args = ["-DCMAKE_POLICY_VERSION_MINIMUM=3.5"]`.
-    #[serde(default, skip_serializing_if = "Vec::is_empty", rename = "cmake-args", alias = "cmake_args")]
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        rename = "cmake-args",
+        alias = "cmake_args"
+    )]
     pub cmake_args: Vec<String>,
     /// URL to a source archive (`.tar.gz`, `.tar.bz2`, `.tar.xz`, `.zip`).
     /// Any scheme that `curl` supports works: `https://`, `http://`, `ftp://`, etc.
     /// The archive is downloaded, optionally verified with `sha256`, extracted to
-    /// `.deps/{name}/`, and then built by the auto-detected build system (or treated
+    /// `target/deps/{name}/`, and then built by the auto-detected build system (or treated
     /// as header-only if no source files are found).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
@@ -576,16 +703,22 @@ pub struct DetailedDep {
     pub channel: Option<String>,
 }
 
-fn default_true() -> bool { true }
+fn default_true() -> bool {
+    true
+}
 
 /// Deserialize a required field that accepts either a bare string or an array of strings.
 fn deserialize_string_or_vec<'de, D>(d: D) -> Result<Vec<String>, D::Error>
-where D: serde::Deserializer<'de>
+where
+    D: serde::Deserializer<'de>,
 {
     use serde::Deserialize;
     #[derive(Deserialize)]
     #[serde(untagged)]
-    enum OneOrMany { One(String), Many(Vec<String>) }
+    enum OneOrMany {
+        One(String),
+        Many(Vec<String>),
+    }
     Ok(match OneOrMany::deserialize(d)? {
         OneOrMany::One(s) => vec![s],
         OneOrMany::Many(v) => v,
@@ -788,16 +921,26 @@ impl Default for CompilerConfig {
 pub struct Backend(pub String);
 
 impl Default for Backend {
-    fn default() -> Self { Self("auto".into()) }
+    fn default() -> Self {
+        Self("auto".into())
+    }
 }
 
 impl Backend {
-    pub fn is_auto(&self) -> bool { self.0.eq_ignore_ascii_case("auto") }
-    pub fn name(&self) -> &str { &self.0 }
+    pub fn is_auto(&self) -> bool {
+        self.0.eq_ignore_ascii_case("auto")
+    }
+    pub fn name(&self) -> &str {
+        &self.0
+    }
 }
 
-fn default_opt_level() -> u8 { 2 }
-fn default_warnings() -> String { "all".to_string() }
+fn default_opt_level() -> u8 {
+    2
+}
+fn default_warnings() -> String {
+    "all".to_string()
+}
 
 // ── Profiles ──────────────────────────────────────────────────────────────────
 
@@ -902,7 +1045,10 @@ hostlib = {{ version = "1" }}
         assert!(s.defines.contains(&"BASE".to_string()));
         assert!(s.defines.contains(&"FROM_HOST".to_string()));
         assert!(s.extra_flags.contains(&"-DPLATFORM_FLAG".to_string()));
-        assert!(s.include_paths.iter().any(|p| p.ends_with("platform-include/")));
+        assert!(s
+            .include_paths
+            .iter()
+            .any(|p| p.ends_with("platform-include/")));
     }
 
     #[test]
@@ -914,7 +1060,11 @@ hostlib = {{ version = "1" }}
 
     #[test]
     fn non_matching_os_overlay_is_ignored() {
-        let other = if std::env::consts::OS == "windows" { "linux" } else { "windows" };
+        let other = if std::env::consts::OS == "windows" {
+            "linux"
+        } else {
+            "windows"
+        };
         let s = format!(
             r#"
 [package]
@@ -950,7 +1100,10 @@ shouldnotbe = {{ version = "1" }}
         // the specific OS in the returned chain.
         let chain = host_platforms();
         let host = std::env::consts::OS;
-        let specific = chain.iter().position(|p| *p == host).expect("host in chain");
+        let specific = chain
+            .iter()
+            .position(|p| *p == host)
+            .expect("host in chain");
         for (i, p) in chain.iter().enumerate() {
             if matches!(*p, "unix" | "bsd") {
                 assert!(i < specific, "{p} should come before {host} in {chain:?}");
@@ -961,9 +1114,7 @@ shouldnotbe = {{ version = "1" }}
     // ── dep os / arch filtering ───────────────────────────────────────────────
 
     fn manifest_with_dep_filter(os: Option<&str>, arch: Option<&str>) -> String {
-        let os_line = os
-            .map(|v| format!(", os = \"{v}\""))
-            .unwrap_or_default();
+        let os_line = os.map(|v| format!(", os = \"{v}\"")).unwrap_or_default();
         let arch_line = arch
             .map(|v| format!(", arch = \"{v}\""))
             .unwrap_or_default();
@@ -999,7 +1150,11 @@ mylib = {{ version = "1"{os_line}{arch_line} }}
 
     #[test]
     fn dep_os_not_matching_host_is_excluded() {
-        let other = if std::env::consts::OS == "windows" { "linux" } else { "windows" };
+        let other = if std::env::consts::OS == "windows" {
+            "linux"
+        } else {
+            "windows"
+        };
         let m = load_manifest_str(&manifest_with_dep_filter(Some(other), None)).unwrap();
         assert!(
             !m.effective_dependencies().contains_key("mylib"),
@@ -1012,8 +1167,16 @@ mylib = {{ version = "1"{os_line}{arch_line} }}
         let host = std::env::consts::OS;
         let is_unix = matches!(
             host,
-            "linux" | "macos" | "freebsd" | "openbsd" | "netbsd" | "dragonfly"
-                | "android" | "ios" | "solaris" | "illumos"
+            "linux"
+                | "macos"
+                | "freebsd"
+                | "openbsd"
+                | "netbsd"
+                | "dragonfly"
+                | "android"
+                | "ios"
+                | "solaris"
+                | "illumos"
         );
         let m = load_manifest_str(&manifest_with_dep_filter(Some("unix"), None)).unwrap();
         let included = m.effective_dependencies().contains_key("mylib");
@@ -1035,7 +1198,11 @@ mylib = {{ version = "1"{os_line}{arch_line} }}
 
     #[test]
     fn dep_arch_not_matching_host_is_excluded() {
-        let other = if std::env::consts::ARCH == "x86_64" { "s390x" } else { "x86_64" };
+        let other = if std::env::consts::ARCH == "x86_64" {
+            "s390x"
+        } else {
+            "x86_64"
+        };
         let m = load_manifest_str(&manifest_with_dep_filter(None, Some(other))).unwrap();
         assert!(
             !m.effective_dependencies().contains_key("mylib"),
@@ -1067,7 +1234,11 @@ mylib = {{ version = "1", os = ["{host}", "linux"] }}
     fn cross_manifest(dep_targets: Option<&[&str]>) -> String {
         let dep_targets_line = dep_targets
             .map(|ts| {
-                let joined = ts.iter().map(|t| format!("\"{t}\"")).collect::<Vec<_>>().join(", ");
+                let joined = ts
+                    .iter()
+                    .map(|t| format!("\"{t}\""))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 format!(", targets = [{joined}]")
             })
             .unwrap_or_default();
@@ -1107,9 +1278,11 @@ mylib = {{ path = "../mylib"{dep_targets_line} }}
 
     #[test]
     fn dep_with_matching_target_is_included() {
-        let mut m = load_manifest_str(
-            &cross_manifest(Some(&["aarch64-linux-gnu", "armv7-linux-gnu"]))
-        ).unwrap();
+        let mut m = load_manifest_str(&cross_manifest(Some(&[
+            "aarch64-linux-gnu",
+            "armv7-linux-gnu",
+        ])))
+        .unwrap();
         m.compiler.target = Some("aarch64-linux-gnu".into());
         assert!(
             m.effective_dependencies().contains_key("mylib"),
@@ -1119,9 +1292,7 @@ mylib = {{ path = "../mylib"{dep_targets_line} }}
 
     #[test]
     fn dep_with_non_matching_target_is_excluded() {
-        let mut m = load_manifest_str(
-            &cross_manifest(Some(&["aarch64-linux-gnu"]))
-        ).unwrap();
+        let mut m = load_manifest_str(&cross_manifest(Some(&["aarch64-linux-gnu"]))).unwrap();
         m.compiler.target = Some("x86_64-linux-gnu".into());
         assert!(
             !m.effective_dependencies().contains_key("mylib"),
@@ -1142,10 +1313,13 @@ name = "p"
 src  = "src/main.cpp"
 "#;
         let mut m = load_manifest_str(manifest_src).unwrap();
-        m.compiler.target  = Some("aarch64-linux-gnu".into());
+        m.compiler.target = Some("aarch64-linux-gnu".into());
         m.compiler.sysroot = Some("/opt/sysroot".into());
         let s = m.build_settings_for("dev");
         assert_eq!(s.target_triple.as_deref(), Some("aarch64-linux-gnu"));
-        assert_eq!(s.sysroot.as_deref(), Some(std::path::Path::new("/opt/sysroot")));
+        assert_eq!(
+            s.sysroot.as_deref(),
+            Some(std::path::Path::new("/opt/sysroot"))
+        );
     }
 }

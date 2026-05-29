@@ -12,17 +12,17 @@ pub struct ScaffoldOutcome {
 
 // (alias, canonical_name, toml_key, std)
 const SUPPORTED_LANGS: &[(&str, &str, &str, &str)] = &[
-    ("c",       "c",       "c",       "c17"),
-    ("c++",     "c++",     "cpp",     "c++20"),
-    ("cpp",     "c++",     "cpp",     "c++20"),
+    ("c", "c", "c", "c17"),
+    ("c++", "c++", "cpp", "c++20"),
+    ("cpp", "c++", "cpp", "c++20"),
     ("fortran", "fortran", "fortran", "f2018"),
-    ("ada",     "ada",     "ada",     "ada2012"),
-    ("d",       "d",       "d",       ""),
-    ("cuda",    "cuda",    "cuda",    "c++20"),
-    ("opencl",  "opencl",  "opencl",  "CL3.0"),
-    ("hip",     "hip",     "hip",     "c++20"),
-    ("sycl",    "sycl",    "sycl",    "c++20"),
-    ("ispc",    "ispc",    "ispc",    ""),
+    ("ada", "ada", "ada", "ada2012"),
+    ("d", "d", "d", ""),
+    ("cuda", "cuda", "cuda", "c++20"),
+    ("opencl", "opencl", "opencl", "CL3.0"),
+    ("hip", "hip", "hip", "c++20"),
+    ("sycl", "sycl", "sycl", "c++20"),
+    ("ispc", "ispc", "ispc", ""),
 ];
 
 pub fn scaffold_project(name: &str, lang_arg: &str) -> Result<ScaffoldOutcome, FreightError> {
@@ -39,7 +39,10 @@ pub fn scaffold_project(name: &str, lang_arg: &str) -> Result<ScaffoldOutcome, F
     write_hello(root, lang_name)?;
     write_gitignore(root)?;
 
-    Ok(ScaffoldOutcome { name: name.to_string(), language: lang_name })
+    Ok(ScaffoldOutcome {
+        name: name.to_string(),
+        language: lang_name,
+    })
 }
 
 /// `freight init [--lang <lang>]` — initialize freight in the current directory.
@@ -83,7 +86,10 @@ pub fn init_project(lang_arg: Option<&str>) -> Result<ScaffoldOutcome, FreightEr
         write_gitignore(&cwd)?;
     }
 
-    Ok(ScaffoldOutcome { name, language: lang_name })
+    Ok(ScaffoldOutcome {
+        name,
+        language: lang_name,
+    })
 }
 
 /// Guess the language from file extensions found in the project root and `src/`.
@@ -94,7 +100,9 @@ fn detect_language(dir: &Path) -> Option<String> {
     }
 
     for scan_dir in dirs_to_scan {
-        let Ok(entries) = fs::read_dir(&scan_dir) else { continue };
+        let Ok(entries) = fs::read_dir(&scan_dir) else {
+            continue;
+        };
         for entry in entries.flatten() {
             match entry.path().extension().and_then(|e| e.to_str()) {
                 Some("cpp" | "cc" | "cxx") => return Some("c++".into()),
@@ -119,7 +127,13 @@ fn resolve_lang(arg: &str) -> Result<(&'static str, &'static str, &'static str),
     Err(FreightError::UnsupportedLanguage(arg.to_string()))
 }
 
-fn write_manifest(root: &Path, name: &str, lang: &str, lang_key: &str, std: &str) -> Result<(), FreightError> {
+fn write_manifest(
+    root: &Path,
+    name: &str,
+    lang: &str,
+    lang_key: &str,
+    std: &str,
+) -> Result<(), FreightError> {
     let std_line = if std.is_empty() {
         String::new()
     } else {
@@ -178,17 +192,17 @@ fn write_gitignore(root: &Path) -> Result<(), FreightError> {
 
 fn lang_extension(lang: &str) -> &'static str {
     match lang {
-        "c++"     => "cpp",
-        "c"       => "c",
+        "c++" => "cpp",
+        "c" => "c",
         "fortran" => "f90",
-        "ada"     => "adb",
-        "d"       => "d",
-        "cuda"    => "cu",
-        "opencl"  => "cl",
-        "hip"     => "hip",
-        "sycl"    => "cpp",
-        "ispc"    => "ispc",
-        _         => "cpp",
+        "ada" => "adb",
+        "d" => "d",
+        "cuda" => "cu",
+        "opencl" => "cl",
+        "hip" => "hip",
+        "sycl" => "cpp",
+        "ispc" => "ispc",
+        _ => "cpp",
     }
 }
 

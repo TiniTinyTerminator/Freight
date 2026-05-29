@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use cmake_lossless::{CMakeFile, CommandInvocation, Node};
-use toml_edit::{Array, DocumentMut, Item, Table, value};
+use toml_edit::{value, Array, DocumentMut, Item, Table};
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
@@ -37,7 +37,12 @@ pub struct ImportResult {
 /// Purge CMake artefacts left behind in `dir`.
 pub fn purge_cmake(dir: &Path) -> Vec<String> {
     let mut removed = Vec::new();
-    let files = ["CMakeLists.txt", "CMakeCache.txt", "cmake_install.cmake", "CTestTestfile.cmake"];
+    let files = [
+        "CMakeLists.txt",
+        "CMakeCache.txt",
+        "cmake_install.cmake",
+        "CTestTestfile.cmake",
+    ];
     for name in &files {
         let p = dir.join(name);
         if p.exists() {
@@ -69,8 +74,7 @@ pub fn import_cmake(input: &Path, out_dir: Option<&Path>) -> Result<ImportResult
     let content = std::fs::read_to_string(&cmake_path)
         .with_context(|| format!("reading {}", cmake_path.display()))?;
 
-    let file = cmake_lossless::parse(&content)
-        .map_err(|e| anyhow::anyhow!("{}", e))?;
+    let file = cmake_lossless::parse(&content).map_err(|e| anyhow::anyhow!("{}", e))?;
 
     let parsed = extract(&file, &mut warnings);
 
@@ -83,8 +87,15 @@ pub fn import_cmake(input: &Path, out_dir: Option<&Path>) -> Result<ImportResult
 
     // ── Package name + version ────────────────────────────────────────────────
     let dir_name = project_dir
-        .file_name().and_then(|n| n.to_str()).unwrap_or("project").to_string();
-    let pkg_name = if parsed.name.is_empty() { sanitize_name(&dir_name) } else { sanitize_name(&parsed.name) };
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("project")
+        .to_string();
+    let pkg_name = if parsed.name.is_empty() {
+        sanitize_name(&dir_name)
+    } else {
+        sanitize_name(&parsed.name)
+    };
     let pkg_version = if parsed.version.is_empty() || parsed.version.contains('$') {
         "0.1.0".to_string()
     } else {
@@ -95,16 +106,21 @@ pub fn import_cmake(input: &Path, out_dir: Option<&Path>) -> Result<ImportResult
     std::fs::create_dir_all(out_root)
         .with_context(|| format!("creating {}", out_root.display()))?;
     let dest = out_root.join("freight.toml");
-    std::fs::write(&dest, &toml)
-        .with_context(|| format!("writing {}", dest.display()))?;
+    std::fs::write(&dest, &toml).with_context(|| format!("writing {}", dest.display()))?;
 
-    Ok(ImportResult { written: vec![dest], warnings })
+    Ok(ImportResult {
+        written: vec![dest],
+        warnings,
+    })
 }
 
 // ── Workspace ─────────────────────────────────────────────────────────────────
 
 fn import_workspace(
-    project_dir: &Path, out_root: &Path, subdirs: &[String], warnings: &mut Vec<String>,
+    project_dir: &Path,
+    out_root: &Path,
+    subdirs: &[String],
+    warnings: &mut Vec<String>,
 ) -> Result<ImportResult> {
     let mut written = Vec::new();
     std::fs::create_dir_all(out_root)
@@ -113,7 +129,9 @@ fn import_workspace(
     let mut doc = DocumentMut::new();
     let mut ws_tbl = Table::new();
     let mut members = Array::new();
-    for sub in subdirs { members.push(sub.as_str()); }
+    for sub in subdirs {
+        members.push(sub.as_str());
+    }
     ws_tbl.insert("members", Item::Value(members.into()));
     doc.insert("workspace", Item::Table(ws_tbl));
 
@@ -126,17 +144,25 @@ fn import_workspace(
         let sub_dir = project_dir.join(sub);
         let cmake_path = sub_dir.join("CMakeLists.txt");
         if !cmake_path.exists() {
-            warnings.push(format!("subdirectory {sub} has no CMakeLists.txt — skipping"));
+            warnings.push(format!(
+                "subdirectory {sub} has no CMakeLists.txt — skipping"
+            ));
             continue;
         }
         let sub_out = out_root.join(sub);
         match import_cmake(&sub_dir, Some(&sub_out)) {
-            Ok(r) => { written.extend(r.written); warnings.extend(r.warnings); }
+            Ok(r) => {
+                written.extend(r.written);
+                warnings.extend(r.warnings);
+            }
             Err(e) => warnings.push(format!("could not convert {sub}: {e}")),
         }
     }
 
-    Ok(ImportResult { written, warnings: warnings.clone() })
+    Ok(ImportResult {
+        written,
+        warnings: warnings.clone(),
+    })
 }
 
 // ── Input resolution ──────────────────────────────────────────────────────────
@@ -173,24 +199,37 @@ struct Extracted {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum LibKind { Static, Shared, Interface }
+enum LibKind {
+    Static,
+    Shared,
+    Interface,
+}
 
 impl Extracted {
     fn new() -> Self {
         Self {
-            name: String::new(), version: String::new(),
-            bins: Vec::new(), libs: Vec::new(),
-            deps: Vec::new(), find_packages: Vec::new(), pkg_modules: Vec::new(),
+            name: String::new(),
+            version: String::new(),
+            bins: Vec::new(),
+            libs: Vec::new(),
+            deps: Vec::new(),
+            find_packages: Vec::new(),
+            pkg_modules: Vec::new(),
             platform_deps: HashMap::new(),
-            c_std: None, cxx_std: None,
-            defines: Vec::new(), includes: Vec::new(),
-            subdirs: Vec::new(), vars: HashMap::new(),
+            c_std: None,
+            cxx_std: None,
+            defines: Vec::new(),
+            includes: Vec::new(),
+            subdirs: Vec::new(),
+            vars: HashMap::new(),
         }
     }
 
     fn add_platform_dep(&mut self, dep: String, os: &str) {
         let vec = self.platform_deps.entry(os.to_string()).or_default();
-        if !vec.contains(&dep) { vec.push(dep); }
+        if !vec.contains(&dep) {
+            vec.push(dep);
+        }
     }
 }
 
@@ -243,10 +282,7 @@ fn walk_nodes(nodes: &[Node], ex: &mut Extracted, scope: Option<&str>, warnings:
                 ));
             }
             Node::While(b) => {
-                warnings.push(format!(
-                    "line {}: while() loop — body skipped",
-                    b.line
-                ));
+                warnings.push(format!("line {}: while() loop — body skipped", b.line));
             }
             // Function and macro definitions: skip the body (they define callable
             // templates, not direct build targets — calls appear elsewhere)
@@ -256,23 +292,42 @@ fn walk_nodes(nodes: &[Node], ex: &mut Extracted, scope: Option<&str>, warnings:
     }
 }
 
-fn handle_command(cmd: &CommandInvocation, ex: &mut Extracted, scope: Option<&str>, warnings: &mut Vec<String>) {
+fn handle_command(
+    cmd: &CommandInvocation,
+    ex: &mut Extracted,
+    scope: Option<&str>,
+    warnings: &mut Vec<String>,
+) {
     let args = cmd.arg_values();
     match cmd.name.as_str() {
-        "project"                        => handle_project(&args, ex),
-        "set"                            => handle_set(&args, ex),
-        "add_executable"                 => handle_add_executable(&args, ex, warnings),
-        "add_library"                    => handle_add_library(&args, ex, warnings),
-        "target_link_libraries"
-        | "link_libraries"               => handle_link_libraries(&args, ex, scope),
-        "find_package"                   => handle_find_package(&args, ex, scope),
-        "pkg_check_modules"
-        | "pkg_search_module"            => handle_pkg_check_modules(&args, ex, scope),
-        "include_directories"            => { if scope.is_none() { handle_include_dirs(&args, ex, false); } }
-        "target_include_directories"    => { if scope.is_none() { handle_include_dirs(&args, ex, true); } }
-        "add_definitions"               => { if scope.is_none() { handle_add_definitions(&args, ex, false); } }
-        "target_compile_definitions"    => { if scope.is_none() { handle_add_definitions(&args, ex, true); } }
-        "add_subdirectory"               => {
+        "project" => handle_project(&args, ex),
+        "set" => handle_set(&args, ex),
+        "add_executable" => handle_add_executable(&args, ex, warnings),
+        "add_library" => handle_add_library(&args, ex, warnings),
+        "target_link_libraries" | "link_libraries" => handle_link_libraries(&args, ex, scope),
+        "find_package" => handle_find_package(&args, ex, scope),
+        "pkg_check_modules" | "pkg_search_module" => handle_pkg_check_modules(&args, ex, scope),
+        "include_directories" => {
+            if scope.is_none() {
+                handle_include_dirs(&args, ex, false);
+            }
+        }
+        "target_include_directories" => {
+            if scope.is_none() {
+                handle_include_dirs(&args, ex, true);
+            }
+        }
+        "add_definitions" => {
+            if scope.is_none() {
+                handle_add_definitions(&args, ex, false);
+            }
+        }
+        "target_compile_definitions" => {
+            if scope.is_none() {
+                handle_add_definitions(&args, ex, true);
+            }
+        }
+        "add_subdirectory" => {
             if let Some(first) = args.first() {
                 let sub = expand_var(first, &ex.vars);
                 if !sub.is_empty() && !sub.contains('$') && !ex.subdirs.contains(&sub) {
@@ -287,7 +342,9 @@ fn handle_command(cmd: &CommandInvocation, ex: &mut Extracted, scope: Option<&st
 // ── Command handlers ──────────────────────────────────────────────────────────
 
 fn handle_project(args: &[&str], ex: &mut Extracted) {
-    if args.is_empty() { return; }
+    if args.is_empty() {
+        return;
+    }
     ex.name = args[0].to_string();
     let mut i = 1;
     while i < args.len() {
@@ -301,17 +358,23 @@ fn handle_project(args: &[&str], ex: &mut Extracted) {
 }
 
 fn handle_set(args: &[&str], ex: &mut Extracted) {
-    if args.len() < 1 { return; }
+    if args.len() < 1 {
+        return;
+    }
     let var = args[0];
     // Values are args[1..], each already a parsed CMake argument value.
     // Store them as a list so multi-value variables are preserved correctly.
-    let vals: Vec<String> = args[1..].iter()
+    let vals: Vec<String> = args[1..]
+        .iter()
         .flat_map(|v| {
             // Expand any variable references in the values
             let expanded = expand_var(v, &ex.vars);
             // A value that was itself a list variable expands to space-separated words
             if expanded.contains(' ') {
-                expanded.split_whitespace().map(str::to_string).collect::<Vec<_>>()
+                expanded
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
             } else {
                 vec![expanded]
             }
@@ -324,23 +387,40 @@ fn handle_set(args: &[&str], ex: &mut Extracted) {
     // Handle special CMake variables that control the build
     match var {
         "CMAKE_CXX_STANDARD" => {
-            if let Some(v) = vals.first() { ex.cxx_std = map_cxx_std(v); }
+            if let Some(v) = vals.first() {
+                ex.cxx_std = map_cxx_std(v);
+            }
         }
         "CMAKE_C_STANDARD" => {
-            if let Some(v) = vals.first() { ex.c_std = map_c_std(v); }
+            if let Some(v) = vals.first() {
+                ex.c_std = map_c_std(v);
+            }
         }
         _ => {}
     }
 }
 
 fn handle_add_executable(args: &[&str], ex: &mut Extracted, warnings: &mut Vec<String>) {
-    if args.is_empty() { return; }
-    const SKIP: &[&str] = &["IMPORTED", "ALIAS", "WIN32", "MACOSX_BUNDLE", "EXCLUDE_FROM_ALL"];
+    if args.is_empty() {
+        return;
+    }
+    const SKIP: &[&str] = &[
+        "IMPORTED",
+        "ALIAS",
+        "WIN32",
+        "MACOSX_BUNDLE",
+        "EXCLUDE_FROM_ALL",
+    ];
     let name = expand_var(args[0], &ex.vars);
-    if name.contains('$') { return; } // unresolvable variable
-    if args.len() > 1 && args[1].eq_ignore_ascii_case("ALIAS") { return; }
+    if name.contains('$') {
+        return;
+    } // unresolvable variable
+    if args.len() > 1 && args[1].eq_ignore_ascii_case("ALIAS") {
+        return;
+    }
 
-    let srcs: Vec<String> = args[1..].iter()
+    let srcs: Vec<String> = args[1..]
+        .iter()
         .filter(|a| !SKIP.contains(&a.to_ascii_uppercase().as_str()))
         .flat_map(|s| expand_var_to_list(s, &ex.vars))
         .filter(|s| is_source_file(s))
@@ -357,17 +437,26 @@ fn handle_add_executable(args: &[&str], ex: &mut Extracted, warnings: &mut Vec<S
 }
 
 fn handle_add_library(args: &[&str], ex: &mut Extracted, warnings: &mut Vec<String>) {
-    if args.is_empty() { return; }
+    if args.is_empty() {
+        return;
+    }
     const SKIP: &[&str] = &["IMPORTED", "ALIAS", "OBJECT", "EXCLUDE_FROM_ALL", "GLOBAL"];
     let name = expand_var(args[0], &ex.vars);
-    if name.contains('$') { return; }
+    if name.contains('$') {
+        return;
+    }
 
     let mut kind = LibKind::Static;
     let mut src_start = 1;
     if args.len() > 1 {
         match args[1].to_uppercase().as_str() {
-            "SHARED" | "MODULE" => { kind = LibKind::Shared; src_start = 2; }
-            "STATIC" => { src_start = 2; }
+            "SHARED" | "MODULE" => {
+                kind = LibKind::Shared;
+                src_start = 2;
+            }
+            "STATIC" => {
+                src_start = 2;
+            }
             "INTERFACE" => {
                 warnings.push(format!("add_library({name} INTERFACE …) — header-only"));
                 if !ex.libs.iter().any(|(n, _, _)| n == &name) {
@@ -380,14 +469,17 @@ fn handle_add_library(args: &[&str], ex: &mut Extracted, warnings: &mut Vec<Stri
         }
     }
 
-    let srcs: Vec<String> = args[src_start..].iter()
+    let srcs: Vec<String> = args[src_start..]
+        .iter()
         .filter(|a| !SKIP.contains(&a.to_ascii_uppercase().as_str()))
         .flat_map(|s| expand_var_to_list(s, &ex.vars))
         .filter(|s| is_source_file(s))
         .collect();
 
     if srcs.is_empty() {
-        warnings.push(format!("add_library({name}) has no recognisable source files — check for generated sources"));
+        warnings.push(format!(
+            "add_library({name}) has no recognisable source files — check for generated sources"
+        ));
     }
     if !ex.libs.iter().any(|(n, _, _)| n == &name) {
         ex.libs.push((name, kind, srcs));
@@ -395,49 +487,95 @@ fn handle_add_library(args: &[&str], ex: &mut Extracted, warnings: &mut Vec<Stri
 }
 
 fn handle_link_libraries(args: &[&str], ex: &mut Extracted, scope: Option<&str>) {
-    const VIS: &[&str] = &["PUBLIC", "PRIVATE", "INTERFACE", "GENERAL", "OPTIMIZED", "DEBUG"];
+    const VIS: &[&str] = &[
+        "PUBLIC",
+        "PRIVATE",
+        "INTERFACE",
+        "GENERAL",
+        "OPTIMIZED",
+        "DEBUG",
+    ];
     // Skip first arg if it looks like a target name (not a visibility keyword or -l flag)
-    let start = if !args.is_empty() && !VIS.contains(&args[0].to_ascii_uppercase().as_str())
-        && !args[0].starts_with('-') { 1 } else { 0 };
+    let start = if !args.is_empty()
+        && !VIS.contains(&args[0].to_ascii_uppercase().as_str())
+        && !args[0].starts_with('-')
+    {
+        1
+    } else {
+        0
+    };
     for arg in &args[start..] {
-        if VIS.contains(&arg.to_ascii_uppercase().as_str()) { continue; }
+        if VIS.contains(&arg.to_ascii_uppercase().as_str()) {
+            continue;
+        }
         if let Some(dep) = extract_link_dep(arg) {
             match scope {
                 Some(os) => ex.add_platform_dep(dep, os),
-                None     => { if !ex.deps.contains(&dep) { ex.deps.push(dep); } }
+                None => {
+                    if !ex.deps.contains(&dep) {
+                        ex.deps.push(dep);
+                    }
+                }
             }
         }
     }
 }
 
 fn handle_find_package(args: &[&str], ex: &mut Extracted, scope: Option<&str>) {
-    if args.is_empty() { return; }
-    const SKIP: &[&str] = &["REQUIRED", "QUIET", "OPTIONAL_COMPONENTS", "COMPONENTS",
-                             "CONFIG", "MODULE", "NO_MODULE"];
+    if args.is_empty() {
+        return;
+    }
+    const SKIP: &[&str] = &[
+        "REQUIRED",
+        "QUIET",
+        "OPTIONAL_COMPONENTS",
+        "COMPONENTS",
+        "CONFIG",
+        "MODULE",
+        "NO_MODULE",
+    ];
     let pkg = args[0];
-    if SKIP.contains(&pkg.to_ascii_uppercase().as_str()) { return; }
+    if SKIP.contains(&pkg.to_ascii_uppercase().as_str()) {
+        return;
+    }
     for m in map_find_package(pkg) {
         match scope {
             Some(os) => ex.add_platform_dep(m, os),
-            None     => { if !ex.find_packages.contains(&m) { ex.find_packages.push(m); } }
+            None => {
+                if !ex.find_packages.contains(&m) {
+                    ex.find_packages.push(m);
+                }
+            }
         }
     }
 }
 
 fn handle_pkg_check_modules(args: &[&str], ex: &mut Extracted, scope: Option<&str>) {
-    if args.len() < 2 { return; }
+    if args.len() < 2 {
+        return;
+    }
     const SKIP: &[&str] = &["REQUIRED", "QUIET", "IMPORTED_TARGET", "GLOBAL"];
     let mut i = 1;
     while i < args.len() {
         let a = args[i];
-        if SKIP.contains(&a.to_ascii_uppercase().as_str()) { i += 1; continue; }
-        if matches!(a, ">=" | "<=" | ">" | "<" | "=" | "!=") { i += 2; continue; }
+        if SKIP.contains(&a.to_ascii_uppercase().as_str()) {
+            i += 1;
+            continue;
+        }
+        if matches!(a, ">=" | "<=" | ">" | "<" | "=" | "!=") {
+            i += 2;
+            continue;
+        }
         let pkg = a.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_');
         if !pkg.is_empty() {
             let pkg = pkg.to_string();
             match scope {
                 Some(os) => ex.add_platform_dep(pkg, os),
-                None     => { if !ex.pkg_modules.contains(&pkg) { ex.pkg_modules.push(pkg); } }
+                None => {
+                    if !ex.pkg_modules.contains(&pkg) {
+                        ex.pkg_modules.push(pkg);
+                    }
+                }
             }
         }
         i += 1;
@@ -445,14 +583,29 @@ fn handle_pkg_check_modules(args: &[&str], ex: &mut Extracted, scope: Option<&st
 }
 
 fn handle_include_dirs(args: &[&str], ex: &mut Extracted, has_target: bool) {
-    const SKIP: &[&str] = &["PUBLIC", "PRIVATE", "INTERFACE", "SYSTEM", "BEFORE", "AFTER"];
+    const SKIP: &[&str] = &[
+        "PUBLIC",
+        "PRIVATE",
+        "INTERFACE",
+        "SYSTEM",
+        "BEFORE",
+        "AFTER",
+    ];
     let start = if has_target { 1 } else { 0 };
     for arg in &args[start..] {
-        if SKIP.contains(&arg.to_ascii_uppercase().as_str()) { continue; }
+        if SKIP.contains(&arg.to_ascii_uppercase().as_str()) {
+            continue;
+        }
         let expanded = expand_var(arg, &ex.vars);
-        if SKIP.contains(&expanded.to_ascii_uppercase().as_str()) { continue; }
-        if expanded.starts_with("$<") || expanded.starts_with("$") { continue; }
-        if expanded.starts_with("/usr") || expanded.starts_with("/opt") { continue; }
+        if SKIP.contains(&expanded.to_ascii_uppercase().as_str()) {
+            continue;
+        }
+        if expanded.starts_with("$<") || expanded.starts_with("$") {
+            continue;
+        }
+        if expanded.starts_with("/usr") || expanded.starts_with("/opt") {
+            continue;
+        }
         if !expanded.is_empty() && !ex.includes.contains(&expanded) {
             ex.includes.push(expanded);
         }
@@ -463,7 +616,9 @@ fn handle_add_definitions(args: &[&str], ex: &mut Extracted, has_target: bool) {
     const SKIP: &[&str] = &["PUBLIC", "PRIVATE", "INTERFACE"];
     let start = if has_target { 1 } else { 0 };
     for arg in &args[start..] {
-        if SKIP.contains(&arg.to_ascii_uppercase().as_str()) { continue; }
+        if SKIP.contains(&arg.to_ascii_uppercase().as_str()) {
+            continue;
+        }
         let def = if let Some(rest) = arg.strip_prefix("-D") {
             rest.to_string()
         } else if arg.starts_with('$') {
@@ -540,56 +695,85 @@ fn expand_var_to_list(s: &str, vars: &HashMap<String, Vec<String>>) -> Vec<Strin
 // ── Classifier helpers ────────────────────────────────────────────────────────
 
 fn is_source_file(s: &str) -> bool {
-    if s.starts_with('$') || s.starts_with('@') { return false; }
+    if s.starts_with('$') || s.starts_with('@') {
+        return false;
+    }
     const KEYWORDS: &[&str] = &[
-        "PUBLIC", "PRIVATE", "INTERFACE", "REQUIRED", "OPTIONAL",
-        "BEFORE", "AFTER", "SYSTEM", "STATIC", "SHARED", "MODULE",
-        "IMPORTED", "ALIAS", "GLOBAL",
+        "PUBLIC",
+        "PRIVATE",
+        "INTERFACE",
+        "REQUIRED",
+        "OPTIONAL",
+        "BEFORE",
+        "AFTER",
+        "SYSTEM",
+        "STATIC",
+        "SHARED",
+        "MODULE",
+        "IMPORTED",
+        "ALIAS",
+        "GLOBAL",
     ];
-    if KEYWORDS.contains(&s.to_ascii_uppercase().as_str()) { return false; }
+    if KEYWORDS.contains(&s.to_ascii_uppercase().as_str()) {
+        return false;
+    }
     const SOURCE_EXTS: &[&str] = &[
-        ".c", ".cc", ".cpp", ".cxx", ".c++", ".C",
-        ".f", ".f90", ".f95", ".f03", ".f08", ".F", ".F90",
-        ".cu", ".hip", ".cl", ".ispc",
-        ".s", ".S", ".asm",
-        ".d", ".adb", ".ads", ".m", ".mm",
+        ".c", ".cc", ".cpp", ".cxx", ".c++", ".C", ".f", ".f90", ".f95", ".f03", ".f08", ".F",
+        ".F90", ".cu", ".hip", ".cl", ".ispc", ".s", ".S", ".asm", ".d", ".adb", ".ads", ".m",
+        ".mm",
     ];
     SOURCE_EXTS.iter().any(|ext| s.ends_with(ext))
 }
 
 fn extract_link_dep(s: &str) -> Option<String> {
     // Skip CMake imported target names (Foo::Bar), variables, path-based libs
-    if s.contains("::") || s.starts_with('$') || s.starts_with("-L") { return None; }
-    if s.contains('/') || s.contains('.') { return None; }
-    let lib = if let Some(rest) = s.strip_prefix("-l") { rest } else { s };
-    if lib.is_empty() || AUTO_LINKED.contains(&lib) { return None; }
-    if lib.starts_with('-') { return None; }
+    if s.contains("::") || s.starts_with('$') || s.starts_with("-L") {
+        return None;
+    }
+    if s.contains('/') || s.contains('.') {
+        return None;
+    }
+    let lib = if let Some(rest) = s.strip_prefix("-l") {
+        rest
+    } else {
+        s
+    };
+    if lib.is_empty() || AUTO_LINKED.contains(&lib) {
+        return None;
+    }
+    if lib.starts_with('-') {
+        return None;
+    }
     Some(lib.to_string())
 }
 
 fn map_find_package(pkg: &str) -> Vec<String> {
     match pkg {
-        "Threads"              => vec![],
-        "OpenSSL"              => vec!["openssl".to_string()],
-        "ZLIB"                 => vec!["zlib".to_string()],
-        "CURL"                 => vec!["libcurl".to_string()],
-        "Boost"                => vec!["boost".to_string()],
-        "fmt" | "FMT"          => vec!["fmt".to_string()],
-        "spdlog"               => vec!["spdlog".to_string()],
+        "Threads" => vec![],
+        "OpenSSL" => vec!["openssl".to_string()],
+        "ZLIB" => vec!["zlib".to_string()],
+        "CURL" => vec!["libcurl".to_string()],
+        "Boost" => vec!["boost".to_string()],
+        "fmt" | "FMT" => vec!["fmt".to_string()],
+        "spdlog" => vec!["spdlog".to_string()],
         "GTest" | "GoogleTest" => vec!["gtest".to_string()],
-        "SQLite3" | "SQLite"   => vec!["sqlite3".to_string()],
-        "LibXml2"              => vec!["libxml-2.0".to_string()],
-        "PNG"                  => vec!["libpng".to_string()],
-        "JPEG"                 => vec!["libjpeg".to_string()],
-        "SDL2"                 => vec!["sdl2".to_string()],
-        "OpenGL"               => vec!["gl".to_string()],
-        "Protobuf"             => vec!["protobuf".to_string()],
-        "MPI"                  => vec!["mpi".to_string()],
-        "HDF5"                 => vec!["hdf5".to_string()],
+        "SQLite3" | "SQLite" => vec!["sqlite3".to_string()],
+        "LibXml2" => vec!["libxml-2.0".to_string()],
+        "PNG" => vec!["libpng".to_string()],
+        "JPEG" => vec!["libjpeg".to_string()],
+        "SDL2" => vec!["sdl2".to_string()],
+        "OpenGL" => vec!["gl".to_string()],
+        "Protobuf" => vec!["protobuf".to_string()],
+        "MPI" => vec!["mpi".to_string()],
+        "HDF5" => vec!["hdf5".to_string()],
         "Python3" | "Python" | "LLVM" => vec![],
         _ => {
             let lower = pkg.to_lowercase();
-            if lower.len() > 2 { vec![lower] } else { vec![] }
+            if lower.len() > 2 {
+                vec![lower]
+            } else {
+                vec![]
+            }
         }
     }
 }
@@ -597,34 +781,39 @@ fn map_find_package(pkg: &str) -> Vec<String> {
 fn map_cxx_std(val: &str) -> Option<String> {
     match val.trim() {
         "98" | "03" => Some("c++98".to_string()),
-        "11"        => Some("c++11".to_string()),
-        "14"        => Some("c++14".to_string()),
-        "17"        => Some("c++17".to_string()),
-        "20"        => Some("c++20".to_string()),
-        "23"        => Some("c++23".to_string()),
-        _           => None,
+        "11" => Some("c++11".to_string()),
+        "14" => Some("c++14".to_string()),
+        "17" => Some("c++17".to_string()),
+        "20" => Some("c++20".to_string()),
+        "23" => Some("c++23".to_string()),
+        _ => None,
     }
 }
 
 fn map_c_std(val: &str) -> Option<String> {
     match val.trim() {
         "90" | "89" => Some("c99".to_string()),
-        "99"        => Some("c99".to_string()),
-        "11"        => Some("c11".to_string()),
-        "17"        => Some("c17".to_string()),
-        "23"        => Some("c23".to_string()),
-        _           => None,
+        "99" => Some("c99".to_string()),
+        "11" => Some("c11".to_string()),
+        "17" => Some("c17".to_string()),
+        "23" => Some("c23".to_string()),
+        _ => None,
     }
 }
 
 const AUTO_LINKED: &[&str] = &[
-    "m", "pthread", "dl", "rt", "c", "gcc", "gcc_s", "stdc++", "c++",
-    "atomic", "util", "resolv",
+    "m", "pthread", "dl", "rt", "c", "gcc", "gcc_s", "stdc++", "c++", "atomic", "util", "resolv",
 ];
 
 fn sanitize_name(s: &str) -> String {
     s.chars()
-        .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .to_lowercase()
 }
@@ -643,8 +832,11 @@ fn ensure_three_part(v: &str) -> String {
 fn emit_toml(name: &str, version: &str, ex: &Extracted, warnings: &[String]) -> String {
     let mut doc = DocumentMut::new();
 
-    let mut header = String::from("# Generated by freight migrate cmake — review before committing.\n");
-    for w in warnings { header.push_str(&format!("# warning: {w}\n")); }
+    let mut header =
+        String::from("# Generated by freight migrate cmake — review before committing.\n");
+    for w in warnings {
+        header.push_str(&format!("# warning: {w}\n"));
+    }
 
     let mut pkg = Table::new();
     pkg.insert("name", value(name));
@@ -655,12 +847,16 @@ fn emit_toml(name: &str, version: &str, ex: &Extracted, warnings: &[String]) -> 
         let mut compiler = Table::new();
         if !ex.defines.is_empty() {
             let mut arr = Array::new();
-            for d in &ex.defines { arr.push(d.as_str()); }
+            for d in &ex.defines {
+                arr.push(d.as_str());
+            }
             compiler.insert("defines", Item::Value(arr.into()));
         }
         if !ex.includes.is_empty() {
             let mut arr = Array::new();
-            for inc in &ex.includes { arr.push(inc.as_str()); }
+            for inc in &ex.includes {
+                arr.push(inc.as_str());
+            }
             compiler.insert("includes", Item::Value(arr.into()));
         }
         doc.insert("compiler", Item::Table(compiler));
@@ -669,14 +865,23 @@ fn emit_toml(name: &str, version: &str, ex: &Extracted, warnings: &[String]) -> 
     let all_deps: Vec<String> = {
         let mut seen = HashSet::new();
         let mut deps = Vec::new();
-        for d in ex.deps.iter().chain(ex.find_packages.iter()).chain(ex.pkg_modules.iter()) {
-            if seen.insert(d.clone()) { deps.push(d.clone()); }
+        for d in ex
+            .deps
+            .iter()
+            .chain(ex.find_packages.iter())
+            .chain(ex.pkg_modules.iter())
+        {
+            if seen.insert(d.clone()) {
+                deps.push(d.clone());
+            }
         }
         deps
     };
     if !all_deps.is_empty() {
         let mut dep_tbl = Table::new();
-        for d in &all_deps { dep_tbl.insert(d, value("*")); }
+        for d in &all_deps {
+            dep_tbl.insert(d, value("*"));
+        }
         doc.insert("dependencies", Item::Table(dep_tbl));
     }
 
@@ -689,41 +894,63 @@ fn emit_toml(name: &str, version: &str, ex: &Extracted, warnings: &[String]) -> 
             // here would require BinTarget manifest support that doesn't yet exist.
             bin_tbl.insert("src", value(srcs[0].as_str()));
         }
-        let entry = doc.entry("bin").or_insert(Item::ArrayOfTables(Default::default()));
-        if let Item::ArrayOfTables(aot) = entry { aot.push(bin_tbl); }
+        let entry = doc
+            .entry("bin")
+            .or_insert(Item::ArrayOfTables(Default::default()));
+        if let Item::ArrayOfTables(aot) = entry {
+            aot.push(bin_tbl);
+        }
     }
 
     for (tgt_name, kind, srcs) in &ex.libs {
         let mut lib_tbl = Table::new();
         lib_tbl.insert("name", value(tgt_name.as_str()));
         match kind {
-            LibKind::Shared    => { lib_tbl.insert("type", value("shared")); }
-            LibKind::Interface => { lib_tbl.insert("type", value("interface")); }
-            LibKind::Static    => {}
+            LibKind::Shared => {
+                lib_tbl.insert("type", value("shared"));
+            }
+            LibKind::Interface => {
+                lib_tbl.insert("type", value("interface"));
+            }
+            LibKind::Static => {}
         }
         if !srcs.is_empty() {
             let mut arr = Array::new();
-            for s in srcs { arr.push(s.as_str()); }
+            for s in srcs {
+                arr.push(s.as_str());
+            }
             lib_tbl.insert("srcs", Item::Value(arr.into()));
         }
-        let entry = doc.entry("lib").or_insert(Item::ArrayOfTables(Default::default()));
-        if let Item::ArrayOfTables(aot) = entry { aot.push(lib_tbl); }
+        let entry = doc
+            .entry("lib")
+            .or_insert(Item::ArrayOfTables(Default::default()));
+        if let Item::ArrayOfTables(aot) = entry {
+            aot.push(lib_tbl);
+        }
     }
 
     // Language standards and platform deps appended as raw TOML to avoid empty headers.
     let mut extra = String::new();
-    if let Some(std) = &ex.cxx_std { extra.push_str(&format!("\n[language.cpp]\nstd = \"{std}\"\n")); }
-    if let Some(std) = &ex.c_std  { extra.push_str(&format!("\n[language.c]\nstd = \"{std}\"\n")); }
+    if let Some(std) = &ex.cxx_std {
+        extra.push_str(&format!("\n[language.cpp]\nstd = \"{std}\"\n"));
+    }
+    if let Some(std) = &ex.c_std {
+        extra.push_str(&format!("\n[language.c]\nstd = \"{std}\"\n"));
+    }
 
     // Platform-conditional dependency sections (sorted for deterministic output).
-    let mut platforms: Vec<(&str, &Vec<String>)> = ex.platform_deps.iter()
+    let mut platforms: Vec<(&str, &Vec<String>)> = ex
+        .platform_deps
+        .iter()
         .map(|(k, v)| (k.as_str(), v))
         .collect();
     platforms.sort_by_key(|(k, _)| *k);
     for (os, pdeps) in platforms {
         if !pdeps.is_empty() {
             extra.push_str(&format!("\n[os.{os}.dependencies]\n"));
-            for d in pdeps { extra.push_str(&format!("{d} = \"*\"\n")); }
+            for d in pdeps {
+                extra.push_str(&format!("{d} = \"*\"\n"));
+            }
         }
     }
 
@@ -831,9 +1058,18 @@ mod tests {
               target_link_libraries(app z)\n\
             endif()";
         let (ex, _) = extract_src(src);
-        assert!(!ex.deps.contains(&"ws2_32".to_string()), "ws2_32 should be excluded");
-        assert!(!ex.deps.contains(&"crypt32".to_string()), "crypt32 should be excluded");
-        assert!(ex.deps.contains(&"z".to_string()), "z should be included from else branch");
+        assert!(
+            !ex.deps.contains(&"ws2_32".to_string()),
+            "ws2_32 should be excluded"
+        );
+        assert!(
+            !ex.deps.contains(&"crypt32".to_string()),
+            "crypt32 should be excluded"
+        );
+        assert!(
+            ex.deps.contains(&"z".to_string()),
+            "z should be included from else branch"
+        );
     }
 
     #[test]
@@ -856,8 +1092,14 @@ mod tests {
         let src = "if(UNIX)\n  target_link_libraries(app z)\nendif()";
         let (ex, _) = extract_src(src);
         // UNIX is a recognised platform — goes to platform_deps["unix"], not dropped
-        assert!(!ex.deps.contains(&"z".to_string()), "z should not be unconditional");
-        assert_eq!(ex.platform_deps.get("unix").map(Vec::as_slice), Some(&["z".to_string()][..]));
+        assert!(
+            !ex.deps.contains(&"z".to_string()),
+            "z should not be unconditional"
+        );
+        assert_eq!(
+            ex.platform_deps.get("unix").map(Vec::as_slice),
+            Some(&["z".to_string()][..])
+        );
     }
 
     // ── Platform-conditional dep mapping ──────────────────────────────────────
@@ -867,8 +1109,10 @@ mod tests {
         let src = "if(WIN32)\n  target_link_libraries(app ws2_32)\nendif()";
         let (ex, _) = extract_src(src);
         assert!(ex.deps.is_empty());
-        assert_eq!(ex.platform_deps.get("windows").map(Vec::as_slice),
-                   Some(&["ws2_32".to_string()][..]));
+        assert_eq!(
+            ex.platform_deps.get("windows").map(Vec::as_slice),
+            Some(&["ws2_32".to_string()][..])
+        );
     }
 
     #[test]
@@ -876,8 +1120,10 @@ mod tests {
         let src = "if(MSVC)\n  target_link_libraries(app dbghelp)\nendif()";
         let (ex, _) = extract_src(src);
         assert!(ex.deps.is_empty());
-        assert_eq!(ex.platform_deps.get("windows").map(Vec::as_slice),
-                   Some(&["dbghelp".to_string()][..]));
+        assert_eq!(
+            ex.platform_deps.get("windows").map(Vec::as_slice),
+            Some(&["dbghelp".to_string()][..])
+        );
     }
 
     #[test]
@@ -885,8 +1131,10 @@ mod tests {
         let src = "if(APPLE)\n  find_package(OpenSSL REQUIRED)\nendif()";
         let (ex, _) = extract_src(src);
         assert!(ex.find_packages.is_empty());
-        assert_eq!(ex.platform_deps.get("macos").map(Vec::as_slice),
-                   Some(&["openssl".to_string()][..]));
+        assert_eq!(
+            ex.platform_deps.get("macos").map(Vec::as_slice),
+            Some(&["openssl".to_string()][..])
+        );
     }
 
     #[test]
@@ -929,9 +1177,18 @@ mod tests {
         let (ex, _) = extract_src(src);
         let win = ex.platform_deps.get("windows").cloned().unwrap_or_default();
         let mac = ex.platform_deps.get("macos").cloned().unwrap_or_default();
-        assert!(win.contains(&"ws2_32".to_string()), "ws2_32 should be windows-only");
-        assert!(mac.contains(&"openssl".to_string()), "openssl should be macos-only");
-        assert!(ex.deps.contains(&"z".to_string()), "z should be unconditional");
+        assert!(
+            win.contains(&"ws2_32".to_string()),
+            "ws2_32 should be windows-only"
+        );
+        assert!(
+            mac.contains(&"openssl".to_string()),
+            "openssl should be macos-only"
+        );
+        assert!(
+            ex.deps.contains(&"z".to_string()),
+            "z should be unconditional"
+        );
         assert!(!ex.deps.contains(&"ws2_32".to_string()));
         assert!(!ex.deps.contains(&"openssl".to_string()));
     }
@@ -948,11 +1205,20 @@ mod tests {
             endif()";
         let (ex, w) = extract_src(src);
         let toml = emit_toml("myapp", "0.1.0", &ex, &w);
-        assert!(toml.contains("[os.windows.dependencies]"), "should have windows section");
+        assert!(
+            toml.contains("[os.windows.dependencies]"),
+            "should have windows section"
+        );
         assert!(toml.contains("ws2_32 = \"*\""), "should have ws2_32");
-        assert!(toml.contains("[dependencies]"), "should have main deps section");
+        assert!(
+            toml.contains("[dependencies]"),
+            "should have main deps section"
+        );
         assert!(toml.contains("z = \"*\""), "should have z");
-        assert!(!toml.contains("[os.linux.dependencies]"), "no spurious linux section");
+        assert!(
+            !toml.contains("[os.linux.dependencies]"),
+            "no spurious linux section"
+        );
     }
 
     #[test]
@@ -960,7 +1226,10 @@ mod tests {
         // NOT WIN32 is not a recognised platform_condition — walk it as unconditional
         let src = "if(NOT WIN32)\n  target_link_libraries(app z)\nendif()";
         let (ex, _) = extract_src(src);
-        assert!(ex.deps.contains(&"z".to_string()), "NOT WIN32 body should be unconditional");
+        assert!(
+            ex.deps.contains(&"z".to_string()),
+            "NOT WIN32 body should be unconditional"
+        );
         assert!(ex.platform_deps.is_empty());
     }
 
@@ -1016,7 +1285,11 @@ mod tests {
     #[test]
     fn auto_linked_libs_excluded() {
         let (ex, _) = extract_src("target_link_libraries(app pthread m dl rt)");
-        assert!(ex.deps.is_empty(), "auto-linked libs should be excluded, got: {:?}", ex.deps);
+        assert!(
+            ex.deps.is_empty(),
+            "auto-linked libs should be excluded, got: {:?}",
+            ex.deps
+        );
     }
 
     #[test]
@@ -1066,9 +1339,8 @@ mod tests {
 
     #[test]
     fn subdirectory_collected() {
-        let (ex, _) = extract_src(
-            "add_subdirectory(lib)\nadd_subdirectory(app)\nadd_subdirectory(tests)"
-        );
+        let (ex, _) =
+            extract_src("add_subdirectory(lib)\nadd_subdirectory(app)\nadd_subdirectory(tests)");
         assert_eq!(ex.subdirs, vec!["lib", "app", "tests"]);
     }
 
@@ -1156,7 +1428,9 @@ mod tests {
 
     #[test]
     fn emits_dependencies() {
-        let (ex, w) = extract_src("project(app)\nfind_package(OpenSSL REQUIRED)\nfind_package(ZLIB REQUIRED)");
+        let (ex, w) = extract_src(
+            "project(app)\nfind_package(OpenSSL REQUIRED)\nfind_package(ZLIB REQUIRED)",
+        );
         let toml = emit_toml("app", "0.1.0", &ex, &w);
         assert!(toml.contains("[dependencies]"));
         assert!(toml.contains("openssl"));
@@ -1165,7 +1439,8 @@ mod tests {
 
     #[test]
     fn emits_cxx_standard() {
-        let (ex, w) = extract_src("set(CMAKE_CXX_STANDARD 17)\nproject(app)\nadd_executable(app main.cpp)");
+        let (ex, w) =
+            extract_src("set(CMAKE_CXX_STANDARD 17)\nproject(app)\nadd_executable(app main.cpp)");
         let toml = emit_toml("app", "0.1.0", &ex, &w);
         assert!(toml.contains("[language.cpp]"));
         assert!(toml.contains("std = \"c++17\""));

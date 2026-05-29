@@ -20,11 +20,11 @@ impl Args {
     }
 }
 
+use docify::extract::{extract_dir, DocItem, DocSet};
+use docify::render;
 use freight_core::manifest::types::{Dependency, Manifest};
 use freight_core::manifest::{find_manifest_dir, load_manifest};
 use freight_core::toolchain::freight_home;
-use docify::extract::{extract_dir, DocItem, DocSet};
-use docify::render;
 
 use crate::output::{print_error, print_status, print_success, print_warning};
 
@@ -291,7 +291,7 @@ fn dependency_summary(
 ) -> DocDependency {
     let (kind, version, source, path) = match dep {
         Dependency::Simple(version) => {
-            let dir = project_dir.join(".deps").join(name);
+            let dir = project_dir.join("target").join("deps").join(name);
             (
                 "registry".to_string(),
                 version.clone(),
@@ -299,14 +299,12 @@ fn dependency_summary(
                 dir.exists().then_some(dir),
             )
         }
-        Dependency::Detailed(d) if freight_core::manifest::types::is_platform_dep(name) => {
-            (
-                "platform".to_string(),
-                d.version.clone().unwrap_or_else(|| "*".into()),
-                name.to_string(),
-                None,
-            )
-        }
+        Dependency::Detailed(d) if freight_core::manifest::types::is_platform_dep(name) => (
+            "platform".to_string(),
+            d.version.clone().unwrap_or_else(|| "*".into()),
+            name.to_string(),
+            None,
+        ),
         Dependency::Detailed(d) if d.path.is_some() => {
             let rel = d.path.as_deref().unwrap_or_default();
             let dir = project_dir.join(rel);
@@ -319,7 +317,7 @@ fn dependency_summary(
             )
         }
         Dependency::Detailed(d) if d.git.is_some() => {
-            let dir = project_dir.join(".deps").join(name);
+            let dir = project_dir.join("target").join("deps").join(name);
             let source = d.git.clone().unwrap_or_default();
             (
                 "git".to_string(),
@@ -329,7 +327,7 @@ fn dependency_summary(
             )
         }
         Dependency::Detailed(d) if d.url.is_some() => {
-            let dir = project_dir.join(".deps").join(name);
+            let dir = project_dir.join("target").join("deps").join(name);
             let source = d.url.clone().unwrap_or_default();
             (
                 "url".to_string(),
@@ -339,7 +337,7 @@ fn dependency_summary(
             )
         }
         Dependency::Detailed(d) => {
-            let dir = project_dir.join(".deps").join(name);
+            let dir = project_dir.join("target").join("deps").join(name);
             (
                 "registry".to_string(),
                 d.version.clone().unwrap_or_else(|| "*".into()),
@@ -491,34 +489,43 @@ impl RenderCtx {
 // ── TUI app types ─────────────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, PartialEq)]
-enum TreeNodeKind { Dep, Group, Symbol, Readme }
+enum TreeNodeKind {
+    Dep,
+    Group,
+    Symbol,
+    Readme,
+}
 
 /// One node in the unified package/API tree.
 struct TreeNode {
-    label:    String,
-    depth:    usize,
-    kind:     TreeNodeKind,
+    label: String,
+    depth: usize,
+    kind: TreeNodeKind,
     expanded: bool,
     item_idx: Option<usize>, // for Symbol nodes: index into doc_items
-    dep_idx:  Option<usize>, // for Dep nodes: index into deps
-    loaded:   bool,          // for Dep nodes: true once items have been loaded
+    dep_idx: Option<usize>,  // for Dep nodes: index into deps
+    loaded: bool,            // for Dep nodes: true once items have been loaded
 }
 
 /// Which panel currently holds keyboard focus.
 #[derive(Clone, Copy, PartialEq)]
-enum Focus { Left, Content, Meta }
+enum Focus {
+    Left,
+    Content,
+    Meta,
+}
 
 struct DocApp<'a> {
     deps: &'a [DocDependency],
-    ctx:  RenderCtx,
+    ctx: RenderCtx,
     focus: Focus,
 
     // Unified tree (deps as roots, namespaces + symbols as children)
-    tree:         Vec<TreeNode>,
-    tree_cursor:  usize,
-    tree_offset:  usize,
+    tree: Vec<TreeNode>,
+    tree_cursor: usize,
+    tree_offset: usize,
     tree_visible: usize,
-    doc_items:    Vec<DocItem>, // flat: all loaded items from all deps (append-only)
+    doc_items: Vec<DocItem>, // flat: all loaded items from all deps (append-only)
 
     // Per-dep item ranges — populated on first load; index matches deps[].
     dep_item_ranges: Vec<Option<(usize, usize)>>, // (offset, count) into doc_items
@@ -527,43 +534,57 @@ struct DocApp<'a> {
     content_dep_idx: Option<usize>,
 
     // Content (centre)
-    blocks:        Vec<ContentBlock>,
-    total_lines:   usize,
-    scroll:        usize,
+    blocks: Vec<ContentBlock>,
+    total_lines: usize,
+    scroll: usize,
     content_links: Vec<(usize, String)>, // virtual_line → link target name
-    content_area:  Rect,                 // updated each frame for click hit-testing
-    item_vlines:   Vec<usize>,           // sorted virtual line of each item section (for Tab)
+    content_area: Rect,                  // updated each frame for click hit-testing
+    item_vlines: Vec<usize>,             // sorted virtual line of each item section (for Tab)
     item_line_map: std::collections::HashMap<usize, usize>, // item_idx → first virtual line
 
     // Metadata (right panel)
-    meta_lines:   Vec<Line<'static>>,
-    meta_scroll:  usize,
+    meta_lines: Vec<Line<'static>>,
+    meta_scroll: usize,
     meta_visible: usize,
 }
 
 impl<'a> DocApp<'a> {
     fn new(deps: &'a [DocDependency], ctx: RenderCtx) -> Self {
-        let tree = deps.iter().enumerate().map(|(i, dep)| TreeNode {
-            label:    format!("{} {}", dep.name, dep.version),
-            depth:    0,
-            kind:     TreeNodeKind::Dep,
-            expanded: false,
-            item_idx: None,
-            dep_idx:  Some(i),
-            loaded:   false,
-        }).collect();
+        let tree = deps
+            .iter()
+            .enumerate()
+            .map(|(i, dep)| TreeNode {
+                label: format!("{} {}", dep.name, dep.version),
+                depth: 0,
+                kind: TreeNodeKind::Dep,
+                expanded: false,
+                item_idx: None,
+                dep_idx: Some(i),
+                loaded: false,
+            })
+            .collect();
         let n = deps.len();
         Self {
-            deps, ctx,
+            deps,
+            ctx,
             focus: Focus::Left,
-            tree, tree_cursor: 0, tree_offset: 0, tree_visible: 0,
+            tree,
+            tree_cursor: 0,
+            tree_offset: 0,
+            tree_visible: 0,
             doc_items: Vec::new(),
             dep_item_ranges: vec![None; n],
             content_dep_idx: None,
-            blocks: Vec::new(), total_lines: 0, scroll: 0,
-            content_links: Vec::new(), content_area: Rect::default(),
-            item_vlines: Vec::new(), item_line_map: std::collections::HashMap::new(),
-            meta_lines: Vec::new(), meta_scroll: 0, meta_visible: 0,
+            blocks: Vec::new(),
+            total_lines: 0,
+            scroll: 0,
+            content_links: Vec::new(),
+            content_area: Rect::default(),
+            item_vlines: Vec::new(),
+            item_line_map: std::collections::HashMap::new(),
+            meta_lines: Vec::new(),
+            meta_scroll: 0,
+            meta_visible: 0,
         }
     }
 
@@ -571,33 +592,40 @@ impl<'a> DocApp<'a> {
     fn open_dep_node(&mut self, tree_idx: usize) {
         let dep_idx = self.tree[tree_idx].dep_idx.unwrap();
 
-        self.meta_lines  = render_pkg_meta(&self.deps[dep_idx]);
+        self.meta_lines = render_pkg_meta(&self.deps[dep_idx]);
         self.meta_scroll = 0;
 
         if !self.tree[tree_idx].loaded {
             // Extract items and record their range in doc_items.
             let item_offset = self.doc_items.len();
-            let new_items   = extract_dep_items(&self.deps[dep_idx]);
-            let item_count  = new_items.len();
+            let new_items = extract_dep_items(&self.deps[dep_idx]);
+            let item_count = new_items.len();
             self.doc_items.extend(new_items);
             self.dep_item_ranges[dep_idx] = Some((item_offset, item_count));
 
             // Build API sub-tree.
-            let sub = build_api_subtree(&self.doc_items[item_offset..item_offset + item_count], item_offset, 1);
+            let sub = build_api_subtree(
+                &self.doc_items[item_offset..item_offset + item_count],
+                item_offset,
+                1,
+            );
 
             // Insert README node (depth 1) then API nodes.
             let has_readme = readme_exists(&self.deps[dep_idx]);
             let mut ins = tree_idx + 1;
             if has_readme {
-                self.tree.insert(ins, TreeNode {
-                    label:    "README".to_string(),
-                    depth:    1,
-                    kind:     TreeNodeKind::Readme,
-                    expanded: false,
-                    item_idx: None,
-                    dep_idx:  Some(dep_idx),
-                    loaded:   false,
-                });
+                self.tree.insert(
+                    ins,
+                    TreeNode {
+                        label: "README".to_string(),
+                        depth: 1,
+                        kind: TreeNodeKind::Readme,
+                        expanded: false,
+                        item_idx: None,
+                        dep_idx: Some(dep_idx),
+                        loaded: false,
+                    },
+                );
                 ins += 1;
             }
             for (i, node) in sub.into_iter().enumerate() {
@@ -640,19 +668,27 @@ impl<'a> DocApp<'a> {
         if let Some((offset, count)) = self.dep_item_ranges[dep_idx] {
             if count > 0 {
                 let items = &self.doc_items[offset..offset + count];
-                load_all_items(items, offset, &self.ctx,
-                    &mut self.blocks, &mut self.content_links,
-                    &mut self.item_vlines, &mut self.item_line_map);
+                load_all_items(
+                    items,
+                    offset,
+                    &self.ctx,
+                    &mut self.blocks,
+                    &mut self.content_links,
+                    &mut self.item_vlines,
+                    &mut self.item_line_map,
+                );
             }
         }
 
-        self.total_lines    = self.blocks.iter().map(ContentBlock::line_count).sum();
+        self.total_lines = self.blocks.iter().map(ContentBlock::line_count).sum();
         self.content_dep_idx = Some(dep_idx);
     }
 
     fn open_tree_item(&mut self) {
         let vis = visible_nodes(&self.tree);
-        let Some(&idx) = vis.get(self.tree_cursor) else { return; };
+        let Some(&idx) = vis.get(self.tree_cursor) else {
+            return;
+        };
 
         match self.tree[idx].kind {
             TreeNodeKind::Dep => {
@@ -678,15 +714,15 @@ impl<'a> DocApp<'a> {
                     // node was expanded via a different path).
                     if self.dep_item_ranges[dep_idx].is_none() {
                         let offset = self.doc_items.len();
-                        let items  = extract_dep_items(&self.deps[dep_idx]);
-                        let count  = items.len();
+                        let items = extract_dep_items(&self.deps[dep_idx]);
+                        let count = items.len();
                         self.doc_items.extend(items);
                         self.dep_item_ranges[dep_idx] = Some((offset, count));
                     }
                     self.render_dep_content(dep_idx);
                 }
                 self.scroll = 0;
-                self.focus  = Focus::Content;
+                self.focus = Focus::Content;
             }
         }
     }
@@ -707,7 +743,10 @@ impl<'a> DocApp<'a> {
         if let Some(item_idx) = found {
             // Highlight the tree node
             let vis = visible_nodes(&self.tree);
-            if let Some(cursor) = vis.iter().position(|&ti| self.tree[ti].item_idx == Some(item_idx)) {
+            if let Some(cursor) = vis
+                .iter()
+                .position(|&ti| self.tree[ti].item_idx == Some(item_idx))
+            {
                 self.tree_cursor = cursor;
             } else {
                 if let Some(ti) = self.tree.iter().position(|n| n.item_idx == Some(item_idx)) {
@@ -715,7 +754,10 @@ impl<'a> DocApp<'a> {
                     if depth > 0 {
                         for pi in (0..ti).rev() {
                             if self.tree[pi].depth < depth
-                                && matches!(self.tree[pi].kind, TreeNodeKind::Group | TreeNodeKind::Dep)
+                                && matches!(
+                                    self.tree[pi].kind,
+                                    TreeNodeKind::Group | TreeNodeKind::Dep
+                                )
                             {
                                 self.tree[pi].expanded = true;
                                 break;
@@ -734,8 +776,12 @@ impl<'a> DocApp<'a> {
 
     /// Advance scroll to the next function section (Tab in content panel).
     fn next_declaration(&mut self) {
-        if self.item_vlines.is_empty() { return; }
-        let next = self.item_vlines.iter()
+        if self.item_vlines.is_empty() {
+            return;
+        }
+        let next = self
+            .item_vlines
+            .iter()
             .find(|&&vl| vl > self.scroll)
             .copied()
             .unwrap_or(self.item_vlines[0]); // wrap around
@@ -744,8 +790,13 @@ impl<'a> DocApp<'a> {
 
     /// Scroll back to the previous function section (Shift-Tab in content panel).
     fn prev_declaration(&mut self) {
-        if self.item_vlines.is_empty() { return; }
-        let prev = self.item_vlines.iter().rev()
+        if self.item_vlines.is_empty() {
+            return;
+        }
+        let prev = self
+            .item_vlines
+            .iter()
+            .rev()
             .find(|&&vl| vl < self.scroll)
             .copied()
             .unwrap_or(*self.item_vlines.last().unwrap()); // wrap around
@@ -784,7 +835,9 @@ fn run_doc_app(
 
         match event::read()? {
             Event::Key(key) if key.kind != KeyEventKind::Release => {
-                if handle_key(&mut app, key) { break; }
+                if handle_key(&mut app, key) {
+                    break;
+                }
             }
             Event::Mouse(m) if m.kind == MouseEventKind::Down(MouseButton::Left) => {
                 handle_mouse_click(&mut app, m.column, m.row);
@@ -798,36 +851,72 @@ fn run_doc_app(
 /// Returns `true` when the app should quit.
 fn handle_key(app: &mut DocApp<'_>, key: KeyEvent) -> bool {
     match key {
-        KeyEvent { code: KeyCode::Char('q'), .. }
-        | KeyEvent { code: KeyCode::Char('c'), modifiers: KeyModifiers::CONTROL, .. } => return true,
+        KeyEvent {
+            code: KeyCode::Char('q'),
+            ..
+        }
+        | KeyEvent {
+            code: KeyCode::Char('c'),
+            modifiers: KeyModifiers::CONTROL,
+            ..
+        } => return true,
 
         // Left arrow → tree panel; Right arrow → content panel.
-        KeyEvent { code: KeyCode::Left, .. } => { app.focus = Focus::Left; }
-        KeyEvent { code: KeyCode::Right, .. } => { app.focus = Focus::Content; }
+        KeyEvent {
+            code: KeyCode::Left,
+            ..
+        } => {
+            app.focus = Focus::Left;
+        }
+        KeyEvent {
+            code: KeyCode::Right,
+            ..
+        } => {
+            app.focus = Focus::Content;
+        }
 
         // Tab: Left→Content (focus switch); Content→next declaration; Meta→Left.
-        KeyEvent { code: KeyCode::Tab, modifiers: KeyModifiers::NONE, .. } => {
-            match app.focus {
-                Focus::Left    => { app.focus = Focus::Content; }
-                Focus::Content => { app.next_declaration(); }
-                Focus::Meta    => { app.focus = Focus::Left; }
+        KeyEvent {
+            code: KeyCode::Tab,
+            modifiers: KeyModifiers::NONE,
+            ..
+        } => match app.focus {
+            Focus::Left => {
+                app.focus = Focus::Content;
             }
-        }
-        KeyEvent { code: KeyCode::BackTab, .. } => {
-            match app.focus {
-                Focus::Content => { app.prev_declaration(); }
-                _              => { app.focus = Focus::Left; }
+            Focus::Content => {
+                app.next_declaration();
             }
-        }
+            Focus::Meta => {
+                app.focus = Focus::Left;
+            }
+        },
+        KeyEvent {
+            code: KeyCode::BackTab,
+            ..
+        } => match app.focus {
+            Focus::Content => {
+                app.prev_declaration();
+            }
+            _ => {
+                app.focus = Focus::Left;
+            }
+        },
 
-        KeyEvent { code: KeyCode::Esc, .. } | KeyEvent { code: KeyCode::Backspace, .. } => {
+        KeyEvent {
+            code: KeyCode::Esc, ..
+        }
+        | KeyEvent {
+            code: KeyCode::Backspace,
+            ..
+        } => {
             app.focus = Focus::Left;
         }
 
         _ => match app.focus {
-            Focus::Left    => handle_left_key(app, key),
+            Focus::Left => handle_left_key(app, key),
             Focus::Content => handle_content_key(app, key),
-            Focus::Meta    => handle_meta_key(app, key),
+            Focus::Meta => handle_meta_key(app, key),
         },
     }
     false
@@ -835,29 +924,64 @@ fn handle_key(app: &mut DocApp<'_>, key: KeyEvent) -> bool {
 
 fn handle_left_key(app: &mut DocApp<'_>, key: KeyEvent) {
     match key {
-        KeyEvent { code: KeyCode::Up, .. } | KeyEvent { code: KeyCode::Char('k'), .. } => {
+        KeyEvent {
+            code: KeyCode::Up, ..
+        }
+        | KeyEvent {
+            code: KeyCode::Char('k'),
+            ..
+        } => {
             app.tree_cursor = app.tree_cursor.saturating_sub(1);
         }
-        KeyEvent { code: KeyCode::Down, .. } | KeyEvent { code: KeyCode::Char('j'), .. } => {
+        KeyEvent {
+            code: KeyCode::Down,
+            ..
+        }
+        | KeyEvent {
+            code: KeyCode::Char('j'),
+            ..
+        } => {
             let vis_len = visible_nodes(&app.tree).len();
             app.tree_cursor = (app.tree_cursor + 1).min(vis_len.saturating_sub(1));
         }
-        KeyEvent { code: KeyCode::PageUp, .. } => {
+        KeyEvent {
+            code: KeyCode::PageUp,
+            ..
+        } => {
             let v = app.tree_visible.max(1);
             app.tree_cursor = app.tree_cursor.saturating_sub(v);
         }
-        KeyEvent { code: KeyCode::PageDown, .. } => {
+        KeyEvent {
+            code: KeyCode::PageDown,
+            ..
+        } => {
             let v = app.tree_visible.max(1);
             let n = visible_nodes(&app.tree).len().saturating_sub(1);
             app.tree_cursor = (app.tree_cursor + v).min(n);
         }
-        KeyEvent { code: KeyCode::Home, .. } | KeyEvent { code: KeyCode::Char('g'), .. } => {
+        KeyEvent {
+            code: KeyCode::Home,
+            ..
+        }
+        | KeyEvent {
+            code: KeyCode::Char('g'),
+            ..
+        } => {
             app.tree_cursor = 0;
         }
-        KeyEvent { code: KeyCode::End, .. } | KeyEvent { code: KeyCode::Char('G'), .. } => {
+        KeyEvent {
+            code: KeyCode::End, ..
+        }
+        | KeyEvent {
+            code: KeyCode::Char('G'),
+            ..
+        } => {
             app.tree_cursor = visible_nodes(&app.tree).len().saturating_sub(1);
         }
-        KeyEvent { code: KeyCode::Enter, .. } => {
+        KeyEvent {
+            code: KeyCode::Enter,
+            ..
+        } => {
             app.open_tree_item();
         }
         _ => {}
@@ -867,22 +991,58 @@ fn handle_left_key(app: &mut DocApp<'_>, key: KeyEvent) {
 fn handle_content_key(app: &mut DocApp<'_>, key: KeyEvent) {
     let total = app.total_lines;
     match key {
-        KeyEvent { code: KeyCode::Up, .. } | KeyEvent { code: KeyCode::Char('k'), .. } => {
+        KeyEvent {
+            code: KeyCode::Up, ..
+        }
+        | KeyEvent {
+            code: KeyCode::Char('k'),
+            ..
+        } => {
             app.scroll = app.scroll.saturating_sub(1);
         }
-        KeyEvent { code: KeyCode::Down, .. } | KeyEvent { code: KeyCode::Char('j'), .. } => {
+        KeyEvent {
+            code: KeyCode::Down,
+            ..
+        }
+        | KeyEvent {
+            code: KeyCode::Char('j'),
+            ..
+        } => {
             app.scroll = (app.scroll + 1).min(total.saturating_sub(1));
         }
-        KeyEvent { code: KeyCode::PageUp, .. } => {
+        KeyEvent {
+            code: KeyCode::PageUp,
+            ..
+        } => {
             app.scroll = app.scroll.saturating_sub(20);
         }
-        KeyEvent { code: KeyCode::PageDown, .. } | KeyEvent { code: KeyCode::Char(' '), .. } => {
+        KeyEvent {
+            code: KeyCode::PageDown,
+            ..
+        }
+        | KeyEvent {
+            code: KeyCode::Char(' '),
+            ..
+        } => {
             app.scroll = (app.scroll + 20).min(total.saturating_sub(1));
         }
-        KeyEvent { code: KeyCode::Home, .. } | KeyEvent { code: KeyCode::Char('g'), .. } => {
+        KeyEvent {
+            code: KeyCode::Home,
+            ..
+        }
+        | KeyEvent {
+            code: KeyCode::Char('g'),
+            ..
+        } => {
             app.scroll = 0;
         }
-        KeyEvent { code: KeyCode::End, .. } | KeyEvent { code: KeyCode::Char('G'), .. } => {
+        KeyEvent {
+            code: KeyCode::End, ..
+        }
+        | KeyEvent {
+            code: KeyCode::Char('G'),
+            ..
+        } => {
             app.scroll = total.saturating_sub(1);
         }
         _ => {}
@@ -892,21 +1052,45 @@ fn handle_content_key(app: &mut DocApp<'_>, key: KeyEvent) {
 fn handle_meta_key(app: &mut DocApp<'_>, key: KeyEvent) {
     let total = app.meta_lines.len();
     match key {
-        KeyEvent { code: KeyCode::Up, .. } | KeyEvent { code: KeyCode::Char('k'), .. } => {
+        KeyEvent {
+            code: KeyCode::Up, ..
+        }
+        | KeyEvent {
+            code: KeyCode::Char('k'),
+            ..
+        } => {
             app.meta_scroll = app.meta_scroll.saturating_sub(1);
         }
-        KeyEvent { code: KeyCode::Down, .. } | KeyEvent { code: KeyCode::Char('j'), .. } => {
+        KeyEvent {
+            code: KeyCode::Down,
+            ..
+        }
+        | KeyEvent {
+            code: KeyCode::Char('j'),
+            ..
+        } => {
             app.meta_scroll = (app.meta_scroll + 1).min(total.saturating_sub(1));
         }
-        KeyEvent { code: KeyCode::Home, .. } => { app.meta_scroll = 0; }
-        KeyEvent { code: KeyCode::End, .. }  => { app.meta_scroll = total.saturating_sub(1); }
+        KeyEvent {
+            code: KeyCode::Home,
+            ..
+        } => {
+            app.meta_scroll = 0;
+        }
+        KeyEvent {
+            code: KeyCode::End, ..
+        } => {
+            app.meta_scroll = total.saturating_sub(1);
+        }
         _ => {}
     }
 }
 
 fn handle_mouse_click(app: &mut DocApp<'_>, col: u16, row: u16) {
     let a = app.content_area;
-    if a.width == 0 { return; }
+    if a.width == 0 {
+        return;
+    }
     if col >= a.x && col < a.x + a.width && row >= a.y && row < a.y + a.height {
         let vline = app.scroll + (row - a.y) as usize;
         if let Some((_, target)) = app.content_links.iter().find(|(vl, _)| *vl == vline) {
@@ -925,7 +1109,11 @@ fn draw_app(frame: &mut ratatui::Frame, app: &mut DocApp<'_>) {
 
     let cols = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(20), Constraint::Min(10), Constraint::Percentage(20)])
+        .constraints([
+            Constraint::Percentage(20),
+            Constraint::Min(10),
+            Constraint::Percentage(20),
+        ])
         .split(rows[0]);
 
     draw_tree(frame, app, cols[0]);
@@ -937,11 +1125,16 @@ fn draw_app(frame: &mut ratatui::Frame, app: &mut DocApp<'_>) {
 
 fn draw_help_bar(frame: &mut ratatui::Frame, app: &DocApp<'_>, area: Rect) {
     let text = match app.focus {
-        Focus::Left    => "↑/↓  Enter expand/open  →/← focus  q quit",
-        Focus::Content => "↑/↓  PgUp/PgDn  Tab next decl  Shift-Tab prev decl  click link  ← tree  q quit",
-        Focus::Meta    => "↑/↓  Tab/← focus  q quit",
+        Focus::Left => "↑/↓  Enter expand/open  →/← focus  q quit",
+        Focus::Content => {
+            "↑/↓  PgUp/PgDn  Tab next decl  Shift-Tab prev decl  click link  ← tree  q quit"
+        }
+        Focus::Meta => "↑/↓  Tab/← focus  q quit",
     };
-    frame.render_widget(Paragraph::new(text).style(Style::default().fg(Color::DarkGray)), area);
+    frame.render_widget(
+        Paragraph::new(text).style(Style::default().fg(Color::DarkGray)),
+        area,
+    );
 }
 
 /// Unified package/API tree (left panel).
@@ -953,7 +1146,11 @@ fn draw_tree(frame: &mut ratatui::Frame, app: &mut DocApp<'_>, area: Rect) {
         .title(title)
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(if focused { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::DarkGray) });
+        .border_style(if focused {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        });
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -966,56 +1163,69 @@ fn draw_tree(frame: &mut ratatui::Frame, app: &mut DocApp<'_>, area: Rect) {
         app.tree_offset = app.tree_cursor + 1 - visible;
     }
 
-    let items: Vec<ListItem> = vis.iter().skip(app.tree_offset).take(visible).map(|&ti| {
-        let node = &app.tree[ti];
-        let pad  = "  ".repeat(node.depth);
-        match node.kind {
-            TreeNodeKind::Dep => {
-                let scope_color = node.dep_idx
-                    .and_then(|i| app.deps.get(i))
-                    .map(|d| match d.scope {
-                        "local"     => Color::Cyan,
-                        "local-dev" => Color::Blue,
-                        "global"    => Color::DarkGray,
-                        _           => Color::Reset,
-                    })
-                    .unwrap_or(Color::Reset);
-                let arrow = if node.expanded { "▾ " } else { "▸ " };
-                ListItem::new(Line::from(vec![
-                    Span::styled(format!("{pad}{arrow}"), Style::default().fg(scope_color)),
-                    Span::styled(node.label.clone(), Style::default().fg(Color::Reset).add_modifier(Modifier::BOLD)),
-                ]))
-            }
-            TreeNodeKind::Group => {
-                let arrow = if node.expanded { "▾ " } else { "▸ " };
-                ListItem::new(Line::from(vec![
-                    Span::raw(pad),
-                    Span::styled(format!("{arrow}{}", node.label), Style::default().fg(Color::Yellow)),
-                ]))
-            }
-            TreeNodeKind::Symbol => {
-                let color = node.item_idx
-                    .and_then(|ii| app.doc_items.get(ii))
-                    .map(|it| match it.kind.label() {
-                        "fn" | "sub" | "func" => Color::LightBlue,
-                        "struct" | "class"    => Color::LightGreen,
-                        "enum"                => Color::LightMagenta,
-                        _                     => Color::Reset,
-                    })
-                    .unwrap_or(Color::Reset);
-                ListItem::new(Line::from(vec![
-                    Span::raw(pad),
-                    Span::styled(format!("  {}", node.label), Style::default().fg(color)),
-                ]))
-            }
-            TreeNodeKind::Readme => {
-                ListItem::new(Line::from(vec![
+    let items: Vec<ListItem> = vis
+        .iter()
+        .skip(app.tree_offset)
+        .take(visible)
+        .map(|&ti| {
+            let node = &app.tree[ti];
+            let pad = "  ".repeat(node.depth);
+            match node.kind {
+                TreeNodeKind::Dep => {
+                    let scope_color = node
+                        .dep_idx
+                        .and_then(|i| app.deps.get(i))
+                        .map(|d| match d.scope {
+                            "local" => Color::Cyan,
+                            "local-dev" => Color::Blue,
+                            "global" => Color::DarkGray,
+                            _ => Color::Reset,
+                        })
+                        .unwrap_or(Color::Reset);
+                    let arrow = if node.expanded { "▾ " } else { "▸ " };
+                    ListItem::new(Line::from(vec![
+                        Span::styled(format!("{pad}{arrow}"), Style::default().fg(scope_color)),
+                        Span::styled(
+                            node.label.clone(),
+                            Style::default()
+                                .fg(Color::Reset)
+                                .add_modifier(Modifier::BOLD),
+                        ),
+                    ]))
+                }
+                TreeNodeKind::Group => {
+                    let arrow = if node.expanded { "▾ " } else { "▸ " };
+                    ListItem::new(Line::from(vec![
+                        Span::raw(pad),
+                        Span::styled(
+                            format!("{arrow}{}", node.label),
+                            Style::default().fg(Color::Yellow),
+                        ),
+                    ]))
+                }
+                TreeNodeKind::Symbol => {
+                    let color = node
+                        .item_idx
+                        .and_then(|ii| app.doc_items.get(ii))
+                        .map(|it| match it.kind.label() {
+                            "fn" | "sub" | "func" => Color::LightBlue,
+                            "struct" | "class" => Color::LightGreen,
+                            "enum" => Color::LightMagenta,
+                            _ => Color::Reset,
+                        })
+                        .unwrap_or(Color::Reset);
+                    ListItem::new(Line::from(vec![
+                        Span::raw(pad),
+                        Span::styled(format!("  {}", node.label), Style::default().fg(color)),
+                    ]))
+                }
+                TreeNodeKind::Readme => ListItem::new(Line::from(vec![
                     Span::raw(pad),
                     Span::styled("  README", Style::default().fg(Color::Cyan)),
-                ]))
+                ])),
             }
-        }
-    }).collect();
+        })
+        .collect();
 
     let sel_in_view = app.tree_cursor.saturating_sub(app.tree_offset);
     let mut state = ListState::default().with_offset(0);
@@ -1024,7 +1234,8 @@ fn draw_tree(frame: &mut ratatui::Frame, app: &mut DocApp<'_>, area: Rect) {
         List::new(items)
             .highlight_style(Style::default())
             .highlight_symbol(""),
-        inner, &mut state,
+        inner,
+        &mut state,
     );
 }
 
@@ -1034,7 +1245,11 @@ fn draw_content(frame: &mut ratatui::Frame, app: &mut DocApp<'_>, area: Rect) {
         .title("docs")
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(if focused { Style::default() } else { Style::default().fg(Color::DarkGray) });
+        .border_style(if focused {
+            Style::default()
+        } else {
+            Style::default().fg(Color::DarkGray)
+        });
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
     app.content_area = inner; // store for mouse click hit-testing
@@ -1048,34 +1263,42 @@ fn draw_content(frame: &mut ratatui::Frame, app: &mut DocApp<'_>, area: Rect) {
         return;
     }
 
-    let scroll    = app.scroll;
+    let scroll = app.scroll;
     let visible_h = inner.height as usize;
     let mut vy: usize = 0;
 
     for block in app.blocks.iter_mut() {
-        let bh    = block.line_count();
+        let bh = block.line_count();
         let bstart = vy;
-        let bend   = vy + bh;
+        let bend = vy + bh;
         vy = bend;
 
-        if bend <= scroll || bstart >= scroll + visible_h { continue; }
+        if bend <= scroll || bstart >= scroll + visible_h {
+            continue;
+        }
 
         let screen_top = bstart.saturating_sub(scroll);
-        let skip       = scroll.saturating_sub(bstart);
+        let skip = scroll.saturating_sub(bstart);
 
         match block {
             ContentBlock::Lines(lines) => {
                 let take = (bh - skip).min(visible_h - screen_top);
                 let rect = Rect {
-                    x: inner.x, y: inner.y + screen_top as u16,
-                    width: inner.width, height: take as u16,
+                    x: inner.x,
+                    y: inner.y + screen_top as u16,
+                    width: inner.width,
+                    height: take as u16,
                 };
                 frame.render_widget(Paragraph::new(lines[skip..skip + take].to_vec()), rect);
             }
             #[cfg(feature = "rich-math")]
-            ContentBlock::MathImage { state, height_lines } => {
+            ContentBlock::MathImage {
+                state,
+                height_lines,
+            } => {
                 let rect = Rect {
-                    x: inner.x, y: inner.y + screen_top as u16,
+                    x: inner.x,
+                    y: inner.y + screen_top as u16,
                     width: inner.width,
                     height: ((visible_h - screen_top) as u16).min(*height_lines),
                 };
@@ -1091,7 +1314,11 @@ fn draw_meta(frame: &mut ratatui::Frame, app: &mut DocApp<'_>, area: Rect) {
         .title(if focused { "Info [focus]" } else { "Info" })
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(if focused { Style::default().fg(Color::Yellow) } else { Style::default().fg(Color::DarkGray) });
+        .border_style(if focused {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        });
     let inner = block.inner(area);
     frame.render_widget(block, area);
 
@@ -1105,9 +1332,11 @@ fn draw_meta(frame: &mut ratatui::Frame, app: &mut DocApp<'_>, area: Rect) {
 
     let visible = inner.height as usize;
     app.meta_visible = visible;
-    app.meta_scroll  = app.meta_scroll.min(app.meta_lines.len().saturating_sub(1));
+    app.meta_scroll = app.meta_scroll.min(app.meta_lines.len().saturating_sub(1));
 
-    let vis: Vec<Line<'static>> = app.meta_lines.iter()
+    let vis: Vec<Line<'static>> = app
+        .meta_lines
+        .iter()
         .skip(app.meta_scroll)
         .take(visible)
         .cloned()
@@ -1126,7 +1355,10 @@ fn latex_display_to_block(
 
     let svg = mathjax_svg_rs::render_tex(
         latex,
-        &mathjax_svg_rs::Options { font_size: 32.0, ..Default::default() },
+        &mathjax_svg_rs::Options {
+            font_size: 32.0,
+            ..Default::default()
+        },
     )
     .ok()?;
 
@@ -1149,7 +1381,10 @@ fn latex_display_to_block(
     let height_lines = ((h + cell_h as u32 - 1) / cell_h as u32) as u16;
 
     let state = picker.new_resize_protocol(dyn_img);
-    Some(ContentBlock::MathImage { state, height_lines })
+    Some(ContentBlock::MathImage {
+        state,
+        height_lines,
+    })
 }
 
 // ── Doc content loading ───────────────────────────────────────────────────────
@@ -1162,9 +1397,9 @@ fn load_all_items(
     items: &[DocItem],
     item_offset: usize,
     ctx: &RenderCtx,
-    out_blocks:   &mut Vec<ContentBlock>,
-    out_links:    &mut Vec<(usize, String)>,
-    out_vlines:   &mut Vec<usize>,
+    out_blocks: &mut Vec<ContentBlock>,
+    out_links: &mut Vec<(usize, String)>,
+    out_vlines: &mut Vec<usize>,
     out_line_map: &mut std::collections::HashMap<usize, usize>,
 ) {
     for (i, item) in items.iter().enumerate() {
@@ -1184,16 +1419,25 @@ fn load_all_items(
 
 /// Return `true` if `dep` has any readable README / doc file.
 fn readme_exists(dep: &DocDependency) -> bool {
-    if dep.docs.iter().any(|p| !p.extension().map_or(false, |e| e == "html")) {
+    if dep
+        .docs
+        .iter()
+        .any(|p| !p.extension().map_or(false, |e| e == "html"))
+    {
         return true;
     }
     dep.path.as_ref().map_or(false, |root| {
-        ["README.md", "readme.md", "README"].iter().any(|n| root.join(n).exists())
+        ["README.md", "readme.md", "README"]
+            .iter()
+            .any(|n| root.join(n).exists())
     })
 }
 
 /// Load the README / markdown docs for the centre panel when a dep is first opened.
-fn load_readme_content(dep: &DocDependency, ctx: &RenderCtx) -> (Vec<ContentBlock>, Vec<(usize, String)>) {
+fn load_readme_content(
+    dep: &DocDependency,
+    ctx: &RenderCtx,
+) -> (Vec<ContentBlock>, Vec<(usize, String)>) {
     // Prefer pre-generated doc files (target/doc/index.md, docs/index.md, README.md, …)
     for doc_path in &dep.docs {
         if let Ok(text) = std::fs::read_to_string(doc_path) {
@@ -1215,18 +1459,27 @@ fn load_readme_content(dep: &DocDependency, ctx: &RenderCtx) -> (Vec<ContentBloc
             }
         }
     }
-    (vec![ContentBlock::Lines(vec![
-        Line::raw(format!("No README found for '{}'.", dep.name)),
-        Line::raw(""),
-        Line::raw("Use [2] Files to browse the API tree."),
-    ])], Vec::new())
+    (
+        vec![ContentBlock::Lines(vec![
+            Line::raw(format!("No README found for '{}'.", dep.name)),
+            Line::raw(""),
+            Line::raw("Use [2] Files to browse the API tree."),
+        ])],
+        Vec::new(),
+    )
 }
 
 /// Extract all doc items from a dependency's source tree.
 fn extract_dep_items(dep: &DocDependency) -> Vec<DocItem> {
-    let Some(dep_dir) = &dep.path else { return Vec::new(); };
-    let src_dir  = dep_dir.join("src");
-    let scan_dir = if src_dir.is_dir() { src_dir } else { dep_dir.clone() };
+    let Some(dep_dir) = &dep.path else {
+        return Vec::new();
+    };
+    let src_dir = dep_dir.join("src");
+    let scan_dir = if src_dir.is_dir() {
+        src_dir
+    } else {
+        dep_dir.clone()
+    };
     docify::extract::extract_dir(&scan_dir).items
 }
 
@@ -1239,14 +1492,19 @@ fn build_api_subtree(items: &[DocItem], item_offset: usize, base_depth: usize) -
     use std::collections::BTreeMap;
 
     let mut groups: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-    let mut roots:  Vec<usize>                   = Vec::new();
+    let mut roots: Vec<usize> = Vec::new();
 
     for (i, item) in items.iter().enumerate() {
-        if item.name.is_empty() { continue; } // skip file-level/anonymous items
+        if item.name.is_empty() {
+            continue;
+        } // skip file-level/anonymous items
         let global = item_offset + i;
         let sep = item.name.rfind("::").or_else(|| item.name.rfind('.'));
         if let Some(p) = sep {
-            groups.entry(item.name[..p].to_string()).or_default().push(global);
+            groups
+                .entry(item.name[..p].to_string())
+                .or_default()
+                .push(global);
         } else {
             roots.push(global);
         }
@@ -1256,38 +1514,41 @@ fn build_api_subtree(items: &[DocItem], item_offset: usize, base_depth: usize) -
 
     for gi in roots {
         tree.push(TreeNode {
-            label:    items[gi - item_offset].name.clone(),
-            depth:    base_depth,
-            kind:     TreeNodeKind::Symbol,
+            label: items[gi - item_offset].name.clone(),
+            depth: base_depth,
+            kind: TreeNodeKind::Symbol,
             expanded: false,
             item_idx: Some(gi),
-            dep_idx:  None,
-            loaded:   false,
+            dep_idx: None,
+            loaded: false,
         });
     }
 
     for (ns, members) in &groups {
         tree.push(TreeNode {
-            label:    ns.clone(),
-            depth:    base_depth,
-            kind:     TreeNodeKind::Group,
+            label: ns.clone(),
+            depth: base_depth,
+            kind: TreeNodeKind::Group,
             expanded: true,
             item_idx: None,
-            dep_idx:  None,
-            loaded:   false,
+            dep_idx: None,
+            loaded: false,
         });
         for &gi in members {
             let item = &items[gi - item_offset];
-            let local = item.name.rfind("::").or_else(|| item.name.rfind('.'))
+            let local = item
+                .name
+                .rfind("::")
+                .or_else(|| item.name.rfind('.'))
                 .map_or(item.name.as_str(), |p| &item.name[p + 2..]);
             tree.push(TreeNode {
-                label:    local.to_owned(),
-                depth:    base_depth + 1,
-                kind:     TreeNodeKind::Symbol,
+                label: local.to_owned(),
+                depth: base_depth + 1,
+                kind: TreeNodeKind::Symbol,
                 expanded: false,
                 item_idx: Some(gi),
-                dep_idx:  None,
-                loaded:   false,
+                dep_idx: None,
+                loaded: false,
             });
         }
     }
@@ -1297,11 +1558,13 @@ fn build_api_subtree(items: &[DocItem], item_offset: usize, base_depth: usize) -
 
 /// Return indices of currently-visible tree nodes, respecting collapsed groups and deps.
 fn visible_nodes(tree: &[TreeNode]) -> Vec<usize> {
-    let mut vis  = Vec::new();
+    let mut vis = Vec::new();
     let mut skip: Option<usize> = None;
     for (i, node) in tree.iter().enumerate() {
         if let Some(d) = skip {
-            if node.depth > d { continue; }
+            if node.depth > d {
+                continue;
+            }
             skip = None;
         }
         vis.push(i);
@@ -1314,9 +1577,11 @@ fn visible_nodes(tree: &[TreeNode]) -> Vec<usize> {
 
 /// Render package metadata from the dep's freight.toml as styled lines.
 fn render_pkg_meta(dep: &DocDependency) -> Vec<Line<'static>> {
-    let key_sty  = Style::default().fg(Color::DarkGray);
-    let link_sty = Style::default().fg(Color::Cyan).add_modifier(Modifier::UNDERLINED);
-    let bold     = Style::default().add_modifier(Modifier::BOLD);
+    let key_sty = Style::default().fg(Color::DarkGray);
+    let link_sty = Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::UNDERLINED);
+    let bold = Style::default().add_modifier(Modifier::BOLD);
 
     let mut lines: Vec<Line<'static>> = Vec::new();
 
@@ -1335,16 +1600,18 @@ fn render_pkg_meta(dep: &DocDependency) -> Vec<Line<'static>> {
         };
     }
 
-    kv!("name",    &dep.name);
+    kv!("name", &dep.name);
     kv!("version", &dep.version);
-    kv!("kind",    &dep.kind);
-    kv!("source",  &dep.source);
+    kv!("kind", &dep.kind);
+    kv!("source", &dep.source);
 
     if let Some(root) = &dep.path {
         if let Ok(manifest) = load_manifest(root) {
             let pkg = &manifest.package;
 
-            if !pkg.license.is_empty() { kv!("license", &pkg.license); }
+            if !pkg.license.is_empty() {
+                kv!("license", &pkg.license);
+            }
 
             if !pkg.description.is_empty() {
                 lines.push(Line::raw(""));
@@ -1390,7 +1657,7 @@ fn render_pkg_meta(dep: &DocDependency) -> Vec<Line<'static>> {
 }
 
 fn word_wrap(text: &str, width: usize) -> Vec<String> {
-    let mut out  = Vec::new();
+    let mut out = Vec::new();
     let mut line = String::new();
     for word in text.split_whitespace() {
         if line.is_empty() {
@@ -1403,7 +1670,9 @@ fn word_wrap(text: &str, width: usize) -> Vec<String> {
             line = word.to_owned();
         }
     }
-    if !line.is_empty() { out.push(line); }
+    if !line.is_empty() {
+        out.push(line);
+    }
     out
 }
 
@@ -1419,7 +1688,11 @@ fn emit_display_math(builder: &mut DocBlockBuilder, latex: &str, _ctx: &RenderCt
     #[cfg(feature = "rich-math")]
     if let Some(picker) = _ctx.picker.as_ref() {
         if let Some(img_block) = latex_display_to_block(latex, picker) {
-            if let ContentBlock::MathImage { state, height_lines } = img_block {
+            if let ContentBlock::MathImage {
+                state,
+                height_lines,
+            } = img_block
+            {
                 builder.push_image(state, height_lines);
                 builder.push(Line::raw(""));
                 return;
@@ -1427,23 +1700,26 @@ fn emit_display_math(builder: &mut DocBlockBuilder, latex: &str, _ctx: &RenderCt
         }
     }
     let rendered = docify::util::latex::render_math_block(latex);
-    builder.push(Line::from(vec![Span::raw("    ".to_owned()), Span::raw(rendered)]));
+    builder.push(Line::from(vec![
+        Span::raw("    ".to_owned()),
+        Span::raw(rendered),
+    ]));
     builder.push(Line::raw(""));
 }
 
 /// Render a fenced or indented code block as a rounded-corner bordered box.
 fn render_code_block(lang: &str, code: &str, width: usize) -> Vec<Line<'static>> {
-    let bdr      = Style::default().fg(Color::DarkGray);
+    let bdr = Style::default().fg(Color::DarkGray);
     let code_sty = Style::default().fg(Color::LightGreen);
-    let inner    = width.saturating_sub(4);
-    let mut out  = Vec::new();
+    let inner = width.saturating_sub(4);
+    let mut out = Vec::new();
 
     let top = if lang.is_empty() {
         format!("  ╭{}", "─".repeat(inner + 2))
     } else {
         let label = format!(" {lang} ");
-        let llen  = label.chars().count();
-        let bars  = (inner + 2).saturating_sub(llen + 1);
+        let llen = label.chars().count();
+        let bars = (inner + 2).saturating_sub(llen + 1);
         format!("  ╭─{label}{}", "─".repeat(bars))
     };
     out.push(Line::from(Span::styled(top, bdr)));
@@ -1455,24 +1731,37 @@ fn render_code_block(lang: &str, code: &str, width: usize) -> Vec<Line<'static>>
             Span::styled(content, code_sty),
         ]));
     }
-    out.push(Line::from(Span::styled(format!("  ╰{}", "─".repeat(inner + 2)), bdr)));
+    out.push(Line::from(Span::styled(
+        format!("  ╰{}", "─".repeat(inner + 2)),
+        bdr,
+    )));
     out
 }
 
 /// Render a markdown table with box-drawing borders.
 fn render_md_table(header: &[String], rows: &[Vec<String>]) -> Vec<Line<'static>> {
-    let bdr      = Style::default().fg(Color::DarkGray);
-    let hdr_sty  = Style::default().add_modifier(Modifier::BOLD);
+    let bdr = Style::default().fg(Color::DarkGray);
+    let hdr_sty = Style::default().add_modifier(Modifier::BOLD);
     let code_sty = Style::default().fg(Color::LightGreen);
 
-    let ncols = header.len().max(rows.iter().map(|r| r.len()).max().unwrap_or(0));
-    if ncols == 0 { return vec![]; }
+    let ncols = header
+        .len()
+        .max(rows.iter().map(|r| r.len()).max().unwrap_or(0));
+    if ncols == 0 {
+        return vec![];
+    }
 
-    let col_widths: Vec<usize> = (0..ncols).map(|c| {
-        let hw = header.get(c).map_or(0, |s| s.chars().count());
-        let rw = rows.iter().map(|r| r.get(c).map_or(0, |s| s.chars().count())).max().unwrap_or(0);
-        hw.max(rw).max(3)
-    }).collect();
+    let col_widths: Vec<usize> = (0..ncols)
+        .map(|c| {
+            let hw = header.get(c).map_or(0, |s| s.chars().count());
+            let rw = rows
+                .iter()
+                .map(|r| r.get(c).map_or(0, |s| s.chars().count()))
+                .max()
+                .unwrap_or(0);
+            hw.max(rw).max(3)
+        })
+        .collect();
 
     let make_rule = |l: &str, m: &str, r: &str| -> Line<'static> {
         let mut s = format!("  {l}");
@@ -1492,7 +1781,10 @@ fn render_md_table(header: &[String], rows: &[Vec<String>]) -> Vec<Line<'static>
             } else {
                 (text, cell_sty)
             };
-            let padded: String = format!(" {content:<w$} ", w = w).chars().take(w + 2).collect();
+            let padded: String = format!(" {content:<w$} ", w = w)
+                .chars()
+                .take(w + 2)
+                .collect();
             spans.push(Span::styled(padded, sty));
             spans.push(Span::styled("│".to_owned(), bdr));
         }
@@ -1500,7 +1792,10 @@ fn render_md_table(header: &[String], rows: &[Vec<String>]) -> Vec<Line<'static>
     };
 
     let is_separator = |row: &[String]| {
-        !row.is_empty() && row.iter().all(|s| s.trim().chars().all(|c| c == '─' || c == '-' || c == ' '))
+        !row.is_empty()
+            && row
+                .iter()
+                .all(|s| s.trim().chars().all(|c| c == '─' || c == '-' || c == ' '))
     };
 
     let mut out = vec![make_rule("┌", "┬", "┐")];
@@ -1520,28 +1815,38 @@ fn render_md_table(header: &[String], rows: &[Vec<String>]) -> Vec<Line<'static>
 /// First-line and continuation-line indent prefixes for the current list/blockquote context.
 fn list_item_prefixes(stack: &[(bool, u64)], bq: usize, item_first: bool) -> (String, String) {
     let mut first = String::new();
-    let mut cont  = String::new();
-    for _ in 0..bq { first.push_str("▌ "); cont.push_str("▌ "); }
+    let mut cont = String::new();
+    for _ in 0..bq {
+        first.push_str("▌ ");
+        cont.push_str("▌ ");
+    }
     let depth = stack.len();
     for (d, (ordered, num)) in stack.iter().enumerate() {
         if d + 1 < depth {
-            first.push_str("  "); cont.push_str("  ");
+            first.push_str("  ");
+            cont.push_str("  ");
         } else if item_first {
             if *ordered {
                 let b = format!("{num}. ");
                 let p = " ".repeat(b.len());
-                first.push_str(&b); cont.push_str(&p);
+                first.push_str(&b);
+                cont.push_str(&p);
             } else {
-                first.push_str("• "); cont.push_str("  ");
+                first.push_str("• ");
+                cont.push_str("  ");
             }
         } else {
-            let pad = " ".repeat(if *ordered { format!("{num}. ").len() } else { 2 });
-            first.push_str(&pad); cont.push_str(&pad);
+            let pad = " ".repeat(if *ordered {
+                format!("{num}. ").len()
+            } else {
+                2
+            });
+            first.push_str(&pad);
+            cont.push_str(&pad);
         }
     }
     (first, cont)
 }
-
 
 /// Render a heading as a highlighted strip from column 0 with a rounded right end (◗).
 ///
@@ -1551,7 +1856,14 @@ fn list_item_prefixes(stack: &[(bool, u64)], bq: usize, item_first: bool) -> (St
 fn heading_line(level: pulldown_cmark::HeadingLevel, text: &str) -> Line<'static> {
     use pulldown_cmark::HeadingLevel as HL;
     let bg = Color::DarkGray;
-    let indent = match level { HL::H1 => 0, HL::H2 => 1, HL::H3 => 2, HL::H4 => 3, HL::H5 => 4, HL::H6 => 5 };
+    let indent = match level {
+        HL::H1 => 0,
+        HL::H2 => 1,
+        HL::H3 => 2,
+        HL::H4 => 3,
+        HL::H5 => 4,
+        HL::H6 => 5,
+    };
     let pad = " ".repeat(indent * 2);
     let end_sty = Style::default().fg(bg);
 
@@ -1564,7 +1876,7 @@ fn heading_line(level: pulldown_cmark::HeadingLevel, text: &str) -> Line<'static
             let fg = match level {
                 HL::H1 => Color::LightCyan,
                 HL::H3 => Color::Magenta,
-                _      => Color::White,
+                _ => Color::White,
             };
             spans.push(Span::styled(
                 format!("{text} "),
@@ -1583,11 +1895,14 @@ fn heading_line(level: pulldown_cmark::HeadingLevel, text: &str) -> Line<'static
 /// rest is the return type (LightBlue).  Inside the parameter list each word that
 /// looks like a C type keyword is styled LightCyan; everything else is White.
 fn colorize_sig_spans(sig: &str, bg: Color, out: &mut Vec<Span<'static>>) {
-    let bg_plain  = Style::default().bg(bg).fg(Color::White);
-    let bg_ret    = Style::default().bg(bg).fg(Color::LightBlue);
-    let bg_name   = Style::default().bg(bg).fg(Color::Yellow).add_modifier(Modifier::BOLD);
-    let bg_type   = Style::default().bg(bg).fg(Color::LightCyan);
-    let bg_punct  = Style::default().bg(bg).fg(Color::DarkGray);
+    let bg_plain = Style::default().bg(bg).fg(Color::White);
+    let bg_ret = Style::default().bg(bg).fg(Color::LightBlue);
+    let bg_name = Style::default()
+        .bg(bg)
+        .fg(Color::Yellow)
+        .add_modifier(Modifier::BOLD);
+    let bg_type = Style::default().bg(bg).fg(Color::LightCyan);
+    let bg_punct = Style::default().bg(bg).fg(Color::DarkGray);
 
     // Find the opening paren of the parameter list.
     let paren = sig.find('(');
@@ -1597,10 +1912,19 @@ fn colorize_sig_spans(sig: &str, bg: Color, out: &mut Vec<Span<'static>>) {
         let kind_end = t.find(' ').unwrap_or(t.len());
         let (kw, rest) = t.split_at(kind_end);
         let kw_sty = match kw {
-            "struct" | "class" | "enum" => Style::default().bg(bg).fg(Color::LightGreen).add_modifier(Modifier::BOLD),
-            "typedef" | "using"         => Style::default().bg(bg).fg(Color::LightMagenta).add_modifier(Modifier::BOLD),
-            "const" | "static"          => Style::default().bg(bg).fg(Color::LightCyan).add_modifier(Modifier::BOLD),
-            _                           => bg_name,
+            "struct" | "class" | "enum" => Style::default()
+                .bg(bg)
+                .fg(Color::LightGreen)
+                .add_modifier(Modifier::BOLD),
+            "typedef" | "using" => Style::default()
+                .bg(bg)
+                .fg(Color::LightMagenta)
+                .add_modifier(Modifier::BOLD),
+            "const" | "static" => Style::default()
+                .bg(bg)
+                .fg(Color::LightCyan)
+                .add_modifier(Modifier::BOLD),
+            _ => bg_name,
         };
         out.push(Span::styled(format!("{kw}"), kw_sty));
         out.push(Span::styled(format!("{rest} "), bg_plain));
@@ -1608,13 +1932,17 @@ fn colorize_sig_spans(sig: &str, bg: Color, out: &mut Vec<Span<'static>>) {
     }
     let paren = paren.unwrap();
     let before = sig[..paren].trim_end();
-    let params  = &sig[paren..]; // "(int a, int b)"
+    let params = &sig[paren..]; // "(int a, int b)"
 
     // Split return-type from function name.
     // The last token before `(` is the name (may have * prefix for pointer-returning fns).
     let last_space = before.rfind(|c: char| c.is_ascii_whitespace() || c == '*');
     let (ret_part, name_part) = if let Some(p) = last_space {
-        let split_at = if before.as_bytes().get(p) == Some(&b'*') { p } else { p + 1 };
+        let split_at = if before.as_bytes().get(p) == Some(&b'*') {
+            p
+        } else {
+            p + 1
+        };
         (&before[..split_at], &before[split_at..])
     } else {
         ("", before)
@@ -1624,7 +1952,7 @@ fn colorize_sig_spans(sig: &str, bg: Color, out: &mut Vec<Span<'static>>) {
         out.push(Span::styled(format!("{} ", ret_part.trim_end()), bg_ret));
     }
     let name_clean = name_part.trim_start_matches('*');
-    let ptr_stars  = &name_part[..name_part.len() - name_clean.len()];
+    let ptr_stars = &name_part[..name_part.len() - name_clean.len()];
     if !ptr_stars.is_empty() {
         out.push(Span::styled(ptr_stars.to_owned(), bg_punct));
     }
@@ -1652,7 +1980,9 @@ fn colorize_param_list(
     let mut last_was_type = false;
 
     let flush = |tok: &mut String, last_was_type: &mut bool, out: &mut Vec<Span<'static>>| {
-        if tok.is_empty() { return; }
+        if tok.is_empty() {
+            return;
+        }
         let s = std::mem::take(tok);
         let sty = if is_c_type_keyword(&s) {
             *last_was_type = true;
@@ -1674,9 +2004,12 @@ fn colorize_param_list(
             // Punctuation/space
             let sty = match c {
                 '(' | ')' | ',' | ';' => punct_sty,
-                '*' | '&'             => Style::default().bg(bg).fg(Color::LightMagenta),
-                ' '                   => { out.push(Span::styled(" ", plain_sty)); continue; }
-                _                     => plain_sty,
+                '*' | '&' => Style::default().bg(bg).fg(Color::LightMagenta),
+                ' ' => {
+                    out.push(Span::styled(" ", plain_sty));
+                    continue;
+                }
+                _ => plain_sty,
             };
             out.push(Span::styled(c.to_string(), sty));
         }
@@ -1685,19 +2018,52 @@ fn colorize_param_list(
 }
 
 fn is_c_type_keyword(s: &str) -> bool {
-    matches!(s,
-        "int" | "long" | "short" | "char" | "void" | "float" | "double" | "bool"
-        | "unsigned" | "signed" | "const" | "volatile" | "restrict" | "static"
-        | "inline" | "extern" | "register" | "auto" | "struct" | "class" | "enum"
-        | "union" | "typename" | "template" | "size_t" | "ssize_t"
-        | "uint8_t" | "uint16_t" | "uint32_t" | "uint64_t" | "uintptr_t"
-        | "int8_t"  | "int16_t"  | "int32_t"  | "int64_t"  | "intptr_t"
-        | "ptrdiff_t" | "nullptr_t" | "string" | "vector" | "map" | "set"
+    matches!(
+        s,
+        "int"
+            | "long"
+            | "short"
+            | "char"
+            | "void"
+            | "float"
+            | "double"
+            | "bool"
+            | "unsigned"
+            | "signed"
+            | "const"
+            | "volatile"
+            | "restrict"
+            | "static"
+            | "inline"
+            | "extern"
+            | "register"
+            | "auto"
+            | "struct"
+            | "class"
+            | "enum"
+            | "union"
+            | "typename"
+            | "template"
+            | "size_t"
+            | "ssize_t"
+            | "uint8_t"
+            | "uint16_t"
+            | "uint32_t"
+            | "uint64_t"
+            | "uintptr_t"
+            | "int8_t"
+            | "int16_t"
+            | "int32_t"
+            | "int64_t"
+            | "intptr_t"
+            | "ptrdiff_t"
+            | "nullptr_t"
+            | "string"
+            | "vector"
+            | "map"
+            | "set"
     )
 }
-
-
-
 
 // ── Block builder ─────────────────────────────────────────────────────────────
 
@@ -1707,7 +2073,12 @@ struct DocBlockBuilder {
 }
 
 impl DocBlockBuilder {
-    fn new() -> Self { Self { blocks: Vec::new(), pending: Vec::new() } }
+    fn new() -> Self {
+        Self {
+            blocks: Vec::new(),
+            pending: Vec::new(),
+        }
+    }
 
     fn push(&mut self, line: Line<'static>) {
         self.pending.push(line);
@@ -1719,14 +2090,18 @@ impl DocBlockBuilder {
 
     fn flush(&mut self) {
         if !self.pending.is_empty() {
-            self.blocks.push(ContentBlock::Lines(std::mem::take(&mut self.pending)));
+            self.blocks
+                .push(ContentBlock::Lines(std::mem::take(&mut self.pending)));
         }
     }
 
     #[cfg(feature = "rich-math")]
     fn push_image(&mut self, state: ratatui_image::protocol::StatefulProtocol, height_lines: u16) {
         self.flush();
-        self.blocks.push(ContentBlock::MathImage { state, height_lines });
+        self.blocks.push(ContentBlock::MathImage {
+            state,
+            height_lines,
+        });
     }
 
     fn finish(mut self) -> Vec<ContentBlock> {
@@ -1753,33 +2128,35 @@ fn markdown_to_blocks(
         | Options::ENABLE_TASKLISTS;
 
     let mut builder = DocBlockBuilder::new();
-    let mut links:   Vec<(usize, String)> = Vec::new();
+    let mut links: Vec<(usize, String)> = Vec::new();
 
     // Each word carries (text, style, optional_link_dest).
     let mut words: Vec<(String, Style, Option<String>)> = Vec::new();
-    let mut bold         = false;
-    let mut italic       = false;
-    let mut strike       = false;
+    let mut bold = false;
+    let mut italic = false;
+    let mut strike = false;
     let mut current_link: Option<String> = None;
-    let code_sty         = Style::default().fg(Color::LightGreen);
-    let link_sty         = Style::default().fg(Color::Cyan).add_modifier(Modifier::UNDERLINED);
+    let code_sty = Style::default().fg(Color::LightGreen);
+    let link_sty = Style::default()
+        .fg(Color::Cyan)
+        .add_modifier(Modifier::UNDERLINED);
 
-    let mut in_code   = false;
+    let mut in_code = false;
     let mut code_lang = String::new();
     let mut code_text = String::new();
 
     let mut hd_level: Option<HeadingLevel> = None;
-    let mut hd_text:  String               = String::new();
+    let mut hd_text: String = String::new();
 
-    let mut tbl_header: Vec<String>      = Vec::new();
-    let mut tbl_rows:   Vec<Vec<String>> = Vec::new();
-    let mut tbl_row:    Vec<String>      = Vec::new();
-    let mut tbl_cell:   String           = String::new();
-    let mut in_thead                     = false;
-    let mut in_cell                      = false;
+    let mut tbl_header: Vec<String> = Vec::new();
+    let mut tbl_rows: Vec<Vec<String>> = Vec::new();
+    let mut tbl_row: Vec<String> = Vec::new();
+    let mut tbl_cell: String = String::new();
+    let mut in_thead = false;
+    let mut in_cell = false;
 
     let mut list_stack: Vec<(bool, u64)> = Vec::new();
-    let mut item_first                   = false;
+    let mut item_first = false;
 
     let mut bq: usize = 0;
 
@@ -1792,12 +2169,14 @@ fn markdown_to_blocks(
                 let cp: String = $cp;
                 let fa = width.saturating_sub(fp.chars().count().min(width));
                 let ca = width.saturating_sub(cp.chars().count().min(width));
-                let mut cur: Vec<Span<'static>>   = vec![Span::raw(fp)];
-                let mut cur_link: Option<String>  = None;
+                let mut cur: Vec<Span<'static>> = vec![Span::raw(fp)];
+                let mut cur_link: Option<String> = None;
                 let mut len: usize = 0;
                 let mut fst = true;
                 for (word, sty, ldest) in words.drain(..) {
-                    if let Some(ref d) = ldest { cur_link = Some(d.clone()); }
+                    if let Some(ref d) = ldest {
+                        cur_link = Some(d.clone());
+                    }
                     let wl = word.chars().count();
                     let av = if fst { fa } else { ca };
                     if len == 0 {
@@ -1817,7 +2196,9 @@ fn markdown_to_blocks(
                     }
                 }
                 if len > 0 {
-                    if let Some(ref d) = cur_link { links.push((builder.virtual_line(), d.clone())); }
+                    if let Some(ref d) = cur_link {
+                        links.push((builder.virtual_line(), d.clone()));
+                    }
                     builder.push(Line::from(cur));
                 }
                 builder.push(Line::raw(""));
@@ -1839,9 +2220,15 @@ fn markdown_to_blocks(
     macro_rules! isty {
         () => {{
             let mut s = Style::default();
-            if bold   { s = s.add_modifier(Modifier::BOLD); }
-            if italic { s = s.add_modifier(Modifier::ITALIC); }
-            if strike { s = s.add_modifier(Modifier::CROSSED_OUT); }
+            if bold {
+                s = s.add_modifier(Modifier::BOLD);
+            }
+            if italic {
+                s = s.add_modifier(Modifier::ITALIC);
+            }
+            if strike {
+                s = s.add_modifier(Modifier::CROSSED_OUT);
+            }
             s
         }};
     }
@@ -1862,9 +2249,13 @@ fn markdown_to_blocks(
             // Cross-reference links: [name](#name) or [name](name)
             Event::Start(Tag::Link { dest_url, .. }) => {
                 let dest = dest_url.trim_start_matches('#').to_string();
-                if !dest.is_empty() { current_link = Some(dest); }
+                if !dest.is_empty() {
+                    current_link = Some(dest);
+                }
             }
-            Event::End(TagEnd::Link) => { current_link = None; }
+            Event::End(TagEnd::Link) => {
+                current_link = None;
+            }
 
             Event::Start(Tag::Paragraph) => {}
             Event::End(TagEnd::Paragraph) => {
@@ -1877,31 +2268,41 @@ fn markdown_to_blocks(
                 in_code = true;
                 code_lang = match kind {
                     CodeBlockKind::Fenced(lang) => lang.to_string(),
-                    CodeBlockKind::Indented     => String::new(),
+                    CodeBlockKind::Indented => String::new(),
                 };
                 code_text.clear();
             }
             Event::End(TagEnd::CodeBlock) => {
-                for l in render_code_block(&code_lang, &code_text, width) { builder.push(l); }
+                for l in render_code_block(&code_lang, &code_text, width) {
+                    builder.push(l);
+                }
                 builder.push(Line::raw(""));
                 in_code = false;
                 code_lang.clear();
                 code_text.clear();
             }
 
-            Event::Start(Tag::BlockQuote(_)) => { bq += 1; }
-            Event::End(TagEnd::BlockQuote(_)) => { bq = bq.saturating_sub(1); }
+            Event::Start(Tag::BlockQuote(_)) => {
+                bq += 1;
+            }
+            Event::End(TagEnd::BlockQuote(_)) => {
+                bq = bq.saturating_sub(1);
+            }
 
             Event::Start(Tag::List(n)) => {
                 list_stack.push((n.is_some(), n.map(|v| v.saturating_sub(1)).unwrap_or(0)));
             }
             Event::End(TagEnd::List(_)) => {
                 list_stack.pop();
-                if list_stack.is_empty() { builder.push(Line::raw("")); }
+                if list_stack.is_empty() {
+                    builder.push(Line::raw(""));
+                }
             }
             Event::Start(Tag::Item) => {
                 if let Some(last) = list_stack.last_mut() {
-                    if last.0 { last.1 += 1; }
+                    if last.0 {
+                        last.1 += 1;
+                    }
                 }
                 item_first = true;
             }
@@ -1913,37 +2314,67 @@ fn markdown_to_blocks(
                 item_first = false;
             }
 
-            Event::Start(Tag::Table(_)) => { tbl_header.clear(); tbl_rows.clear(); }
+            Event::Start(Tag::Table(_)) => {
+                tbl_header.clear();
+                tbl_rows.clear();
+            }
             Event::End(TagEnd::Table) => {
-                for l in render_md_table(&tbl_header, &tbl_rows) { builder.push(l); }
+                for l in render_md_table(&tbl_header, &tbl_rows) {
+                    builder.push(l);
+                }
                 builder.push(Line::raw(""));
             }
-            Event::Start(Tag::TableHead) => { in_thead = true; tbl_row.clear(); }
+            Event::Start(Tag::TableHead) => {
+                in_thead = true;
+                tbl_row.clear();
+            }
             Event::End(TagEnd::TableHead) => {
                 tbl_header = std::mem::take(&mut tbl_row);
                 in_thead = false;
             }
-            Event::Start(Tag::TableRow) => { tbl_row.clear(); }
-            Event::End(TagEnd::TableRow) => {
-                if !in_thead { tbl_rows.push(std::mem::take(&mut tbl_row)); }
+            Event::Start(Tag::TableRow) => {
+                tbl_row.clear();
             }
-            Event::Start(Tag::TableCell) => { tbl_cell.clear(); in_cell = true; }
+            Event::End(TagEnd::TableRow) => {
+                if !in_thead {
+                    tbl_rows.push(std::mem::take(&mut tbl_row));
+                }
+            }
+            Event::Start(Tag::TableCell) => {
+                tbl_cell.clear();
+                in_cell = true;
+            }
             Event::End(TagEnd::TableCell) => {
                 tbl_row.push(std::mem::take(&mut tbl_cell));
                 in_cell = false;
             }
 
             Event::Rule => {
-                builder.push(Line::styled("─".repeat(width), Style::default().fg(Color::DarkGray)));
+                builder.push(Line::styled(
+                    "─".repeat(width),
+                    Style::default().fg(Color::DarkGray),
+                ));
                 builder.push(Line::raw(""));
             }
 
-            Event::Start(Tag::Strong)        => { bold   = true; }
-            Event::End(TagEnd::Strong)        => { bold   = false; }
-            Event::Start(Tag::Emphasis)       => { italic = true; }
-            Event::End(TagEnd::Emphasis)      => { italic = false; }
-            Event::Start(Tag::Strikethrough)  => { strike = true; }
-            Event::End(TagEnd::Strikethrough) => { strike = false; }
+            Event::Start(Tag::Strong) => {
+                bold = true;
+            }
+            Event::End(TagEnd::Strong) => {
+                bold = false;
+            }
+            Event::Start(Tag::Emphasis) => {
+                italic = true;
+            }
+            Event::End(TagEnd::Emphasis) => {
+                italic = false;
+            }
+            Event::Start(Tag::Strikethrough) => {
+                strike = true;
+            }
+            Event::End(TagEnd::Strikethrough) => {
+                strike = false;
+            }
 
             Event::Text(t) => {
                 if in_code {
@@ -1953,7 +2384,11 @@ fn markdown_to_blocks(
                 } else if in_cell {
                     tbl_cell.push_str(&t);
                 } else {
-                    let sty = if current_link.is_some() { link_sty } else { isty!() };
+                    let sty = if current_link.is_some() {
+                        link_sty
+                    } else {
+                        isty!()
+                    };
                     for word in t.split_whitespace() {
                         words.push((word.to_owned(), sty, current_link.clone()));
                     }
@@ -1966,7 +2401,11 @@ fn markdown_to_blocks(
                 } else if in_cell {
                     tbl_cell.push_str(&format!("`{t}`"));
                 } else {
-                    let sty = if current_link.is_some() { link_sty } else { code_sty };
+                    let sty = if current_link.is_some() {
+                        link_sty
+                    } else {
+                        code_sty
+                    };
                     words.push((t.into_string(), sty, current_link.clone()));
                 }
             }
@@ -2012,7 +2451,10 @@ fn markdown_to_blocks(
 
     let blocks = builder.finish();
     if blocks.is_empty() {
-        return (vec![ContentBlock::Lines(vec![Line::raw("(no content)")])], Vec::new());
+        return (
+            vec![ContentBlock::Lines(vec![Line::raw("(no content)")])],
+            Vec::new(),
+        );
     }
     (blocks, links)
 }
@@ -2025,16 +2467,16 @@ mod tree_tests {
 
     fn make_item(name: &str, kind: DocKind) -> DocItem {
         DocItem {
-            name:      name.to_string(),
+            name: name.to_string(),
             kind,
-            brief:     "A brief.".to_string(),
-            body:      String::new(),
-            tags:      Vec::new(),
-            file:      PathBuf::from("test.cpp"),
-            line:      1,
-            lang:      DocLanguage::Cpp,
+            brief: "A brief.".to_string(),
+            body: String::new(),
+            tags: Vec::new(),
+            file: PathBuf::from("test.cpp"),
+            line: 1,
+            lang: DocLanguage::Cpp,
             signature: String::new(),
-            meta:      DocMeta::default(),
+            meta: DocMeta::default(),
         }
     }
 
@@ -2042,36 +2484,46 @@ mod tree_tests {
     fn build_api_subtree_namespaced_items_visible() {
         // Items with "ns::name" form should be grouped and visible once dep expands.
         let items = vec![
-            make_item("stats::mean",     DocKind::Function),
+            make_item("stats::mean", DocKind::Function),
             make_item("stats::variance", DocKind::Function),
             make_item("stats::OrderStatistics", DocKind::Class),
-            make_item("",                DocKind::Unknown), // @file block — should be skipped
+            make_item("", DocKind::Unknown), // @file block — should be skipped
         ];
         let sub = build_api_subtree(&items, 0, 1);
 
         // Should have: Group "stats" + 3 Symbol children (empty-named item skipped).
-        let groups: Vec<_> = sub.iter().filter(|n| matches!(n.kind, TreeNodeKind::Group)).collect();
-        let syms:   Vec<_> = sub.iter().filter(|n| matches!(n.kind, TreeNodeKind::Symbol)).collect();
+        let groups: Vec<_> = sub
+            .iter()
+            .filter(|n| matches!(n.kind, TreeNodeKind::Group))
+            .collect();
+        let syms: Vec<_> = sub
+            .iter()
+            .filter(|n| matches!(n.kind, TreeNodeKind::Symbol))
+            .collect();
         assert_eq!(groups.len(), 1, "expected one 'stats' group");
-        assert_eq!(syms.len(),   3, "expected 3 symbols");
+        assert_eq!(syms.len(), 3, "expected 3 symbols");
         assert_eq!(groups[0].label, "stats");
         assert!(groups[0].expanded, "group should start expanded");
 
         // Build a minimal tree with a Dep + the subtree.
         let mut tree = vec![TreeNode {
-            label:    "dep 0.1".to_string(),
-            depth:    0,
-            kind:     TreeNodeKind::Dep,
+            label: "dep 0.1".to_string(),
+            depth: 0,
+            kind: TreeNodeKind::Dep,
             expanded: true,
             item_idx: None,
-            dep_idx:  Some(0),
-            loaded:   true,
+            dep_idx: Some(0),
+            loaded: true,
         }];
         tree.extend(sub);
 
         let vis = visible_nodes(&tree);
         // All nodes should be visible: dep + group + 3 symbols = 5.
-        assert_eq!(vis.len(), 5, "dep, group, and all 3 symbols should be visible");
+        assert_eq!(
+            vis.len(),
+            5,
+            "dep, group, and all 3 symbols should be visible"
+        );
     }
 
     #[test]
@@ -2079,20 +2531,20 @@ mod tree_tests {
         // Items without "::" go to roots and are directly visible.
         let items = vec![
             make_item("clamp", DocKind::Function),
-            make_item("lerp",  DocKind::Function),
+            make_item("lerp", DocKind::Function),
         ];
         let sub = build_api_subtree(&items, 0, 1);
         assert_eq!(sub.len(), 2);
         assert!(sub.iter().all(|n| matches!(n.kind, TreeNodeKind::Symbol)));
 
         let mut tree = vec![TreeNode {
-            label:    "dep 0.1".to_string(),
-            depth:    0,
-            kind:     TreeNodeKind::Dep,
+            label: "dep 0.1".to_string(),
+            depth: 0,
+            kind: TreeNodeKind::Dep,
             expanded: true,
             item_idx: None,
-            dep_idx:  Some(0),
-            loaded:   true,
+            dep_idx: Some(0),
+            loaded: true,
         }];
         tree.extend(sub);
         let vis = visible_nodes(&tree);
@@ -2102,15 +2554,15 @@ mod tree_tests {
     #[test]
     fn collapsed_dep_hides_children() {
         let items = vec![make_item("foo", DocKind::Function)];
-        let sub   = build_api_subtree(&items, 0, 1);
+        let sub = build_api_subtree(&items, 0, 1);
         let mut tree = vec![TreeNode {
-            label:    "dep 0.1".to_string(),
-            depth:    0,
-            kind:     TreeNodeKind::Dep,
+            label: "dep 0.1".to_string(),
+            depth: 0,
+            kind: TreeNodeKind::Dep,
             expanded: false, // collapsed
             item_idx: None,
-            dep_idx:  Some(0),
-            loaded:   true,
+            dep_idx: Some(0),
+            loaded: true,
         }];
         tree.extend(sub);
         let vis = visible_nodes(&tree);

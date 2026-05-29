@@ -2,7 +2,7 @@ use std::path::Path;
 
 use freight_core::dep_cmds::locate_project;
 use freight_core::manifest::types::{Dependency, Manifest};
-use freight_core::registry::repos::{repo_by_name, registries_in_order};
+use freight_core::registry::repos::{registries_in_order, repo_by_name};
 use freight_core::toolchain::cache::GlobalConfig;
 
 use crate::output::{print_error, print_status, print_warning};
@@ -28,24 +28,37 @@ fn cmd_info(package: Option<&str>, repo: Option<&str>) {
             let mut cfg = GlobalConfig::load();
             let cwd = std::env::current_dir().unwrap_or_default();
             if let Some(proj) = freight_core::manifest::find_manifest_dir(&cwd) {
-                if let Some(local) = GlobalConfig::load_local(&proj) { cfg.apply_local(local); }
+                if let Some(local) = GlobalConfig::load_local(&proj) {
+                    cfg.apply_local(local);
+                }
             }
             cfg
         };
         let repos: Vec<Box<dyn freight_core::registry::PackageRepo>> = if let Some(rname) = repo {
             match repo_by_name(rname, &config) {
                 Ok(r) => vec![r],
-                Err(e) => { print_error(&e.to_string()); return; }
+                Err(e) => {
+                    print_error(&e.to_string());
+                    return;
+                }
             }
         } else {
             registries_in_order(&config)
         };
 
         for r in &repos {
-            let label = if r.repo_key().is_empty() { "freight.dev" } else { r.repo_key() };
+            let label = if r.repo_key().is_empty() {
+                "freight.dev"
+            } else {
+                r.repo_key()
+            };
             match r.lookup(package, None) {
                 Ok(Some(info)) => {
-                    println!("{} {}", info.name.bold().bright_blue(), format!("(via {label})").bright_black());
+                    println!(
+                        "{} {}",
+                        info.name.bold().bright_blue(),
+                        format!("(via {label})").bright_black()
+                    );
                     if let Some(desc) = &info.description {
                         println!("  {desc}");
                     }
@@ -88,7 +101,10 @@ fn cmd_info(package: Option<&str>, repo: Option<&str>) {
 
     let (project_dir, manifest) = match locate_project() {
         Ok(p) => p,
-        Err(e) => { print_error(&e.to_string()); return; }
+        Err(e) => {
+            print_error(&e.to_string());
+            return;
+        }
     };
 
     print_current_package_info(&project_dir, &manifest);
@@ -101,14 +117,29 @@ fn print_readme_excerpt(readme: &str) {
     for line in readme.lines() {
         if line.starts_with("## ") || line.starts_with("## ") {
             h2_count += 1;
-            if h2_count > 1 { break; }
+            if h2_count > 1 {
+                break;
+            }
             let title = line.trim_start_matches('#').trim();
             output.push_str(&format!("  {}\n", title.bold()));
             continue;
         }
-        if line.starts_with("# ") { continue; }
-        if line.trim_start().starts_with('<') || line.contains("shields.io") || line.contains("badge") { continue; }
-        if line.chars().all(|c| c == '-' || c == '=' || c == '*' || c.is_whitespace()) && !line.is_empty() { continue; }
+        if line.starts_with("# ") {
+            continue;
+        }
+        if line.trim_start().starts_with('<')
+            || line.contains("shields.io")
+            || line.contains("badge")
+        {
+            continue;
+        }
+        if line
+            .chars()
+            .all(|c| c == '-' || c == '=' || c == '*' || c.is_whitespace())
+            && !line.is_empty()
+        {
+            continue;
+        }
 
         let stripped = strip_inline_md(line);
         output.push_str(&format!("  {stripped}\n"));
@@ -131,7 +162,9 @@ fn strip_inline_md(s: &str) -> String {
     while let Some(c) = chars.next() {
         match c {
             '*' | '_' => {
-                if chars.peek() == Some(&c) { chars.next(); }
+                if chars.peek() == Some(&c) {
+                    chars.next();
+                }
             }
             '`' => {
                 while chars.peek().map(|&x| x != '`').unwrap_or(false) {
@@ -141,12 +174,17 @@ fn strip_inline_md(s: &str) -> String {
             }
             '[' => {
                 while let Some(&ch) = chars.peek() {
-                    if ch == ']' { chars.next(); break; }
+                    if ch == ']' {
+                        chars.next();
+                        break;
+                    }
                     out.push(chars.next().unwrap());
                 }
                 if chars.peek() == Some(&'(') {
                     chars.next();
-                    while chars.peek().map(|&x| x != ')').unwrap_or(false) { chars.next(); }
+                    while chars.peek().map(|&x| x != ')').unwrap_or(false) {
+                        chars.next();
+                    }
                     chars.next();
                 }
             }
@@ -167,7 +205,10 @@ fn print_current_package_info(project_dir: &Path, manifest: &Manifest) {
     print_optional_list("keywords", &manifest.package.keywords);
     print_optional_field("supports", manifest.package.supports.as_deref());
     print_optional_list("provides", &manifest.package.provides);
-    print_status("manifest", &project_dir.join("freight.toml").display().to_string());
+    print_status(
+        "manifest",
+        &project_dir.join("freight.toml").display().to_string(),
+    );
 
     if !manifest.language.is_empty() {
         let mut languages: Vec<_> = manifest.language.keys().map(String::as_str).collect();
@@ -196,7 +237,11 @@ fn print_current_package_info(project_dir: &Path, manifest: &Manifest) {
 }
 
 fn non_empty(value: &str) -> Option<&str> {
-    if value.is_empty() { None } else { Some(value) }
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
 }
 
 fn print_optional_field(label: &str, value: Option<&str>) {

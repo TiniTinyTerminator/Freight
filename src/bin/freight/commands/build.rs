@@ -1,5 +1,5 @@
-use std::path::PathBuf;
 use std::collections::{BTreeSet, HashMap};
+use std::path::PathBuf;
 
 #[derive(clap::Args)]
 pub struct Args {
@@ -28,7 +28,12 @@ pub struct Args {
     #[arg(long)]
     pub graph: bool,
     /// Output format for --graph: text (default), mermaid, dot
-    #[arg(long, default_value = "text", value_name = "FORMAT", requires = "graph")]
+    #[arg(
+        long,
+        default_value = "text",
+        value_name = "FORMAT",
+        requires = "graph"
+    )]
     pub graph_format: String,
     #[command(flatten)]
     pub build: super::common::BuildFlags,
@@ -38,31 +43,43 @@ impl Args {
     pub fn run(self) {
         self.build.apply();
         if self.graph {
-            cmd_build_graph(self.release, self.package.as_deref(), &self.features, !self.no_default_features, &self.graph_format);
+            cmd_build_graph(
+                self.release,
+                self.package.as_deref(),
+                &self.features,
+                !self.no_default_features,
+                &self.graph_format,
+            );
         } else {
-            cmd_build(self.release, self.package.as_deref(), &self.features, !self.no_default_features, &self.sanitize, &self.emit, self.time_passes);
+            cmd_build(
+                self.release,
+                self.package.as_deref(),
+                &self.features,
+                !self.no_default_features,
+                &self.sanitize,
+                &self.emit,
+                self.time_passes,
+            );
         }
     }
 }
 
 use freight_core::build::{
-    build_project_with, build_workspace_with,
-    emit_asm_project_with,
-    resolve_dep_graph, ResolvedDep,
+    build_project_with, build_workspace_with, emit_asm_project_with, resolve_dep_graph, ResolvedDep,
 };
 use freight_core::event::{BuildEvent, Progress};
 use freight_core::manifest::{find_manifest_dir, load_manifest, load_workspace_manifest};
 
 use crate::output::{
-    print_error, print_status, print_success, print_warning,
-    GraphEdge, GraphCluster, GraphFormat, render_mermaid_graph, render_dot_graph,
+    print_error, print_status, print_success, print_warning, render_dot_graph,
+    render_mermaid_graph, GraphCluster, GraphEdge, GraphFormat,
 };
 
 // ── Progress ──────────────────────────────────────────────────────────────────
 
 pub fn make_progress() -> Progress {
-    use std::sync::Arc;
     use owo_colors::OwoColorize;
+    use std::sync::Arc;
     Arc::new(|event| match event {
         BuildEvent::BuildStarted { name, profile } => {
             print_status("Building", &format!("{name} [{profile}]"));
@@ -118,9 +135,14 @@ pub fn make_progress() -> Progress {
             print_status("Benchmarking", &name);
         }
         BuildEvent::BenchResult { name, mean_ns } => {
-            println!("{:>12} {} … {}", "bench".bold().cyan(), name, fmt_duration(mean_ns));
+            println!(
+                "{:>12} {} … {}",
+                "bench".bold().cyan(),
+                name,
+                fmt_duration(mean_ns)
+            );
         }
-        BuildEvent::Timing { .. } => {}   // collected separately; not printed inline
+        BuildEvent::Timing { .. } => {} // collected separately; not printed inline
         BuildEvent::EmittedAsm { path } => {
             println!("{:>12} {}", "Emitted".dimmed(), path.display());
         }
@@ -129,9 +151,12 @@ pub fn make_progress() -> Progress {
 
 /// Like [`make_progress`] but also collects [`BuildEvent::Timing`] events into
 /// the returned `Arc<Mutex<Vec<(PathBuf, u64)>>>` for post-build reporting.
-fn make_timed_progress() -> (Progress, std::sync::Arc<std::sync::Mutex<Vec<(PathBuf, u64)>>>) {
-    use std::sync::{Arc, Mutex};
+fn make_timed_progress() -> (
+    Progress,
+    std::sync::Arc<std::sync::Mutex<Vec<(PathBuf, u64)>>>,
+) {
     use owo_colors::OwoColorize;
+    use std::sync::{Arc, Mutex};
 
     let timings: Arc<Mutex<Vec<(PathBuf, u64)>>> = Arc::new(Mutex::new(Vec::new()));
     let timings_sink = Arc::clone(&timings);
@@ -140,20 +165,33 @@ fn make_timed_progress() -> (Progress, std::sync::Arc<std::sync::Mutex<Vec<(Path
         BuildEvent::Timing { ref path, ns } => {
             timings_sink.lock().unwrap().push((path.clone(), ns));
         }
-        BuildEvent::BuildStarted { name, profile } => print_status("Building", &format!("{name} [{profile}]")),
+        BuildEvent::BuildStarted { name, profile } => {
+            print_status("Building", &format!("{name} [{profile}]"))
+        }
         BuildEvent::Compiling { path } => print_status("Compiling", &path.display().to_string()),
         BuildEvent::Fresh { path } => println!("{:>12} {}", "Fresh".dimmed(), path.display()),
         BuildEvent::Linking { name } => print_status("Linking", &name),
         BuildEvent::Archiving { name } => print_status("Archiving", &name),
         BuildEvent::RunningScript { cached } => {
-            if cached { println!("{:>12} build script (cached)", "Running".dimmed()); }
-            else { print_status("Running", "build script"); }
+            if cached {
+                println!("{:>12} build script (cached)", "Running".dimmed());
+            } else {
+                print_status("Running", "build script");
+            }
         }
-        BuildEvent::FetchingDep { name, source } => print_status("Fetching", &format!("{name} ({source})")),
-        BuildEvent::ResolvingDep { name, via } => println!("{:>12} {} ({})", "Resolving".dimmed(), name, via),
-        BuildEvent::BuildingForeignDep { name, backend } => print_status("Building", &format!("{name} ({backend})")),
+        BuildEvent::FetchingDep { name, source } => {
+            print_status("Fetching", &format!("{name} ({source})"))
+        }
+        BuildEvent::ResolvingDep { name, via } => {
+            println!("{:>12} {} ({})", "Resolving".dimmed(), name, via)
+        }
+        BuildEvent::BuildingForeignDep { name, backend } => {
+            print_status("Building", &format!("{name} ({backend})"))
+        }
         BuildEvent::Warning(msg) => print_warning(&msg),
-        BuildEvent::EmittedAsm { path } => println!("{:>12} {}", "Emitted".dimmed(), path.display()),
+        BuildEvent::EmittedAsm { path } => {
+            println!("{:>12} {}", "Emitted".dimmed(), path.display())
+        }
         _ => {}
     });
 
@@ -166,25 +204,42 @@ fn make_timed_progress() -> (Progress, std::sync::Arc<std::sync::Mutex<Vec<(Path
 /// has a `[workspace]` section. Falls through to the regular project path on
 /// any I/O or parse error.
 pub fn at_workspace_root() -> bool {
-    let Ok(cwd) = std::env::current_dir() else { return false };
-    let Some(dir) = find_manifest_dir(&cwd) else { return false };
+    let Ok(cwd) = std::env::current_dir() else {
+        return false;
+    };
+    let Some(dir) = find_manifest_dir(&cwd) else {
+        return false;
+    };
     load_workspace_manifest(&dir).is_some()
 }
 
 // ── Commands ──────────────────────────────────────────────────────────────────
 
-pub fn cmd_build(release: bool, package: Option<&str>, features: &[String], use_defaults: bool, sanitize: &[String], emit: &[String], time_passes: bool) {
+pub fn cmd_build(
+    release: bool,
+    package: Option<&str>,
+    features: &[String],
+    use_defaults: bool,
+    sanitize: &[String],
+    emit: &[String],
+    time_passes: bool,
+) {
     let profile = if release { "release" } else { "dev" };
 
     if time_passes {
         // Safety: single-threaded here; rayon workers not yet started.
-        unsafe { std::env::set_var("FREIGHT_TIME_PASSES", "1"); }
+        unsafe {
+            std::env::set_var("FREIGHT_TIME_PASSES", "1");
+        }
     }
 
     let (progress, timings) = if time_passes {
         make_timed_progress()
     } else {
-        (make_progress(), std::sync::Arc::new(std::sync::Mutex::new(vec![])))
+        (
+            make_progress(),
+            std::sync::Arc::new(std::sync::Mutex::new(vec![])),
+        )
     };
 
     let build_ok;
@@ -203,7 +258,11 @@ pub fn cmd_build(release: bool, package: Option<&str>, features: &[String], use_
                 }
                 build_ok = true;
             }
-            Err(e) => { println!(); print_error(&e.to_string()); build_ok = false; }
+            Err(e) => {
+                println!();
+                print_error(&e.to_string());
+                build_ok = false;
+            }
         }
     } else {
         if package.is_some() {
@@ -222,7 +281,11 @@ pub fn cmd_build(release: bool, package: Option<&str>, features: &[String], use_
                 }
                 build_ok = true;
             }
-            Err(e) => { println!(); print_error(&e.to_string()); build_ok = false; }
+            Err(e) => {
+                println!();
+                print_error(&e.to_string());
+                build_ok = false;
+            }
         }
     }
 
@@ -242,29 +305,47 @@ pub fn cmd_build(release: bool, package: Option<&str>, features: &[String], use_
 
 // ── freight build --graph ─────────────────────────────────────────────────────
 
-pub fn cmd_build_graph(release: bool, _package: Option<&str>, features: &[String], _use_defaults: bool, format: &str) {
+pub fn cmd_build_graph(
+    release: bool,
+    _package: Option<&str>,
+    features: &[String],
+    _use_defaults: bool,
+    format: &str,
+) {
     use owo_colors::OwoColorize;
 
     let profile = if release { "release" } else { "dev" };
 
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
-        Err(e) => { print_error(&format!("cannot read cwd: {e}")); return; }
+        Err(e) => {
+            print_error(&format!("cannot read cwd: {e}"));
+            return;
+        }
     };
     let project_dir = match find_manifest_dir(&cwd) {
         Some(d) => d,
-        None => { print_error("no freight.toml found"); return; }
+        None => {
+            print_error("no freight.toml found");
+            return;
+        }
     };
     let manifest = match load_manifest(&project_dir) {
         Ok(m) => m,
-        Err(e) => { print_error(&format!("failed to load manifest: {e}")); return; }
+        Err(e) => {
+            print_error(&format!("failed to load manifest: {e}"));
+            return;
+        }
     };
 
     let activated: BTreeSet<String> = features.iter().cloned().collect();
 
     let resolved = match resolve_dep_graph(&project_dir, &manifest, false, &activated) {
         Ok(r) => r,
-        Err(e) => { print_error(&format!("dependency resolution failed: {e}")); return; }
+        Err(e) => {
+            print_error(&format!("dependency resolution failed: {e}"));
+            return;
+        }
     };
 
     // Assign a build stage to every resolved dep.
@@ -273,7 +354,10 @@ pub fn cmd_build_graph(release: bool, _package: Option<&str>, features: &[String
     let mut stage_of: HashMap<String, usize> = HashMap::new();
     for dep in &resolved {
         // Stage = one above the highest stage of any freight dep this dep needs.
-        let max_dep_stage = dep.manifest.dependencies.keys()
+        let max_dep_stage = dep
+            .manifest
+            .dependencies
+            .keys()
             .filter_map(|n| stage_of.get(n).copied())
             .max();
         stage_of.insert(dep.name.clone(), max_dep_stage.map_or(0, |s| s + 1));
@@ -296,17 +380,29 @@ pub fn cmd_build_graph(release: bool, _package: Option<&str>, features: &[String
 
         for (stage_idx, stage_deps) in stages.iter().enumerate() {
             let label = format!("Stage {stage_idx}");
-            let nodes = stage_deps.iter()
+            let nodes = stage_deps
+                .iter()
                 .map(|d| format!("{}\n{}", d.name, d.manifest.package.version))
                 .collect();
-            clusters.push(GraphCluster { id: format!("stage{stage_idx}"), label, nodes });
+            clusters.push(GraphCluster {
+                id: format!("stage{stage_idx}"),
+                label,
+                nodes,
+            });
 
             for dep in stage_deps.iter() {
                 for needed in dep.manifest.dependencies.keys() {
                     if stage_of.contains_key(needed) {
                         edges.push(GraphEdge {
-                            from: format!("{}\n{}", needed, resolved.iter().find(|r| &r.name == needed).map_or("", |r| &r.manifest.package.version)),
-                            to:   format!("{}\n{}", dep.name, dep.manifest.package.version),
+                            from: format!(
+                                "{}\n{}",
+                                needed,
+                                resolved
+                                    .iter()
+                                    .find(|r| &r.name == needed)
+                                    .map_or("", |r| &r.manifest.package.version)
+                            ),
+                            to: format!("{}\n{}", dep.name, dep.manifest.package.version),
                         });
                     }
                 }
@@ -320,7 +416,7 @@ pub fn cmd_build_graph(release: bool, _package: Option<&str>, features: &[String
             if manifest.dependencies.contains_key(&dep.name) {
                 edges.push(GraphEdge {
                     from: format!("{}\n{}", dep.name, dep.manifest.package.version),
-                    to:   root_node.clone(),
+                    to: root_node.clone(),
                 });
                 root_needs.push(dep.name.clone());
             }
@@ -333,14 +429,17 @@ pub fn cmd_build_graph(release: bool, _package: Option<&str>, features: &[String
             manifest.bins.iter().map(|b| b.name.clone()).collect()
         };
         let link_node = format!("link: {}", bin_names.join(", "));
-        edges.push(GraphEdge { from: root_node.clone(), to: link_node.clone() });
+        edges.push(GraphEdge {
+            from: root_node.clone(),
+            to: link_node.clone(),
+        });
 
         let ungrouped = vec![root_node, link_node];
         let title = format!("{} build graph [{}]", manifest.package.name, profile);
         match fmt {
             GraphFormat::Mermaid => render_mermaid_graph(&title, &clusters, &edges, &ungrouped),
-            GraphFormat::Dot     => render_dot_graph(&title, &clusters, &edges, &ungrouped),
-            GraphFormat::Text    => unreachable!(),
+            GraphFormat::Dot => render_dot_graph(&title, &clusters, &edges, &ungrouped),
+            GraphFormat::Text => unreachable!(),
         }
         return;
     }
@@ -357,30 +456,47 @@ pub fn cmd_build_graph(release: bool, _package: Option<&str>, features: &[String
 
     // Print each dep stage.
     for (stage_idx, stage_deps) in stages.iter().enumerate() {
-        if stage_deps.is_empty() { continue; }
+        if stage_deps.is_empty() {
+            continue;
+        }
 
         println!();
-        let needs: Vec<String> = stage_deps.iter()
-            .flat_map(|d| d.manifest.dependencies.keys()
-                .filter(|n| stage_of.get(*n).copied().unwrap_or(usize::MAX) < stage_idx)
-                .cloned())
+        let needs: Vec<String> = stage_deps
+            .iter()
+            .flat_map(|d| {
+                d.manifest
+                    .dependencies
+                    .keys()
+                    .filter(|n| stage_of.get(*n).copied().unwrap_or(usize::MAX) < stage_idx)
+                    .cloned()
+            })
             .collect::<std::collections::BTreeSet<_>>()
-            .into_iter().collect();
+            .into_iter()
+            .collect();
 
         let label = if needs.is_empty() {
             format!("Stage {stage_idx}  (parallel)")
         } else {
-            format!("Stage {stage_idx}  (parallel · needs: {})", needs.join(", "))
+            format!(
+                "Stage {stage_idx}  (parallel · needs: {})",
+                needs.join(", ")
+            )
         };
         println!("{rule}");
         println!("{}", label.bold());
 
         for (di, dep) in stage_deps.iter().enumerate() {
             let is_last_dep = di == stage_deps.len() - 1;
-            let dep_conn  = if is_last_dep { "└── " } else { "├── " };
+            let dep_conn = if is_last_dep {
+                "└── "
+            } else {
+                "├── "
+            };
             let src_prefix = if is_last_dep { "    " } else { "│   " };
 
-            let origin = dep.dir.strip_prefix(&project_dir)
+            let origin = dep
+                .dir
+                .strip_prefix(&project_dir)
                 .map(|p| format!("({})", p.display()))
                 .unwrap_or_else(|_| format!("({})", dep.dir.display()));
 
@@ -397,9 +513,18 @@ pub fn cmd_build_graph(release: bool, _package: Option<&str>, features: &[String
             let srcs = collect_graph_sources(&src_dir);
             for (si, src) in srcs.iter().enumerate() {
                 let is_last_src = si == srcs.len() - 1;
-                let src_conn = if is_last_src { "└── " } else { "├── " };
+                let src_conn = if is_last_src {
+                    "└── "
+                } else {
+                    "├── "
+                };
                 let rel = src.strip_prefix(&dep.dir).unwrap_or(src);
-                println!("{}{}{}", src_prefix.bright_black(), src_conn.bright_black(), rel.display().to_string().bright_black());
+                println!(
+                    "{}{}{}",
+                    src_prefix.bright_black(),
+                    src_conn.bright_black(),
+                    rel.display().to_string().bright_black()
+                );
             }
         }
     }
@@ -426,9 +551,7 @@ pub fn cmd_build_graph(release: bool, _package: Option<&str>, features: &[String
     let target_dir = project_dir.join("target").join(profile);
 
     // Binaries from [[bin]] targets.
-    let bins: Vec<String> = manifest.bins.iter()
-        .map(|b| b.name.clone())
-        .collect();
+    let bins: Vec<String> = manifest.bins.iter().map(|b| b.name.clone()).collect();
     let bin_names = if bins.is_empty() {
         vec![manifest.package.name.clone()]
     } else {
@@ -442,7 +565,8 @@ pub fn cmd_build_graph(release: bool, _package: Option<&str>, features: &[String
 
     // List dep libs.
     if !resolved.is_empty() {
-        let libs: Vec<String> = resolved.iter()
+        let libs: Vec<String> = resolved
+            .iter()
             .map(|d| format!("lib{}.a", d.name))
             .collect();
         println!("    {}", libs.join("  ").bright_black());
@@ -459,8 +583,14 @@ fn collect_graph_sources(src_dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     files
 }
 
-fn collect_graph_sources_rec(dir: &std::path::Path, exts: &[&str], out: &mut Vec<std::path::PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+fn collect_graph_sources_rec(
+    dir: &std::path::Path,
+    exts: &[&str],
+    out: &mut Vec<std::path::PathBuf>,
+) {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut entries: Vec<_> = rd.filter_map(|e| e.ok()).collect();
     entries.sort_by_key(|e| e.file_name());
     for entry in entries {
@@ -477,15 +607,28 @@ fn collect_graph_sources_rec(dir: &std::path::Path, exts: &[&str], out: &mut Vec
 
 fn print_timing_table(timings: &[(PathBuf, u64)]) {
     use owo_colors::OwoColorize;
-    if timings.is_empty() { return; }
+    if timings.is_empty() {
+        return;
+    }
     println!();
-    let name_width = timings.iter()
+    let name_width = timings
+        .iter()
         .map(|(p, _)| p.display().to_string().len())
-        .max().unwrap_or(20).max(20).min(60);
-    println!("{:>12}  {:<width$}  {:>10}", "time-passes".bold().yellow(), "file", "time", width = name_width);
+        .max()
+        .unwrap_or(20)
+        .max(20)
+        .min(60);
+    println!(
+        "{:>12}  {:<width$}  {:>10}",
+        "time-passes".bold().yellow(),
+        "file",
+        "time",
+        width = name_width
+    );
     println!("{}", "─".repeat(name_width + 26));
     for (path, ns) in timings {
-        println!("{:>12}  {:<width$}  {:>10}",
+        println!(
+            "{:>12}  {:<width$}  {:>10}",
             "",
             truncate_left(&path.display().to_string(), name_width),
             fmt_duration(*ns),
@@ -495,8 +638,11 @@ fn print_timing_table(timings: &[(PathBuf, u64)]) {
 }
 
 fn truncate_left(s: &str, max: usize) -> String {
-    if s.len() <= max { s.to_string() }
-    else { format!("…{}", &s[s.len() - max + 1..]) }
+    if s.len() <= max {
+        s.to_string()
+    } else {
+        format!("…{}", &s[s.len() - max + 1..])
+    }
 }
 
 fn fmt_duration(ns: u64) -> String {

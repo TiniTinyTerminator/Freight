@@ -1,8 +1,8 @@
-use freight_core::toolchain::{
-    backend_matches, detect_all_cached, detect_debuggers, group_into_toolchains, load_all_templates,
-    load_debugger_templates, toolchain_use,
-};
 use freight_core::toolchain::detect::DetectedCompiler;
+use freight_core::toolchain::{
+    backend_matches, detect_all_cached, detect_debuggers, group_into_toolchains,
+    load_all_templates, load_debugger_templates, toolchain_use,
+};
 
 use crate::output::{print_error, print_success, print_warning};
 
@@ -53,25 +53,30 @@ pub fn cmd_toolchain_list() {
                 }
             }
             for ver in versions {
-                let same_ver: Vec<&DetectedCompiler> = tc.compilers
-                    .iter()
-                    .filter(|c| c.version == ver)
-                    .collect();
+                let same_ver: Vec<&DetectedCompiler> =
+                    tc.compilers.iter().filter(|c| c.version == ver).collect();
 
                 // Primary name: prefer the C compiler, then shortest non-++ name.
-                let primary = same_ver.iter()
-                    .filter(|c| !c.template.name.ends_with("++") && c.template.linking.contains_key("c"))
+                let primary = same_ver
+                    .iter()
+                    .filter(|c| {
+                        !c.template.name.ends_with("++") && c.template.linking.contains_key("c")
+                    })
                     .min_by_key(|c| c.template.name.len())
-                    .or_else(|| same_ver.iter()
-                        .filter(|c| !c.template.name.ends_with("++"))
-                        .min_by_key(|c| c.template.name.len()))
+                    .or_else(|| {
+                        same_ver
+                            .iter()
+                            .filter(|c| !c.template.name.ends_with("++"))
+                            .min_by_key(|c| c.template.name.len())
+                    })
                     .map(|c| c.template.name.as_str())
                     .unwrap_or(&tc.name);
 
                 let major = ver.split('.').next().unwrap_or(ver);
                 let label = format!("{primary}-{major}");
 
-                let mut langs: Vec<&str> = same_ver.iter()
+                let mut langs: Vec<&str> = same_ver
+                    .iter()
                     .flat_map(|c| c.template.linking.keys().map(String::as_str))
                     .collect::<std::collections::BTreeSet<_>>()
                     .into_iter()

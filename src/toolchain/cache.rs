@@ -29,8 +29,12 @@ pub(crate) struct CacheEntry {
 impl ToolchainCache {
     /// Load the cache from disk. Returns an empty cache on any I/O or parse error.
     pub fn load() -> Self {
-        let Some(path) = cache_path() else { return Self::default() };
-        let Ok(data) = std::fs::read_to_string(&path) else { return Self::default() };
+        let Some(path) = cache_path() else {
+            return Self::default();
+        };
+        let Ok(data) = std::fs::read_to_string(&path) else {
+            return Self::default();
+        };
         serde_json::from_str(&data).unwrap_or_default()
     }
 
@@ -60,9 +64,18 @@ impl ToolchainCache {
 
     /// Record a version string for `binary_path`. No-ops if mtime can't be read.
     pub fn set_version(&mut self, binary_path: &Path, version: &str) {
-        let Some(mtime) = mtime_secs(binary_path) else { return };
+        let Some(mtime) = mtime_secs(binary_path) else {
+            return;
+        };
         let key = binary_path.to_string_lossy().into_owned();
-        self.entries.insert(key, CacheEntry { version: version.to_string(), mtime_secs: mtime, cpu_extensions: vec![] });
+        self.entries.insert(
+            key,
+            CacheEntry {
+                version: version.to_string(),
+                mtime_secs: mtime,
+                cpu_extensions: vec![],
+            },
+        );
     }
 
     /// Return the cached extension list for `binary_path` if the entry is fresh.
@@ -164,7 +177,9 @@ impl GlobalConfig {
         if let Some(creds) = Self::load_credentials() {
             for cred in creds {
                 if let Some(r) = config.registries.iter_mut().find(|r| r.url == cred.url) {
-                    if cred.token.is_some() { r.token = cred.token; }
+                    if cred.token.is_some() {
+                        r.token = cred.token;
+                    }
                 } else {
                     config.registries.push(cred);
                 }
@@ -183,7 +198,10 @@ impl GlobalConfig {
     /// ```
     pub fn load_credentials() -> Option<Vec<RegistryConfig>> {
         #[derive(serde::Deserialize)]
-        struct Creds { #[serde(default, rename = "registry")] registries: Vec<RegistryConfig> }
+        struct Creds {
+            #[serde(default, rename = "registry")]
+            registries: Vec<RegistryConfig>,
+        }
         let path = freight_home()?.join("credentials.toml");
         let data = std::fs::read_to_string(path).ok()?;
         let c: Creds = toml_edit::de::from_str(&data).ok()?;
@@ -191,21 +209,32 @@ impl GlobalConfig {
     }
 
     /// Write or update a token for `registry_url` in `~/.freight/credentials.toml`.
-    pub fn save_credential(registry_url: &str, name: &str, token: &str) -> Result<(), crate::error::FreightError> {
+    pub fn save_credential(
+        registry_url: &str,
+        name: &str,
+        token: &str,
+    ) -> Result<(), crate::error::FreightError> {
         #[derive(serde::Deserialize, serde::Serialize, Default)]
-        struct Creds { #[serde(default, rename = "registry")] registries: Vec<RegistryConfig> }
+        struct Creds {
+            #[serde(default, rename = "registry")]
+            registries: Vec<RegistryConfig>,
+        }
 
         let path = freight_home()
-            .ok_or_else(|| crate::error::FreightError::Io(std::io::Error::new(
-                std::io::ErrorKind::NotFound, "cannot determine ~/.freight directory",
-            )))?
+            .ok_or_else(|| {
+                crate::error::FreightError::Io(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "cannot determine ~/.freight directory",
+                ))
+            })?
             .join("credentials.toml");
 
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
 
-        let mut creds: Creds = path.exists()
+        let mut creds: Creds = path
+            .exists()
             .then(|| std::fs::read_to_string(&path).ok())
             .flatten()
             .and_then(|data| toml_edit::de::from_str(&data).ok())
@@ -213,19 +242,23 @@ impl GlobalConfig {
 
         if let Some(r) = creds.registries.iter_mut().find(|r| r.url == registry_url) {
             r.token = Some(token.to_string());
-            if r.name.is_empty() { r.name = name.to_string(); }
+            if r.name.is_empty() {
+                r.name = name.to_string();
+            }
         } else {
             creds.registries.push(RegistryConfig {
-                name:  name.to_string(),
-                url:   registry_url.to_string(),
+                name: name.to_string(),
+                url: registry_url.to_string(),
                 token: Some(token.to_string()),
             });
         }
 
-        let toml = toml_edit::ser::to_string_pretty(&creds)
-            .map_err(|e| crate::error::FreightError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other, e.to_string(),
-            )))?;
+        let toml = toml_edit::ser::to_string_pretty(&creds).map_err(|e| {
+            crate::error::FreightError::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            ))
+        })?;
         std::fs::write(&path, toml)?;
         Ok(())
     }
@@ -236,7 +269,9 @@ impl GlobalConfig {
         let path = std::env::var_os("FREIGHT_SYSTEM_CONFIG")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from("/etc/freight/config.toml"));
-        let Ok(data) = std::fs::read_to_string(path) else { return Self::default() };
+        let Ok(data) = std::fs::read_to_string(path) else {
+            return Self::default();
+        };
         toml_edit::de::from_str(&data).unwrap_or_default()
     }
 
@@ -251,10 +286,18 @@ impl GlobalConfig {
     /// Apply `local` on top of `self`. Local scalar fields override global ones
     /// when set; debugger args are extended, boolean settings are overridden.
     pub fn apply_local(&mut self, local: Self) {
-        if local.default_backend.is_some() { self.default_backend = local.default_backend; }
-        if local.target.is_some()          { self.target          = local.target; }
-        if local.sysroot.is_some()         { self.sysroot         = local.sysroot; }
-        if local.auto_cpu_tuning.is_some() { self.auto_cpu_tuning = local.auto_cpu_tuning; }
+        if local.default_backend.is_some() {
+            self.default_backend = local.default_backend;
+        }
+        if local.target.is_some() {
+            self.target = local.target;
+        }
+        if local.sysroot.is_some() {
+            self.sysroot = local.sysroot;
+        }
+        if local.auto_cpu_tuning.is_some() {
+            self.auto_cpu_tuning = local.auto_cpu_tuning;
+        }
         // Local registries take priority: prepend them, keeping base registries that
         // aren't shadowed by name.
         if !local.registries.is_empty() {
@@ -284,10 +327,12 @@ impl GlobalConfig {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let toml = toml_edit::ser::to_string_pretty(self)
-            .map_err(|e| crate::error::FreightError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other, e.to_string(),
-            )))?;
+        let toml = toml_edit::ser::to_string_pretty(self).map_err(|e| {
+            crate::error::FreightError::Io(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                e.to_string(),
+            ))
+        })?;
         std::fs::write(&path, toml)?;
         Ok(())
     }
@@ -356,7 +401,9 @@ mod tests {
     #[test]
     fn cache_miss_for_unknown_binary() {
         let cache = ToolchainCache::default();
-        assert!(cache.get_version(Path::new("/usr/bin/nonexistent")).is_none());
+        assert!(cache
+            .get_version(Path::new("/usr/bin/nonexistent"))
+            .is_none());
     }
 
     #[test]

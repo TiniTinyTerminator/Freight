@@ -4,7 +4,7 @@
 
 use std::path::Path;
 
-use toml_edit::{DocumentMut, Item, Table, Value, value};
+use toml_edit::{value, DocumentMut, Item, Table, Value};
 
 use crate::build::deps::resolve_dep_graph;
 use crate::error::FreightError;
@@ -33,7 +33,11 @@ pub fn manifest_add_dep(
         .parse()
         .map_err(|e: toml_edit::TomlError| FreightError::ManifestParse(e.to_string()))?;
 
-    let section = if dev { "dev-dependencies" } else { "dependencies" };
+    let section = if dev {
+        "dev-dependencies"
+    } else {
+        "dependencies"
+    };
 
     if !doc.contains_key(section) {
         doc[section] = Item::Table(Table::new());
@@ -75,7 +79,9 @@ pub fn manifest_add_dep(
             }
             if !d.include.is_empty() {
                 let mut arr = toml_edit::Array::new();
-                for s in &d.include { arr.push(s.as_str()); }
+                for s in &d.include {
+                    arr.push(s.as_str());
+                }
                 inline.insert("include", Value::Array(arr));
             }
             if let Some(ch) = &d.channel {
@@ -136,20 +142,25 @@ pub enum GitDepAction {
     Skipped,
 }
 
-/// Clone any git deps that are not yet present under `.deps/`.
+/// Clone any git deps that are not yet present under `target/deps/`.
 /// Already-present directories are left untouched (use [`update_git_deps`] to refresh them).
 pub fn fetch_git_deps(project_dir: &Path) -> Result<Vec<GitDepOutcome>, FreightError> {
     let manifest = load_manifest(project_dir)?;
-    let deps_dir = project_dir.join(".deps");
+    let deps_dir = project_dir.join("target").join("deps");
     let mut outcomes = Vec::new();
 
     for (name, dep) in &manifest.dependencies {
-        let Dependency::Detailed(d) = dep else { continue };
+        let Dependency::Detailed(d) = dep else {
+            continue;
+        };
         let Some(url) = &d.git else { continue };
 
         let dest = deps_dir.join(name);
         if dest.exists() {
-            outcomes.push(GitDepOutcome { name: name.clone(), action: GitDepAction::AlreadyPresent });
+            outcomes.push(GitDepOutcome {
+                name: name.clone(),
+                action: GitDepAction::AlreadyPresent,
+            });
             continue;
         }
 
@@ -164,47 +175,66 @@ pub fn fetch_git_deps(project_dir: &Path) -> Result<Vec<GitDepOutcome>, FreightE
         if !d.patches.is_empty() {
             fetch::apply_patches(&dest, &d.patches, project_dir)?;
         }
-        outcomes.push(GitDepOutcome { name: name.clone(), action: GitDepAction::Cloned });
+        outcomes.push(GitDepOutcome {
+            name: name.clone(),
+            action: GitDepAction::Cloned,
+        });
     }
 
     Ok(outcomes)
 }
 
-/// Fetch updates for all git deps already present in `.deps/`.
+/// Fetch updates for all git deps already present in `target/deps/`.
 /// Deps pinned with `rev` are skipped.
 /// Deps not yet cloned are skipped (run `freight fetch` first).
-pub fn update_git_deps(project_dir: &Path, only: Option<&str>) -> Result<Vec<GitDepOutcome>, FreightError> {
+pub fn update_git_deps(
+    project_dir: &Path,
+    only: Option<&str>,
+) -> Result<Vec<GitDepOutcome>, FreightError> {
     let manifest = load_manifest(project_dir)?;
-    let deps_dir = project_dir.join(".deps");
+    let deps_dir = project_dir.join("target").join("deps");
     let mut outcomes = Vec::new();
 
     for (name, dep) in &manifest.dependencies {
         if let Some(filter) = only {
-            if name.as_str() != filter { continue; }
+            if name.as_str() != filter {
+                continue;
+            }
         }
 
-        let Dependency::Detailed(d) = dep else { continue };
+        let Dependency::Detailed(d) = dep else {
+            continue;
+        };
         let Some(_url) = &d.git else { continue };
 
         let dest = deps_dir.join(name);
         if !dest.exists() {
-            outcomes.push(GitDepOutcome { name: name.clone(), action: GitDepAction::Skipped });
+            outcomes.push(GitDepOutcome {
+                name: name.clone(),
+                action: GitDepAction::Skipped,
+            });
             continue;
         }
 
         if d.rev.is_some() {
-            outcomes.push(GitDepOutcome { name: name.clone(), action: GitDepAction::Skipped });
+            outcomes.push(GitDepOutcome {
+                name: name.clone(),
+                action: GitDepAction::Skipped,
+            });
             continue;
         }
 
         git::update_dep(&dest, d.branch.as_deref(), d.tag.as_deref(), None)?;
-        outcomes.push(GitDepOutcome { name: name.clone(), action: GitDepAction::Updated });
+        outcomes.push(GitDepOutcome {
+            name: name.clone(),
+            action: GitDepAction::Updated,
+        });
     }
 
     Ok(outcomes)
 }
 
-/// Pre-fetch all `http` and `github` deps into `.deps/`.
+/// Pre-fetch all `http` and `github` deps into `target/deps/`.
 ///
 /// Already-fetched directories (sentinel `.freight-fetched` present) are skipped.
 /// Returns the names of deps that were fetched or were already present.
@@ -216,12 +246,20 @@ pub fn fetch_url_deps(project_dir: &Path) -> Result<Vec<(String, bool)>, Freight
     let mut outcomes = Vec::new();
 
     for (name, dep) in &manifest.dependencies {
-        let Dependency::Detailed(d) = dep else { continue };
+        let Dependency::Detailed(d) = dep else {
+            continue;
+        };
         let Some(url) = &d.url else { continue };
 
-        let already = project_dir.join(".deps").join(name).join(".freight-fetched").exists();
+        let already = project_dir
+            .join("target")
+            .join("deps")
+            .join(name)
+            .join(".freight-fetched")
+            .exists();
         if !already {
-            let dep_dir = http::fetch_url_dep(name, url, d.sha256.as_deref(), project_dir, &progress)?;
+            let dep_dir =
+                http::fetch_url_dep(name, url, d.sha256.as_deref(), project_dir, &progress)?;
             if !d.patches.is_empty() {
                 fetch::apply_patches(&dep_dir, &d.patches, project_dir)?;
             }
@@ -236,7 +274,7 @@ pub fn fetch_url_deps(project_dir: &Path) -> Result<Vec<(String, bool)>, Freight
 /// Action taken for a registry-fetched version dep.
 #[derive(Debug)]
 pub enum RegistryDepAction {
-    /// Already present in `.deps/<name>/`.
+    /// Already present in `target/deps/<name>/`.
     AlreadyPresent,
     /// Downloaded from the registry and extracted.
     Downloaded,
@@ -246,12 +284,12 @@ pub enum RegistryDepAction {
 
 #[derive(Debug)]
 pub struct RegistryDepOutcome {
-    pub name:    String,
+    pub name: String,
     pub version: String,
-    pub action:  RegistryDepAction,
+    pub action: RegistryDepAction,
 }
 
-/// Download all version deps that are missing from `.deps/` and update the lockfile.
+/// Download all version deps that are missing from `target/deps/` and update the lockfile.
 ///
 /// Version deps are `Dependency::Simple("x.y")` or `Dependency::Detailed { version, repo, .. }`.
 pub fn fetch_registry_deps(
@@ -262,7 +300,9 @@ pub fn fetch_registry_deps(
     let mut outcomes = Vec::new();
 
     // Fetch both regular dependencies and build-dependencies (tools like cmake).
-    let all_deps = manifest.dependencies.iter()
+    let all_deps = manifest
+        .dependencies
+        .iter()
         .chain(manifest.build_dependencies.iter());
 
     for (name, dep) in all_deps {
@@ -275,7 +315,11 @@ pub fn fetch_registry_deps(
                     && d.url.is_none()
                     && !crate::manifest::types::is_platform_dep(name) =>
             {
-                (d.version.as_deref().unwrap(), d.repo.as_deref(), d.channel.as_deref())
+                (
+                    d.version.as_deref().unwrap(),
+                    d.repo.as_deref(),
+                    d.channel.as_deref(),
+                )
             }
             _ => continue,
         };
@@ -286,12 +330,16 @@ pub fn fetch_registry_deps(
         }
 
         // If already fetched, record and move on.
-        let sentinel = project_dir.join(".deps").join(name).join(".freight-fetched");
+        let sentinel = project_dir
+            .join("target")
+            .join("deps")
+            .join(name)
+            .join(".freight-fetched");
         if sentinel.exists() {
             outcomes.push(RegistryDepOutcome {
-                name:    name.clone(),
+                name: name.clone(),
                 version: version.to_string(),
-                action:  RegistryDepAction::AlreadyPresent,
+                action: RegistryDepAction::AlreadyPresent,
             });
             continue;
         }
@@ -302,7 +350,8 @@ pub fn fetch_registry_deps(
                 Some(c) => FreightRegistry::from_config(c),
                 None => {
                     outcomes.push(RegistryDepOutcome {
-                        name: name.clone(), version: version.to_string(),
+                        name: name.clone(),
+                        version: version.to_string(),
                         action: RegistryDepAction::Unavailable,
                     });
                     continue;
@@ -311,7 +360,7 @@ pub fn fetch_registry_deps(
         } else {
             match config.registries.first() {
                 Some(c) => FreightRegistry::from_config(c),
-                None    => FreightRegistry::default_registry(),
+                None => FreightRegistry::default_registry(),
             }
         };
 
@@ -324,50 +373,61 @@ pub fn fetch_registry_deps(
 
         // Resolve a version constraint (e.g. ">=1.3") to a concrete version.
         let resolved = if looks_like_constraint(version) {
-            pkg_info.as_ref().and_then(|info| resolve_constraint(&info.versions, version))
+            pkg_info
+                .as_ref()
+                .and_then(|info| resolve_constraint(&info.versions, version))
         } else {
             Some(version.to_string())
         };
 
         let Some(concrete) = resolved else {
             outcomes.push(RegistryDepOutcome {
-                name: name.clone(), version: version.to_string(),
+                name: name.clone(),
+                version: version.to_string(),
                 action: RegistryDepAction::Unavailable,
             });
             continue;
         };
 
         // Check whether this is a metadata-only package (upstream source pointer).
-        let version_meta = pkg_info.as_ref().and_then(|info| {
-            info.versions.iter().find(|v| v.version == concrete)
-        });
+        let version_meta = pkg_info
+            .as_ref()
+            .and_then(|info| info.versions.iter().find(|v| v.version == concrete));
         // Substitute ${VERSION} in case the registry stub still has the raw template.
-        let upstream_url = version_meta.and_then(|v| v.upstream_url.clone())
+        let upstream_url = version_meta
+            .and_then(|v| v.upstream_url.clone())
             .map(|u| u.replace("${VERSION}", &concrete));
-        let build_system  = version_meta.and_then(|v| v.build_system.clone());
+        let build_system = version_meta.and_then(|v| v.build_system.clone());
 
         if let Some(ref url) = upstream_url {
             // Metadata-only package: fetch the upstream source archive directly.
-            // `fetch_url_dep` writes `.freight-fetched` and extracts to `.deps/<name>/`.
+            // `fetch_url_dep` writes `.freight-fetched` and extracts to `target/deps/<name>/`.
             let noop_progress: crate::event::Progress = std::sync::Arc::new(|_| {});
             match crate::fetch::http::fetch_url_dep(name, url, None, project_dir, &noop_progress) {
                 Ok(_) => {
                     // Write the build-system marker so `build_foreign_deps` knows
                     // this dep needs compiling from source rather than linking prebuilt libs.
                     if let Some(ref bs) = build_system {
-                        let bs_path = project_dir.join(".deps").join(name).join(".freight-build-system");
+                        let bs_path = project_dir
+                            .join("target")
+                            .join("deps")
+                            .join(name)
+                            .join(".freight-build-system");
                         let _ = std::fs::write(&bs_path, bs);
                     }
                     let source = registry.source_string();
-                    let _ = LockFile::upsert_registry_dep(project_dir, name, &concrete, &source, "");
+                    let _ =
+                        LockFile::upsert_registry_dep(project_dir, name, &concrete, &source, "");
                     outcomes.push(RegistryDepOutcome {
-                        name: name.clone(), version: concrete,
+                        name: name.clone(),
+                        version: concrete,
                         action: RegistryDepAction::Downloaded,
                     });
                 }
                 Err(_) => {
                     outcomes.push(RegistryDepOutcome {
-                        name: name.clone(), version: version.to_string(),
+                        name: name.clone(),
+                        version: version.to_string(),
                         action: RegistryDepAction::Unavailable,
                     });
                 }
@@ -377,15 +437,23 @@ pub fn fetch_registry_deps(
             match registry.download_tarball(name, &concrete, channel, project_dir) {
                 Ok(checksum) => {
                     let source = registry.source_string();
-                    let _ = LockFile::upsert_registry_dep(project_dir, name, &concrete, &source, &checksum);
+                    let _ = LockFile::upsert_registry_dep(
+                        project_dir,
+                        name,
+                        &concrete,
+                        &source,
+                        &checksum,
+                    );
                     outcomes.push(RegistryDepOutcome {
-                        name: name.clone(), version: concrete,
+                        name: name.clone(),
+                        version: concrete,
                         action: RegistryDepAction::Downloaded,
                     });
                 }
                 Err(_) => {
                     outcomes.push(RegistryDepOutcome {
-                        name: name.clone(), version: version.to_string(),
+                        name: name.clone(),
+                        version: version.to_string(),
                         action: RegistryDepAction::Unavailable,
                     });
                 }
@@ -399,7 +467,10 @@ pub fn fetch_registry_deps(
 /// Returns true when `v` contains a constraint operator rather than a bare version.
 fn looks_like_constraint(v: &str) -> bool {
     let v = v.trim();
-    v.starts_with(|c: char| matches!(c, '>' | '<' | '~' | '^')) || v.starts_with(">=") || v.starts_with("<=") || v.starts_with("!=")
+    v.starts_with(|c: char| matches!(c, '>' | '<' | '~' | '^'))
+        || v.starts_with(">=")
+        || v.starts_with("<=")
+        || v.starts_with("!=")
 }
 
 /// Pick the best version from `available` that satisfies `constraint`.
@@ -407,7 +478,10 @@ fn looks_like_constraint(v: &str) -> bool {
 /// Tries semver `VersionReq` first, then falls back to a simple lexicographic
 /// search so date-versions and non-semver packages still get a match.
 /// Returns the oldest satisfying version (so upgrades are conservative).
-fn resolve_constraint(available: &[crate::registry::PackageVersion], constraint: &str) -> Option<String> {
+fn resolve_constraint(
+    available: &[crate::registry::PackageVersion],
+    constraint: &str,
+) -> Option<String> {
     use semver::{Version, VersionReq};
 
     let req = VersionReq::parse(constraint).ok();
@@ -458,21 +532,32 @@ pub fn fetch_package_deps(project_dir: &Path) -> Result<Vec<PackageDepOutcome>, 
     let mut outcomes = Vec::new();
 
     for (name, dep) in &manifest.dependencies {
-        let Some(version) = package_dep_version(dep) else { continue };
+        let Some(version) = package_dep_version(dep) else {
+            continue;
+        };
         let query = package_query(name, version);
 
         if pkg_config_query(&query).is_ok() {
-            outcomes.push(PackageDepOutcome { name: name.clone(), action: PackageDepAction::SystemPresent });
+            outcomes.push(PackageDepOutcome {
+                name: name.clone(),
+                action: PackageDepAction::SystemPresent,
+            });
             continue;
         }
 
-        // Registry-fetched deps are expected to already be present in .deps/
+        // Registry-fetched deps are expected to already be present in target/deps/
         // after `freight fetch`. Report presence or warn if missing.
-        let dep_dir = project_dir.join(".deps").join(name);
+        let dep_dir = project_dir.join("target").join("deps").join(name);
         if dep_dir.exists() {
-            outcomes.push(PackageDepOutcome { name: name.clone(), action: PackageDepAction::AlreadyPresent });
+            outcomes.push(PackageDepOutcome {
+                name: name.clone(),
+                action: PackageDepAction::AlreadyPresent,
+            });
         } else {
-            outcomes.push(PackageDepOutcome { name: name.clone(), action: PackageDepAction::Missing });
+            outcomes.push(PackageDepOutcome {
+                name: name.clone(),
+                action: PackageDepAction::Missing,
+            });
         }
     }
 
@@ -483,10 +568,10 @@ fn package_dep_version(dep: &Dependency) -> Option<&str> {
     match dep {
         Dependency::Simple(version) => Some(version.as_str()),
         Dependency::Detailed(d)
-            if d.version.is_some()
-                && d.path.is_none()
-                && d.git.is_none()
-                && d.url.is_none() => d.version.as_deref(),
+            if d.version.is_some() && d.path.is_none() && d.git.is_none() && d.url.is_none() =>
+        {
+            d.version.as_deref()
+        }
         _ => None,
     }
 }
@@ -506,7 +591,11 @@ fn package_query(name: &str, version: &str) -> String {
 /// Remove the `.freight-fetched` sentinel for the named url dep so
 /// `freight fetch` (or the next build) will re-download it.
 pub fn invalidate_url_dep(project_dir: &Path, name: &str) -> bool {
-    let sentinel = project_dir.join(".deps").join(name).join(".freight-fetched");
+    let sentinel = project_dir
+        .join("target")
+        .join("deps")
+        .join(name)
+        .join(".freight-fetched");
     if sentinel.exists() {
         let _ = std::fs::remove_file(&sentinel);
         true

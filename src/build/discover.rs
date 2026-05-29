@@ -67,23 +67,38 @@ pub fn discover(
             };
 
             if let Some(lang_key) = ext_map.get(ext.as_str()) {
-                sources.push(SourceFile { path: rel, lang_key: lang_key.clone() });
+                sources.push(SourceFile {
+                    path: rel,
+                    lang_key: lang_key.clone(),
+                });
             }
         }
     }
 
     // Append sources from the matching [os.*] and [arch.*] sections.
-    let current_os   = std::env::consts::OS;
-    let current_arch = manifest.target.arch.as_deref().unwrap_or(std::env::consts::ARCH);
+    let current_os = std::env::consts::OS;
+    let current_arch = manifest
+        .target
+        .arch
+        .as_deref()
+        .unwrap_or(std::env::consts::ARCH);
 
     for (key, entry) in &manifest.os {
         if key.eq_ignore_ascii_case(current_os) {
-            sources.extend(expand_conditional_sources(project_dir, &entry.srcs, &ext_map));
+            sources.extend(expand_conditional_sources(
+                project_dir,
+                &entry.srcs,
+                &ext_map,
+            ));
         }
     }
     for (key, entry) in &manifest.arch {
         if key.eq_ignore_ascii_case(current_arch) {
-            sources.extend(expand_conditional_sources(project_dir, &entry.srcs, &ext_map));
+            sources.extend(expand_conditional_sources(
+                project_dir,
+                &entry.srcs,
+                &ext_map,
+            ));
         }
     }
 
@@ -97,14 +112,20 @@ pub fn discover(
         include_dirs.push(PathBuf::from("inc"));
     }
 
-    DiscoveredSources { sources, include_dirs }
+    DiscoveredSources {
+        sources,
+        include_dirs,
+    }
 }
 
 /// Expand all globs from every `[os.*]` and `[arch.*]` sources list into a
 /// set of relative paths. Used to exclude these files from the normal walk.
 fn build_exclusion_set(project_dir: &Path, manifest: &Manifest) -> HashSet<PathBuf> {
     let mut set = HashSet::new();
-    let all_globs = manifest.os.values().chain(manifest.arch.values())
+    let all_globs = manifest
+        .os
+        .values()
+        .chain(manifest.arch.values())
         .flat_map(|e| e.srcs.iter());
     for pattern in all_globs {
         for path in glob_sources(project_dir, pattern) {
@@ -124,11 +145,16 @@ fn expand_conditional_sources(
     let mut out = Vec::new();
     for pattern in patterns {
         for rel in glob_sources(project_dir, pattern) {
-            let ext = rel.extension().and_then(|e| e.to_str())
+            let ext = rel
+                .extension()
+                .and_then(|e| e.to_str())
                 .map(|e| format!(".{e}"))
                 .unwrap_or_default();
             if let Some(lang_key) = ext_map.get(ext.as_str()) {
-                out.push(SourceFile { path: rel, lang_key: lang_key.clone() });
+                out.push(SourceFile {
+                    path: rel,
+                    lang_key: lang_key.clone(),
+                });
             }
         }
     }
@@ -143,7 +169,9 @@ fn glob_sources(project_dir: &Path, pattern: &str) -> Vec<PathBuf> {
         Some(s) => s.to_owned(),
         None => return vec![],
     };
-    let Ok(paths) = glob::glob(&pattern_str) else { return vec![] };
+    let Ok(paths) = glob::glob(&pattern_str) else {
+        return vec![];
+    };
     paths
         .filter_map(|r| r.ok())
         .filter(|p| p.is_file())
@@ -163,7 +191,10 @@ fn glob_sources(project_dir: &Path, pattern: &str) -> Vec<PathBuf> {
 /// Specialised lang_keys that share extensions with generic C/C++ (e.g. `sycl`
 /// and `cpp` both handle `.cpp`) require an explicit `[language.<key>]` declaration
 /// in the manifest to activate, preventing accidental misclassification.
-pub(crate) fn build_ext_map(manifest: &Manifest, templates: &[CompilerTemplate]) -> HashMap<String, String> {
+pub(crate) fn build_ext_map(
+    manifest: &Manifest,
+    templates: &[CompilerTemplate],
+) -> HashMap<String, String> {
     // Specialised lang_keys that share extensions with generic C/C++ (e.g. sycl/hip use .cpp).
     // These only override the default mapping when explicitly declared in the manifest.
     // cuda/ispc are NOT listed here because .cu/.ispc are unique extensions with no conflict.
@@ -171,9 +202,7 @@ pub(crate) fn build_ext_map(manifest: &Manifest, templates: &[CompilerTemplate])
 
     // Priority order for resolving conflicts among always-active languages.
     // Higher index = higher priority (last write wins).
-    const LANG_PRIORITY: &[&str] = &[
-        "c", "asm", "fortran", "ada", "d", "cpp",
-    ];
+    const LANG_PRIORITY: &[&str] = &["c", "asm", "fortran", "ada", "d", "cpp"];
 
     let declared: HashSet<&str> = manifest.language.keys().map(String::as_str).collect();
 
@@ -189,11 +218,16 @@ pub(crate) fn build_ext_map(manifest: &Manifest, templates: &[CompilerTemplate])
         .into_iter()
         .collect();
 
-    for &lang_key in all_always_active.iter().filter(|k| !LANG_PRIORITY.contains(k)) {
+    for &lang_key in all_always_active
+        .iter()
+        .filter(|k| !LANG_PRIORITY.contains(k))
+    {
         for template in templates {
             if let Some(linking) = template.linking.get(lang_key) {
                 for ext in &linking.extensions {
-                    ext_map.entry(ext.clone()).or_insert_with(|| lang_key.to_string());
+                    ext_map
+                        .entry(ext.clone())
+                        .or_insert_with(|| lang_key.to_string());
                 }
             }
         }
@@ -212,7 +246,9 @@ pub(crate) fn build_ext_map(manifest: &Manifest, templates: &[CompilerTemplate])
 
     // Phase 2: apply declared specialised languages on top (they override cpp/c defaults).
     for &lang_key in REQUIRES_DECLARATION {
-        if !declared.contains(lang_key) { continue; }
+        if !declared.contains(lang_key) {
+            continue;
+        }
         for template in templates {
             if let Some(linking) = template.linking.get(lang_key) {
                 for ext in &linking.extensions {
@@ -256,12 +292,17 @@ mod tests {
         let m = minimal_manifest("cpp");
         let found = discover(dir.path(), &m, &templates());
 
-        let paths: Vec<&str> = found.sources.iter()
+        let paths: Vec<&str> = found
+            .sources
+            .iter()
             .map(|s| s.path.to_str().unwrap())
             .collect();
         assert!(paths.contains(&"src/main.cpp"), "main.cpp not found");
         assert!(paths.contains(&"src/util.cc"), "util.cc not found");
-        assert!(!paths.iter().any(|p| p.ends_with(".md")), "md should be skipped");
+        assert!(
+            !paths.iter().any(|p| p.ends_with(".md")),
+            "md should be skipped"
+        );
         assert!(found.sources.iter().all(|s| s.lang_key == "cpp"));
     }
 
@@ -274,7 +315,10 @@ mod tests {
         let m = minimal_manifest("cpp");
         let found = discover(dir.path(), &m, &templates());
 
-        assert!(found.include_dirs.iter().any(|d| d == std::path::Path::new("inc")));
+        assert!(found
+            .include_dirs
+            .iter()
+            .any(|d| d == std::path::Path::new("inc")));
     }
 
     #[test]
@@ -308,7 +352,11 @@ src  = "src/main.cpp"
         let m = crate::manifest::load_manifest_str(manifest_src).unwrap();
         let found = discover(dir.path(), &m, &templates());
 
-        let cpp_files: Vec<_> = found.sources.iter().filter(|s| s.lang_key == "cpp").collect();
+        let cpp_files: Vec<_> = found
+            .sources
+            .iter()
+            .filter(|s| s.lang_key == "cpp")
+            .collect();
         let c_files: Vec<_> = found.sources.iter().filter(|s| s.lang_key == "c").collect();
         assert_eq!(cpp_files.len(), 1);
         assert_eq!(c_files.len(), 1);
@@ -326,7 +374,11 @@ src  = "src/main.cpp"
         let m = minimal_manifest("cpp");
         let found = discover(dir.path(), &m, &templates());
 
-        let paths: Vec<_> = found.sources.iter().map(|s| s.path.file_name().unwrap()).collect();
+        let paths: Vec<_> = found
+            .sources
+            .iter()
+            .map(|s| s.path.file_name().unwrap())
+            .collect();
         let mut sorted = paths.clone();
         sorted.sort();
         assert_eq!(paths, sorted, "sources should be sorted");
@@ -349,12 +401,16 @@ src  = "src/main.cpp"
 
         let m = minimal_manifest("cpp");
         let found = discover(dir.path(), &m, &templates());
-        assert!(found.sources.iter().any(|s| s.path.ends_with("core/engine.cpp")));
+        assert!(found
+            .sources
+            .iter()
+            .any(|s| s.path.ends_with("core/engine.cpp")));
     }
 
     #[test]
     fn cpp_maps_to_cpp_not_sycl_without_declaration() {
-        let manifest = crate::manifest::load_manifest_str(r#"
+        let manifest = crate::manifest::load_manifest_str(
+            r#"
 [package]
 name = "p"
 version = "0.1.0"
@@ -363,11 +419,20 @@ version = "0.1.0"
 [[bin]]
 name = "p"
 src = "src/main.cpp"
-"#).unwrap();
+"#,
+        )
+        .unwrap();
         let ext_map = build_ext_map(&manifest, &templates());
-        assert_eq!(ext_map.get(".cpp").map(String::as_str), Some("cpp"),
-            ".cpp should map to cpp, got {:?}", ext_map.get(".cpp"));
-        assert!(!ext_map.values().any(|v| v == "sycl"),
-            "sycl should not appear without [language.sycl]; ext_map: {:?}", ext_map);
+        assert_eq!(
+            ext_map.get(".cpp").map(String::as_str),
+            Some("cpp"),
+            ".cpp should map to cpp, got {:?}",
+            ext_map.get(".cpp")
+        );
+        assert!(
+            !ext_map.values().any(|v| v == "sycl"),
+            "sycl should not appear without [language.sycl]; ext_map: {:?}",
+            ext_map
+        );
     }
 }

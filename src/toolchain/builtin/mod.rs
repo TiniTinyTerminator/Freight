@@ -1,13 +1,13 @@
-pub mod gnu;
-pub mod llvm;
-pub mod nvidia;
-pub mod intel;
 pub mod amd;
 pub mod asm;
+pub mod emscripten;
+pub mod gnu;
+pub mod intel;
+pub mod llvm;
+pub mod misc;
+pub mod nvidia;
 pub mod windows;
 pub mod zig;
-pub mod emscripten;
-pub mod misc;
 
 use super::template::CompilerTemplate;
 

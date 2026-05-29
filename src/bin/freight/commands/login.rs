@@ -37,13 +37,23 @@ impl Args {
             match crate::tui::login::run(url.clone(), None) {
                 Ok((uname, token)) => {
                     let name = super::common::registry_name_for(&url);
-                    match freight_core::toolchain::cache::GlobalConfig::save_credential(&url, &name, &token) {
-                        Ok(()) => crate::output::print_success(&format!("logged in as `{uname}` — token saved to ~/.freight/credentials.toml")),
-                        Err(e) => { crate::output::print_error(&e.to_string()); std::process::exit(1); }
+                    match freight_core::toolchain::cache::GlobalConfig::save_credential(
+                        &url, &name, &token,
+                    ) {
+                        Ok(()) => crate::output::print_success(&format!(
+                            "logged in as `{uname}` — token saved to ~/.freight/credentials.toml"
+                        )),
+                        Err(e) => {
+                            crate::output::print_error(&e.to_string());
+                            std::process::exit(1);
+                        }
                     }
                 }
                 Err(e) if e.to_string() == "cancelled" => {}
-                Err(e) => { crate::output::print_error(&e.to_string()); std::process::exit(1); }
+                Err(e) => {
+                    crate::output::print_error(&e.to_string());
+                    std::process::exit(1);
+                }
             }
         }
     }

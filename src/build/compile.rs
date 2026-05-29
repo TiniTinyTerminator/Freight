@@ -21,24 +21,30 @@ static CACHE_WRAPPER: OnceLock<Option<PathBuf>> = OnceLock::new();
 /// Return the compiler cache wrapper binary (`sccache` > `ccache`), or `None`
 /// when none is found or `FREIGHT_NO_CACHE=1` is set.
 fn cache_wrapper() -> Option<&'static PathBuf> {
-    CACHE_WRAPPER.get_or_init(|| {
-        if std::env::var_os("FREIGHT_NO_CACHE").is_some() {
-            return None;
-        }
-        for name in &["sccache", "ccache"] {
-            if let Some(path) = which_tool(name) {
-                return Some(path);
+    CACHE_WRAPPER
+        .get_or_init(|| {
+            if std::env::var_os("FREIGHT_NO_CACHE").is_some() {
+                return None;
             }
-        }
-        None
-    }).as_ref()
+            for name in &["sccache", "ccache"] {
+                if let Some(path) = which_tool(name) {
+                    return Some(path);
+                }
+            }
+            None
+        })
+        .as_ref()
 }
 
 fn which_tool(name: &str) -> Option<PathBuf> {
     std::env::var_os("PATH").and_then(|paths| {
         std::env::split_paths(&paths).find_map(|dir| {
             let candidate = dir.join(name);
-            if candidate.is_file() { Some(candidate) } else { None }
+            if candidate.is_file() {
+                Some(candidate)
+            } else {
+                None
+            }
         })
     })
 }
@@ -94,14 +100,23 @@ pub fn compile_sources(
             let dep = dep_file_path(project_dir, profile, &src.path);
 
             if is_up_to_date(&src_abs, &obj, &dep) {
-                progress(BuildEvent::Fresh { path: src.path.clone() });
+                progress(BuildEvent::Fresh {
+                    path: src.path.clone(),
+                });
                 return Ok((obj, false));
             }
 
             let compiler = select_compiler(&src.lang_key, backend, detected, pf)
                 .ok_or_else(|| FreightError::NoCompilerForLang(src.lang_key.clone()))?;
 
-            let mut settings = settings_for_lang(manifest, profile, &src.lang_key, include_dirs, project_dir, feature_defines);
+            let mut settings = settings_for_lang(
+                manifest,
+                profile,
+                &src.lang_key,
+                include_dirs,
+                project_dir,
+                feature_defines,
+            );
 
             // Suppress LTO when this compiler's family differs from the linker's family.
             // Mixing GNU (gfortran/gcc) GIMPLE LTO IR with LLVM (clang++) LTO bitcode is
@@ -118,7 +133,10 @@ pub fn compile_sources(
             // Whole-program builders (e.g. gnatmake for Ada) handle compile+bind+link
             // in a single invocation during the link step. Skip the separate compile
             // step and record the source path itself so link_executable receives it.
-            if compiler.template.linking.get(src.lang_key.as_str())
+            if compiler
+                .template
+                .linking
+                .get(src.lang_key.as_str())
                 .map_or(false, |l| l.whole_program)
             {
                 return Ok((src_abs, true));
@@ -128,11 +146,24 @@ pub fn compile_sources(
 
             fs::create_dir_all(obj.parent().expect("obj path always has a parent"))?;
 
-            progress(BuildEvent::Compiling { path: src.path.clone() });
+            progress(BuildEvent::Compiling {
+                path: src.path.clone(),
+            });
             let t0 = Instant::now();
-            compile_one(&src_abs, &obj, &dep, &compile_bin, compiler, &settings, header_unit_flags)?;
+            compile_one(
+                &src_abs,
+                &obj,
+                &dep,
+                &compile_bin,
+                compiler,
+                &settings,
+                header_unit_flags,
+            )?;
             if std::env::var_os("FREIGHT_TIME_PASSES").is_some() {
-                progress(BuildEvent::Timing { path: src.path.clone(), ns: t0.elapsed().as_nanos() as u64 });
+                progress(BuildEvent::Timing {
+                    path: src.path.clone(),
+                    ns: t0.elapsed().as_nanos() as u64,
+                });
             }
 
             Ok((obj, true))
@@ -149,7 +180,12 @@ pub fn compile_sources(
     let compiled = pairs.iter().filter(|(_, c)| *c).count();
     let skipped = pairs.iter().filter(|(_, c)| !*c).count();
 
-    Ok(CompileResult { objects, compiled_sources, compiled, skipped })
+    Ok(CompileResult {
+        objects,
+        compiled_sources,
+        compiled,
+        skipped,
+    })
 }
 
 /// Unity (jumbo) build: merge all sources of the same language into one TU via `#include`.
@@ -182,10 +218,25 @@ pub fn compile_sources_unity(
         .partition(|s| UNITY_SUPPORTED_LANGS.contains(&s.lang_key.as_str()));
 
     let reg_result = if !regular_srcs.is_empty() {
-        compile_sources(project_dir, manifest, backend, profile, &regular_srcs,
-            include_dirs, detected, feature_defines, header_unit_flags, progress)?
+        compile_sources(
+            project_dir,
+            manifest,
+            backend,
+            profile,
+            &regular_srcs,
+            include_dirs,
+            detected,
+            feature_defines,
+            header_unit_flags,
+            progress,
+        )?
     } else {
-        CompileResult { objects: vec![], compiled_sources: vec![], compiled: 0, skipped: 0 }
+        CompileResult {
+            objects: vec![],
+            compiled_sources: vec![],
+            compiled: 0,
+            skipped: 0,
+        }
     };
 
     if unity_srcs.is_empty() {
@@ -213,14 +264,19 @@ pub fn compile_sources_unity(
 
         // Regenerate the unity file if it's absent or any source is newer.
         let unity_mtime = mtime(&unity_src);
-        let needs_regen = unity_mtime.is_none() || lang_sources.iter().any(|s| {
-            mtime(&project_dir.join(&s.path))
-                .map_or(true, |sm| unity_mtime.map_or(true, |um| sm >= um))
-        });
+        let needs_regen = unity_mtime.is_none()
+            || lang_sources.iter().any(|s| {
+                mtime(&project_dir.join(&s.path))
+                    .map_or(true, |sm| unity_mtime.map_or(true, |um| sm >= um))
+            });
         if needs_regen {
             let mut content = String::new();
             for src in lang_sources {
-                let _ = writeln!(content, "#include \"{}\"", project_dir.join(&src.path).display());
+                let _ = writeln!(
+                    content,
+                    "#include \"{}\"",
+                    project_dir.join(&src.path).display()
+                );
             }
             fs::write(&unity_src, &content)?;
         }
@@ -236,7 +292,9 @@ pub fn compile_sources_unity(
 
         if up_to_date {
             for src in lang_sources {
-                progress_clone(BuildEvent::Fresh { path: src.path.clone() });
+                progress_clone(BuildEvent::Fresh {
+                    path: src.path.clone(),
+                });
             }
             total_skipped += lang_sources.len();
             all_objects.push(obj);
@@ -246,19 +304,41 @@ pub fn compile_sources_unity(
         let compiler = select_compiler(lang_key, backend, detected, pf)
             .ok_or_else(|| FreightError::NoCompilerForLang(lang_key.clone()))?;
 
-        let settings = settings_for_lang(manifest, profile, lang_key, include_dirs, project_dir, feature_defines);
+        let settings = settings_for_lang(
+            manifest,
+            profile,
+            lang_key,
+            include_dirs,
+            project_dir,
+            feature_defines,
+        );
         let compile_bin = resolve_compile_binary(compiler, lang_key);
 
         for src in lang_sources {
-            progress_clone(BuildEvent::Compiling { path: src.path.clone() });
+            progress_clone(BuildEvent::Compiling {
+                path: src.path.clone(),
+            });
         }
-        compile_one(&unity_src, &obj, &dep, &compile_bin, compiler, &settings, header_unit_flags)?;
+        compile_one(
+            &unity_src,
+            &obj,
+            &dep,
+            &compile_bin,
+            compiler,
+            &settings,
+            header_unit_flags,
+        )?;
 
         total_compiled += lang_sources.len();
         all_objects.push(obj);
     }
 
-    Ok(CompileResult { objects: all_objects, compiled_sources: vec![], compiled: total_compiled, skipped: total_skipped })
+    Ok(CompileResult {
+        objects: all_objects,
+        compiled_sources: vec![],
+        compiled: total_compiled,
+        skipped: total_skipped,
+    })
 }
 
 // ── Compiler selection ────────────────────────────────────────────────────────
@@ -280,13 +360,16 @@ pub fn select_compiler<'a>(
 ) -> Option<&'a DetectedCompiler> {
     if backend.is_auto() {
         if let Some(family) = preferred_family.filter(|f| !f.is_empty()) {
-            if let Some(c) = detected.iter().find(|d| {
-                d.template.linking.contains_key(lang_key) && d.template.family == family
-            }) {
+            if let Some(c) = detected
+                .iter()
+                .find(|d| d.template.linking.contains_key(lang_key) && d.template.family == family)
+            {
                 return Some(c);
             }
         }
-        detected.iter().find(|d| d.template.linking.contains_key(lang_key))
+        detected
+            .iter()
+            .find(|d| d.template.linking.contains_key(lang_key))
     } else {
         let name = backend.name();
         // 1. Family member that directly handles this lang_key.
@@ -310,7 +393,10 @@ pub fn select_compiler<'a>(
             if let Some(c) = detected.iter().find(|d| {
                 !d.template.requires_toolchain.is_empty()
                     && d.template.linking.contains_key(lang_key)
-                    && d.template.requires_toolchain.iter().all(|r| family_langs.contains(r.as_str()))
+                    && d.template
+                        .requires_toolchain
+                        .iter()
+                        .all(|r| family_langs.contains(r.as_str()))
             }) {
                 return Some(c);
             }
@@ -318,9 +404,10 @@ pub fn select_compiler<'a>(
 
         // 3. Exact template-name match (standalone compilers with no family)
         //    that also handles this lang_key.
-        if let Some(c) = detected.iter().find(|d| {
-            d.template.name == name && d.template.linking.contains_key(lang_key)
-        }) {
+        if let Some(c) = detected
+            .iter()
+            .find(|d| d.template.name == name && d.template.linking.contains_key(lang_key))
+        {
             return Some(c);
         }
 
@@ -328,10 +415,13 @@ pub fn select_compiler<'a>(
         //    (e.g. backend="zig" for .cpp files → fall through to g++/clang++).
         //    Unknown backends (no detected compiler at all) return None so the
         //    caller can emit a proper "backend not found" error.
-        let backend_exists = detected.iter()
+        let backend_exists = detected
+            .iter()
             .any(|d| d.template.family == name || d.template.name == name);
         if backend_exists {
-            return detected.iter().find(|d| d.template.linking.contains_key(lang_key));
+            return detected
+                .iter()
+                .find(|d| d.template.linking.contains_key(lang_key));
         }
 
         None
@@ -355,29 +445,42 @@ pub fn primary_family<'a>(backend: &Backend, detected: &'a [DetectedCompiler]) -
 ///
 /// Mirrors `link::select_linker`'s priority ordering (including backend preference)
 /// but operates only on `detected` (no `templates` slice) for use inside `compile_sources`.
-fn linker_family<'a>(manifest: &Manifest, backend: &Backend, detected: &'a [DetectedCompiler]) -> Option<&'a str> {
+fn linker_family<'a>(
+    manifest: &Manifest,
+    backend: &Backend,
+    detected: &'a [DetectedCompiler],
+) -> Option<&'a str> {
     const PRIORITY: &[&str] = &[
-        "cpp", "objcpp", "cuda", "hip", "sycl", "objc", "c",
-        "fortran", "ada", "d", "opencl", "ispc",
+        "cpp", "objcpp", "cuda", "hip", "sycl", "objc", "c", "fortran", "ada", "d", "opencl",
+        "ispc",
     ];
     // A language is "active" if explicitly declared or inferred from source file extensions.
     let has_lang = |lang: &str| -> bool {
-        if manifest.language.contains_key(lang) { return true; }
-        let exts: Vec<&str> = detected.iter()
+        if manifest.language.contains_key(lang) {
+            return true;
+        }
+        let exts: Vec<&str> = detected
+            .iter()
             .filter_map(|d| d.template.linking.get(lang))
             .flat_map(|l| l.extensions.iter().map(String::as_str))
             .collect();
-        if exts.is_empty() { return false; }
+        if exts.is_empty() {
+            return false;
+        }
         let has = |src: &str| exts.iter().any(|e| src.ends_with(*e));
         manifest.bins.iter().any(|b| has(&b.src))
-            || manifest.lib.as_ref().map_or(false, |l| l.srcs.iter().any(|s| has(s)))
+            || manifest
+                .lib
+                .as_ref()
+                .map_or(false, |l| l.srcs.iter().any(|s| has(s)))
     };
     // Non-auto backend: prefer linkers from the requested family (same as select_linker).
     if !backend.is_auto() {
         let family = backend.name();
         for &lang in PRIORITY {
             if has_lang(lang) {
-                if let Some(d) = detected.iter()
+                if let Some(d) = detected
+                    .iter()
                     .find(|d| d.template.linking.contains_key(lang) && d.template.family == family)
                 {
                     return Some(&d.template.family);
@@ -387,16 +490,19 @@ fn linker_family<'a>(manifest: &Manifest, backend: &Backend, detected: &'a [Dete
     }
     for &lang in PRIORITY {
         if has_lang(lang) {
-            if let Some(d) = detected.iter().find(|d| d.template.linking.contains_key(lang)) {
+            if let Some(d) = detected
+                .iter()
+                .find(|d| d.template.linking.contains_key(lang))
+            {
                 if !d.template.family.is_empty() {
                     return Some(&d.template.family);
                 }
             }
         }
     }
-    detected.first().and_then(|d| {
-        (!d.template.family.is_empty()).then_some(d.template.family.as_str())
-    })
+    detected
+        .first()
+        .and_then(|d| (!d.template.family.is_empty()).then_some(d.template.family.as_str()))
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -430,14 +536,22 @@ pub fn settings_for_lang(
 
 /// `src/core/engine.cpp` → `{project}/target/{profile}/objs/src/core/engine.o`
 pub fn object_path(project_dir: &Path, profile: &str, source_rel: &Path) -> PathBuf {
-    let mut p = project_dir.join("target").join(profile).join("objs").join(source_rel);
+    let mut p = project_dir
+        .join("target")
+        .join(profile)
+        .join("objs")
+        .join(source_rel);
     p.set_extension("o");
     p
 }
 
 /// Same as `object_path` but with `.d` extension for the Makefile dependency file.
 pub fn dep_file_path(project_dir: &Path, profile: &str, source_rel: &Path) -> PathBuf {
-    let mut p = project_dir.join("target").join(profile).join("objs").join(source_rel);
+    let mut p = project_dir
+        .join("target")
+        .join(profile)
+        .join("objs")
+        .join(source_rel);
     p.set_extension("d");
     p
 }
@@ -469,7 +583,9 @@ pub(crate) fn is_up_to_date(source: &Path, object: &Path, dep_file: &Path) -> bo
 /// Format: `target.o: src.cpp inc/foo.hpp \\\n  /usr/include/bar.h`
 /// We skip the first token (the target itself) and return everything after the `:`.
 fn parse_dep_file(contents: &str) -> Vec<String> {
-    let Some(colon) = contents.find(':') else { return vec![] };
+    let Some(colon) = contents.find(':') else {
+        return vec![];
+    };
     contents[colon + 1..]
         .replace("\\\n", " ")
         .split_whitespace()
@@ -488,7 +604,10 @@ fn mtime(path: &Path) -> Option<SystemTime> {
 /// falling back to a bare name resolved via PATH. This lets `gcc.toml` use `g++` for
 /// linking while still invoking `gcc` for `.c` source files.
 pub(crate) fn resolve_compile_binary(compiler: &DetectedCompiler, lang_key: &str) -> PathBuf {
-    if let Some(cb) = compiler.template.linking.get(lang_key)
+    if let Some(cb) = compiler
+        .template
+        .linking
+        .get(lang_key)
         .and_then(|l| l.compile_binary.as_deref())
     {
         if let Some(parent) = compiler.path.parent() {
@@ -517,10 +636,15 @@ pub(crate) fn compile_one(
     module_flags: &[String],
 ) -> Result<(), FreightError> {
     // Reject unsupported standards before invoking the compiler.
-    let effective_std = settings.standard.as_deref()
+    let effective_std = settings
+        .standard
+        .as_deref()
         .or_else(|| compiler.template.defaults.get("std").map(String::as_str));
     if let Some(std) = effective_std {
-        if let Some(msg) = compiler.template.check_standard_floor(std, &compiler.version) {
+        if let Some(msg) = compiler
+            .template
+            .check_standard_floor(std, &compiler.version)
+        {
             return Err(FreightError::OptionError(msg));
         }
     }
@@ -530,11 +654,15 @@ pub(crate) fn compile_one(
     let mut cmd = if let Some(wrapper) = cache_wrapper() {
         let mut c = Command::new(wrapper);
         c.arg(compile_bin);
-        if let Some(sub) = compiler.template.subcommand.as_deref() { c.arg(sub); }
+        if let Some(sub) = compiler.template.subcommand.as_deref() {
+            c.arg(sub);
+        }
         c
     } else {
         let mut c = Command::new(compile_bin);
-        if let Some(sub) = compiler.template.subcommand.as_deref() { c.arg(sub); }
+        if let Some(sub) = compiler.template.subcommand.as_deref() {
+            c.arg(sub);
+        }
         c
     };
     cmd.args(compiler.template.assemble_flags(settings));
@@ -556,7 +684,10 @@ pub(crate) fn compile_one(
     if dep_mode == "stdout" && out.status.success() {
         let stdout = String::from_utf8_lossy(&out.stdout);
         if let Err(e) = write_stdout_dep_file(dep_path, source_abs, &stdout) {
-            eprintln!("warning: could not write dep file {}: {e}", dep_path.display());
+            eprintln!(
+                "warning: could not write dep file {}: {e}",
+                dep_path.display()
+            );
         }
     }
 
@@ -567,7 +698,11 @@ pub(crate) fn compile_one(
             stderr
         } else {
             let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
-            if stdout.is_empty() { stderr } else { format!("{stdout}\n{stderr}") }
+            if stdout.is_empty() {
+                stderr
+            } else {
+                format!("{stdout}\n{stderr}")
+            }
         };
         return Err(FreightError::CompileFailed(
             source_abs.to_string_lossy().into_owned(),
@@ -590,16 +725,17 @@ pub(crate) fn compile_one(
 /// MSVC prints `Note: including file:  <path>` for every directly or transitively
 /// included header. We collect these paths and write them in `.d` format so the
 /// existing mtime dirty-check logic can use them unchanged.
-fn write_stdout_dep_file(
-    dep_path: &Path,
-    source: &Path,
-    stdout: &str,
-) -> std::io::Result<()> {
+fn write_stdout_dep_file(dep_path: &Path, source: &Path, stdout: &str) -> std::io::Result<()> {
     const PREFIX: &str = "Note: including file:";
-    let includes: Vec<&str> = stdout.lines()
+    let includes: Vec<&str> = stdout
+        .lines()
         .filter_map(|line| {
             let t = line.trim_start();
-            if t.starts_with(PREFIX) { Some(t[PREFIX.len()..].trim()) } else { None }
+            if t.starts_with(PREFIX) {
+                Some(t[PREFIX.len()..].trim())
+            } else {
+                None
+            }
         })
         .filter(|p| !p.is_empty())
         .collect();
@@ -627,7 +763,10 @@ fn write_stdout_dep_file(
 pub(crate) fn print_cmd(cmd: &Command) {
     use owo_colors::OwoColorize;
     let prog = cmd.get_program().to_string_lossy();
-    let args: Vec<_> = cmd.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+    let args: Vec<_> = cmd
+        .get_args()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
     eprintln!("     {} {} {}", "cmd".dimmed(), prog, args.join(" "));
 }
 
@@ -657,7 +796,8 @@ pub fn emit_asm_sources(
     let asm_dir = project_dir.join("target").join(profile).join("asm");
     fs::create_dir_all(&asm_dir)?;
 
-    let eligible: Vec<&SourceFile> = sources.iter()
+    let eligible: Vec<&SourceFile> = sources
+        .iter()
         .filter(|s| !ASM_EMIT_SKIP_LANGS.contains(&s.lang_key.as_str()))
         .collect();
 
@@ -675,7 +815,9 @@ pub fn emit_asm_sources(
 
         if let Some(parent) = asm_path.parent() {
             if let Err(e) = fs::create_dir_all(parent) {
-                progress(BuildEvent::Warning(format!("emit-asm: cannot create dir: {e}")));
+                progress(BuildEvent::Warning(format!(
+                    "emit-asm: cannot create dir: {e}"
+                )));
                 return;
             }
         }
@@ -685,17 +827,28 @@ pub fn emit_asm_sources(
             None => return, // no compiler for this lang — skip silently
         };
 
-        let settings = settings_for_lang(manifest, profile, &src.lang_key, include_dirs, project_dir, feature_defines);
+        let settings = settings_for_lang(
+            manifest,
+            profile,
+            &src.lang_key,
+            include_dirs,
+            project_dir,
+            feature_defines,
+        );
         let compile_bin = resolve_compile_binary(compiler, &src.lang_key);
 
         let mut cmd = if let Some(wrapper) = cache_wrapper() {
             let mut c = Command::new(wrapper);
             c.arg(&compile_bin);
-            if let Some(sub) = compiler.template.subcommand.as_deref() { c.arg(sub); }
+            if let Some(sub) = compiler.template.subcommand.as_deref() {
+                c.arg(sub);
+            }
             c
         } else {
             let mut c = Command::new(&compile_bin);
-            if let Some(sub) = compiler.template.subcommand.as_deref() { c.arg(sub); }
+            if let Some(sub) = compiler.template.subcommand.as_deref() {
+                c.arg(sub);
+            }
             c
         };
         cmd.args(compiler.template.assemble_flags(&settings));
@@ -716,7 +869,8 @@ pub fn emit_asm_sources(
                 let msg = String::from_utf8_lossy(&out.stderr).into_owned();
                 progress(BuildEvent::Warning(format!(
                     "emit-asm failed for {}: {}",
-                    src.path.display(), msg.lines().next().unwrap_or("unknown error")
+                    src.path.display(),
+                    msg.lines().next().unwrap_or("unknown error")
                 )));
             }
             Err(e) => {
@@ -740,12 +894,15 @@ mod tests {
     }
 
     fn fake_detected(templates: &[CompilerTemplate]) -> Vec<DetectedCompiler> {
-        templates.iter().map(|t| DetectedCompiler {
-            template: t.clone(),
-            version: "0.0.0".into(),
-            path: PathBuf::from(format!("/usr/bin/{}", t.binary)),
-            cpu_extensions: vec![],
-        }).collect()
+        templates
+            .iter()
+            .map(|t| DetectedCompiler {
+                template: t.clone(),
+                version: "0.0.0".into(),
+                path: PathBuf::from(format!("/usr/bin/{}", t.binary)),
+                cpu_extensions: vec![],
+            })
+            .collect()
     }
 
     // ── select_compiler ───────────────────────────────────────────────────────
@@ -781,12 +938,18 @@ mod tests {
         assert_eq!(cpp.unwrap().template.name, "g++");
 
         let fortran = select_compiler("fortran", &Backend("gnu".into()), &detected, None);
-        assert!(fortran.is_some(), "gnu backend should find a Fortran compiler");
+        assert!(
+            fortran.is_some(),
+            "gnu backend should find a Fortran compiler"
+        );
         assert_eq!(fortran.unwrap().template.name, "gfortran");
 
         // "llvm" family → clang++ for cpp
         let cpp_llvm = select_compiler("cpp", &Backend("llvm".into()), &detected, None);
-        assert!(cpp_llvm.is_some(), "llvm backend should find a C++ compiler");
+        assert!(
+            cpp_llvm.is_some(),
+            "llvm backend should find a C++ compiler"
+        );
         assert_eq!(cpp_llvm.unwrap().template.name, "clang++");
     }
 
@@ -797,12 +960,18 @@ mod tests {
         // "gnu" family has no direct cuda member, but nvcc is a guest that requires cpp.
         // gnu provides cpp, so nvcc should be returned for cuda files.
         let cuda = select_compiler("cuda", &Backend("gnu".into()), &detected, None);
-        assert!(cuda.is_some(), "gnu backend should pick nvcc for cuda files");
+        assert!(
+            cuda.is_some(),
+            "gnu backend should pick nvcc for cuda files"
+        );
         assert_eq!(cuda.unwrap().template.name, "nvcc");
 
         // Same for llvm
         let cuda_llvm = select_compiler("cuda", &Backend("llvm".into()), &detected, None);
-        assert!(cuda_llvm.is_some(), "llvm backend should also pick nvcc for cuda files");
+        assert!(
+            cuda_llvm.is_some(),
+            "llvm backend should also pick nvcc for cuda files"
+        );
         assert_eq!(cuda_llvm.unwrap().template.name, "nvcc");
     }
 
@@ -824,7 +993,10 @@ mod tests {
                 "selected compiler must handle 'asm'"
             );
             assert!(
-                compiler.template.requires_toolchain.contains(&"c".to_string()),
+                compiler
+                    .template
+                    .requires_toolchain
+                    .contains(&"c".to_string()),
                 "selected compiler must require 'c' toolchain"
             );
         }
@@ -836,7 +1008,10 @@ mod tests {
         let detected = fake_detected(&ts);
         // No family handles an entirely unknown language key.
         let found = select_compiler("haskell", &Backend("gnu".into()), &detected, None);
-        assert!(found.is_none(), "gnu backend should not find a compiler for 'haskell'");
+        assert!(
+            found.is_none(),
+            "gnu backend should not find a compiler for 'haskell'"
+        );
     }
 
     #[test]
@@ -855,9 +1030,15 @@ mod tests {
         let detected = fake_detected(&ts);
         let backend = Backend("zig".into());
         let found = select_compiler("cpp", &backend, &detected, None);
-        assert!(found.is_some(), "should find a C++ compiler for zig backend");
-        assert_eq!(found.unwrap().template.name, "zig-c++",
-            "zig backend must compile C++ with zig c++, not g++/clang++");
+        assert!(
+            found.is_some(),
+            "should find a C++ compiler for zig backend"
+        );
+        assert_eq!(
+            found.unwrap().template.name,
+            "zig-c++",
+            "zig backend must compile C++ with zig c++, not g++/clang++"
+        );
     }
 
     #[test]
@@ -879,16 +1060,15 @@ mod tests {
             "debug",
             Path::new("src/core/engine.cpp"),
         );
-        assert_eq!(obj, PathBuf::from("/project/target/debug/objs/src/core/engine.o"));
+        assert_eq!(
+            obj,
+            PathBuf::from("/project/target/debug/objs/src/core/engine.o")
+        );
     }
 
     #[test]
     fn dep_file_path_has_d_extension() {
-        let dep = dep_file_path(
-            Path::new("/project"),
-            "dev",
-            Path::new("src/main.cpp"),
-        );
+        let dep = dep_file_path(Path::new("/project"), "dev", Path::new("src/main.cpp"));
         assert_eq!(dep, PathBuf::from("/project/target/dev/objs/src/main.d"));
     }
 
@@ -965,10 +1145,16 @@ src  = "src/main.cpp"
         let ts = templates();
         let detected = fake_detected(&ts);
         let compiler = select_compiler("c", &Backend::default(), &detected, None).unwrap();
-        let c_info = compiler.template.linking.get("c").expect("should have linking.c");
+        let c_info = compiler
+            .template
+            .linking
+            .get("c")
+            .expect("should have linking.c");
         assert_eq!(c_info.abi, "c");
-        assert!(c_info.compile_binary.is_some(),
-            "C must declare compile_binary so it isn't compiled with g++/clang++");
+        assert!(
+            c_info.compile_binary.is_some(),
+            "C must declare compile_binary so it isn't compiled with g++/clang++"
+        );
     }
 
     #[test]
@@ -980,7 +1166,10 @@ src  = "src/main.cpp"
         let compiler = select_compiler("c", &backend, &detected, None).unwrap();
         let c_info = compiler.template.linking.get("c").unwrap();
         assert_ne!(
-            c_info.compile_binary.as_deref().unwrap_or(&compiler.template.binary),
+            c_info
+                .compile_binary
+                .as_deref()
+                .unwrap_or(&compiler.template.binary),
             compiler.template.binary.as_str(),
             "gcc C compile binary (gcc) should differ from linker binary (g++)"
         );
@@ -994,7 +1183,10 @@ src  = "src/main.cpp"
         let bin = resolve_compile_binary(compiler, "c");
         // The resolved binary should NOT be g++ or clang++.
         let name = bin.file_name().unwrap().to_string_lossy();
-        assert!(!name.ends_with("++"), "C should not compile with a C++ binary, got {name}");
+        assert!(
+            !name.ends_with("++"),
+            "C should not compile with a C++ binary, got {name}"
+        );
     }
 
     #[test]
@@ -1003,7 +1195,10 @@ src  = "src/main.cpp"
         let detected = fake_detected(&ts);
         let compiler = select_compiler("cpp", &Backend::default(), &detected, None).unwrap();
         let bin = resolve_compile_binary(compiler, "cpp");
-        assert_eq!(bin, compiler.path, "C++ should compile with the template's main binary");
+        assert_eq!(
+            bin, compiler.path,
+            "C++ should compile with the template's main binary"
+        );
     }
 
     // ── is_up_to_date ─────────────────────────────────────────────────────────
@@ -1047,7 +1242,9 @@ src  = "src/main.cpp"
         std::thread::sleep(std::time::Duration::from_millis(20));
         fs::write(&hdr, "").unwrap();
 
-        assert!(!is_up_to_date(&src, &obj, &dep), "stale header should trigger recompile");
+        assert!(
+            !is_up_to_date(&src, &obj, &dep),
+            "stale header should trigger recompile"
+        );
     }
 }
-

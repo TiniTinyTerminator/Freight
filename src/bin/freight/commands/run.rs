@@ -48,7 +48,15 @@ impl Args {
     }
 }
 
-pub fn cmd_run(release: bool, package: Option<&str>, bin: Option<&str>, features: &[String], use_defaults: bool, run_args: &[String], sanitize: &[String]) {
+pub fn cmd_run(
+    release: bool,
+    package: Option<&str>,
+    bin: Option<&str>,
+    features: &[String],
+    use_defaults: bool,
+    run_args: &[String],
+    sanitize: &[String],
+) {
     let profile = if release { "release" } else { "dev" };
 
     if at_workspace_root() {
@@ -58,11 +66,26 @@ pub fn cmd_run(release: bool, package: Option<&str>, bin: Option<&str>, features
         };
         let member_dir = match find_workspace_member_dir(pkg) {
             Some(d) => d,
-            None => { print_error(&format!("package `{pkg}` not found in workspace")); return; }
+            None => {
+                print_error(&format!("package `{pkg}` not found in workspace"));
+                return;
+            }
         };
-        let output = match build_project_at(&member_dir, profile, features, use_defaults, None, sanitize, &super::build::make_progress()) {
+        let output = match build_project_at(
+            &member_dir,
+            profile,
+            features,
+            use_defaults,
+            None,
+            sanitize,
+            &super::build::make_progress(),
+        ) {
             Ok(o) => o,
-            Err(e) => { println!(); print_error(&e.to_string()); return; }
+            Err(e) => {
+                println!();
+                print_error(&e.to_string());
+                return;
+            }
         };
         run_binary(output, bin, run_args);
         return;
@@ -73,9 +96,19 @@ pub fn cmd_run(release: bool, package: Option<&str>, bin: Option<&str>, features
         return;
     }
 
-    let output = match build_project_with(profile, features, use_defaults, sanitize, &super::build::make_progress()) {
+    let output = match build_project_with(
+        profile,
+        features,
+        use_defaults,
+        sanitize,
+        &super::build::make_progress(),
+    ) {
         Ok(o) => o,
-        Err(e) => { println!(); print_error(&e.to_string()); return; }
+        Err(e) => {
+            println!();
+            print_error(&e.to_string());
+            return;
+        }
     };
 
     run_binary(output, bin, run_args);
@@ -84,17 +117,23 @@ pub fn cmd_run(release: bool, package: Option<&str>, bin: Option<&str>, features
 fn run_binary(output: freight_core::build::BuildOutput, bin: Option<&str>, run_args: &[String]) {
     let candidate: Option<std::path::PathBuf> = match bin {
         Some(name) => {
-            let matched: Vec<_> = output.binaries.iter()
+            let matched: Vec<_> = output
+                .binaries
+                .iter()
                 .filter(|p| p.file_name().and_then(|n| n.to_str()) == Some(name))
                 .cloned()
                 .collect();
             match matched.as_slice() {
                 [b] => Some(b.clone()),
                 [] => {
-                    print_error(&format!("no binary named {name:?} — available: {}",
-                        output.binaries.iter()
+                    print_error(&format!(
+                        "no binary named {name:?} — available: {}",
+                        output
+                            .binaries
+                            .iter()
                             .filter_map(|p| p.file_name()?.to_str())
-                            .collect::<Vec<_>>().join(", ")
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     ));
                     return;
                 }
@@ -110,9 +149,12 @@ fn run_binary(output: freight_core::build::BuildOutput, bin: Option<&str>, run_a
             _ => {
                 print_error(&format!(
                     "multiple [[bin]] targets — use --bin <name> to select one: {}",
-                    output.binaries.iter()
+                    output
+                        .binaries
+                        .iter()
                         .filter_map(|p| p.file_name()?.to_str())
-                        .collect::<Vec<_>>().join(", ")
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ));
                 return;
             }
@@ -143,12 +185,20 @@ fn find_workspace_member_dir(pkg: &str) -> Option<PathBuf> {
     let ws = load_workspace_manifest(&ws_dir)?;
     ws.members.iter().find_map(|m| {
         let dir = ws_dir.join(m.trim_end_matches('/'));
-        if dir.file_name().and_then(|n| n.to_str()) == Some(pkg) { Some(dir) } else { None }
+        if dir.file_name().and_then(|n| n.to_str()) == Some(pkg) {
+            Some(dir)
+        } else {
+            None
+        }
     })
 }
 
 fn at_workspace_root() -> bool {
-    let Ok(cwd) = env::current_dir() else { return false };
-    let Some(dir) = find_manifest_dir(&cwd) else { return false };
+    let Ok(cwd) = env::current_dir() else {
+        return false;
+    };
+    let Some(dir) = find_manifest_dir(&cwd) else {
+        return false;
+    };
     load_workspace_manifest(&dir).is_some()
 }

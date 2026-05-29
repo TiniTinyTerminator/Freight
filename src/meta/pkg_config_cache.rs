@@ -10,7 +10,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use super::pkg_config::{PkgConfigResult, pkg_config_query, pkg_config_query_with_path, pkg_config_version};
+use super::pkg_config::{
+    pkg_config_query, pkg_config_query_with_path, pkg_config_version, PkgConfigResult,
+};
 use crate::error::FreightError;
 
 // ── On-disk format ────────────────────────────────────────────────────────────
@@ -23,8 +25,8 @@ pub struct PkgConfigCache {
 #[derive(Serialize, Deserialize, Clone)]
 struct CacheEntry {
     include_dirs: Vec<PathBuf>,
-    link_flags:   Vec<String>,
-    version:      String,
+    link_flags: Vec<String>,
+    version: String,
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
@@ -34,7 +36,9 @@ impl PkgConfigCache {
     /// Returns an empty cache if the file is missing or unreadable.
     pub fn load(project_dir: &Path) -> Self {
         let path = cache_path(project_dir);
-        let Ok(bytes) = std::fs::read(&path) else { return Self::default() };
+        let Ok(bytes) = std::fs::read(&path) else {
+            return Self::default();
+        };
         rmp_serde::from_slice(&bytes).unwrap_or_default()
     }
 
@@ -53,17 +57,23 @@ impl PkgConfigCache {
     pub fn query(&mut self, query: &str) -> Result<(PkgConfigResult, String), FreightError> {
         if let Some(e) = self.entries.get(query) {
             return Ok((
-                PkgConfigResult { include_dirs: e.include_dirs.clone(), link_flags: e.link_flags.clone() },
+                PkgConfigResult {
+                    include_dirs: e.include_dirs.clone(),
+                    link_flags: e.link_flags.clone(),
+                },
                 e.version.clone(),
             ));
         }
-        let result  = pkg_config_query(query)?;
+        let result = pkg_config_query(query)?;
         let version = pkg_config_version(query);
-        self.entries.insert(query.to_string(), CacheEntry {
-            include_dirs: result.include_dirs.clone(),
-            link_flags:   result.link_flags.clone(),
-            version:      version.clone(),
-        });
+        self.entries.insert(
+            query.to_string(),
+            CacheEntry {
+                include_dirs: result.include_dirs.clone(),
+                link_flags: result.link_flags.clone(),
+                version: version.clone(),
+            },
+        );
         Ok((result, version))
     }
 
@@ -73,23 +83,33 @@ impl PkgConfigCache {
         query: &str,
         extra_paths: &[PathBuf],
     ) -> Result<(PkgConfigResult, String), FreightError> {
-        let cache_key = format!("{query}|{}", extra_paths.iter()
-            .map(|p| p.display().to_string())
-            .collect::<Vec<_>>()
-            .join(":"));
+        let cache_key = format!(
+            "{query}|{}",
+            extra_paths
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(":")
+        );
         if let Some(e) = self.entries.get(&cache_key) {
             return Ok((
-                PkgConfigResult { include_dirs: e.include_dirs.clone(), link_flags: e.link_flags.clone() },
+                PkgConfigResult {
+                    include_dirs: e.include_dirs.clone(),
+                    link_flags: e.link_flags.clone(),
+                },
                 e.version.clone(),
             ));
         }
-        let result  = pkg_config_query_with_path(query, extra_paths)?;
+        let result = pkg_config_query_with_path(query, extra_paths)?;
         let version = pkg_config_version(query);
-        self.entries.insert(cache_key, CacheEntry {
-            include_dirs: result.include_dirs.clone(),
-            link_flags:   result.link_flags.clone(),
-            version:      version.clone(),
-        });
+        self.entries.insert(
+            cache_key,
+            CacheEntry {
+                include_dirs: result.include_dirs.clone(),
+                link_flags: result.link_flags.clone(),
+                version: version.clone(),
+            },
+        );
         Ok((result, version))
     }
 }

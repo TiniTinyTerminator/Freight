@@ -39,18 +39,29 @@ pub fn cmd_watch(release: bool) {
 
     let mut watch_paths: Vec<PathBuf> = Vec::new();
     let src_dir = project_dir.join("src");
-    if src_dir.exists() { watch_paths.push(src_dir); }
+    if src_dir.exists() {
+        watch_paths.push(src_dir);
+    }
     let manifest = project_dir.join("freight.toml");
-    if manifest.exists() { watch_paths.push(manifest); }
+    if manifest.exists() {
+        watch_paths.push(manifest);
+    }
     let script = project_dir.join("build.freight");
-    if script.exists() { watch_paths.push(script); }
+    if script.exists() {
+        watch_paths.push(script);
+    }
     let include_dir = project_dir.join("include");
-    if include_dir.exists() { watch_paths.push(include_dir); }
+    if include_dir.exists() {
+        watch_paths.push(include_dir);
+    }
 
     let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
     let mut watcher = match RecommendedWatcher::new(tx, notify::Config::default()) {
         Ok(w) => w,
-        Err(e) => { print_error(&format!("failed to initialise file watcher: {e}")); return; }
+        Err(e) => {
+            print_error(&format!("failed to initialise file watcher: {e}"));
+            return;
+        }
     };
 
     for path in &watch_paths {
@@ -61,7 +72,10 @@ pub fn cmd_watch(release: bool) {
     }
 
     use owo_colors::OwoColorize;
-    println!("  {} source files — press Ctrl+C to stop", "Watching".bold().cyan());
+    println!(
+        "  {} source files — press Ctrl+C to stop",
+        "Watching".bold().cyan()
+    );
 
     run_build(profile, &project_dir);
 
@@ -69,9 +83,14 @@ pub fn cmd_watch(release: bool) {
     loop {
         match rx.recv() {
             Err(_) => break,
-            Ok(Err(e)) => { print_error(&format!("watch error: {e}")); continue; }
+            Ok(Err(e)) => {
+                print_error(&format!("watch error: {e}"));
+                continue;
+            }
             Ok(Ok(ev)) => {
-                if !is_relevant(&ev) { continue; }
+                if !is_relevant(&ev) {
+                    continue;
+                }
             }
         }
         loop {
@@ -104,6 +123,9 @@ fn run_build(profile: &str, project_dir: &std::path::Path) {
             ));
             let _ = project_dir;
         }
-        Err(e) => { println!(); print_error(&e.to_string()); }
+        Err(e) => {
+            println!();
+            print_error(&e.to_string());
+        }
     }
 }

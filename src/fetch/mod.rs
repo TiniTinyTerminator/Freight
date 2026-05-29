@@ -4,8 +4,8 @@ pub mod http;
 pub use git::*;
 pub use http::fetch_url_dep;
 
-use std::path::Path;
 use crate::error::FreightError;
+use std::path::Path;
 
 /// Apply a list of patch files to `dep_dir` using `patch -p1`.
 /// `patch_paths` are resolved relative to `project_dir`.

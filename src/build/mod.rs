@@ -1,7 +1,7 @@
 pub mod compile;
 pub mod compile_commands;
-pub(crate) mod diagnostics;
 pub mod deps;
+pub(crate) mod diagnostics;
 pub mod discover;
 pub mod features;
 pub mod header_units;
@@ -10,11 +10,17 @@ pub mod modules;
 pub mod pch;
 pub mod proto;
 
-pub use compile::{CompileResult, UNITY_SUPPORTED_LANGS, compile_sources, compile_sources_unity, emit_asm_sources, dep_file_path, object_path, primary_family, select_compiler, settings_for_lang};
-pub use deps::{ResolvedDep, check_slot_conflicts, resolve_dep_graph};
-pub use discover::{DiscoveredSources, SourceFile, discover};
-pub use link::{LinkResult, link_static_lib, link_targets, link_test_binary, select_linker};
-pub use modules::{ModuleBuildPlan, ModuleRole, ScannedSource, bmi_path, compile_module_sources, has_modules, plan_module_build, scan_sources};
+pub use compile::{
+    compile_sources, compile_sources_unity, dep_file_path, emit_asm_sources, object_path,
+    primary_family, select_compiler, settings_for_lang, CompileResult, UNITY_SUPPORTED_LANGS,
+};
+pub use deps::{check_slot_conflicts, resolve_dep_graph, ResolvedDep};
+pub use discover::{discover, DiscoveredSources, SourceFile};
+pub use link::{link_static_lib, link_targets, link_test_binary, select_linker, LinkResult};
+pub use modules::{
+    bmi_path, compile_module_sources, has_modules, plan_module_build, scan_sources,
+    ModuleBuildPlan, ModuleRole, ScannedSource,
+};
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -23,14 +29,17 @@ use std::process::Command;
 use walkdir::WalkDir;
 
 use crate::error::FreightError;
-use crate::event::{BuildEvent, Progress, silent};
+use crate::event::{silent, BuildEvent, Progress};
 use crate::fetch::git;
 use crate::lock::LockFile;
+use crate::manifest::types::Backend;
 use crate::manifest::types::{Dependency, Manifest};
 use crate::manifest::validate::{validate, validate_dep_compat};
 use crate::manifest::{find_manifest_dir, load_manifest, load_workspace_manifest};
-use crate::toolchain::{CompilerTemplate, DetectedCompiler, GlobalConfig, backend_matches, check_manifest_version_bounds, detect_all_cached, load_all_templates};
-use crate::manifest::types::Backend;
+use crate::toolchain::{
+    backend_matches, check_manifest_version_bounds, detect_all_cached, load_all_templates,
+    CompilerTemplate, DetectedCompiler, GlobalConfig,
+};
 
 // ── Public results ────────────────────────────────────────────────────────────
 
@@ -95,7 +104,13 @@ pub fn build_workspace(profile: &str) -> Result<Vec<BuildOutput>, FreightError> 
 /// `package` — when `Some`, build only the workspace member whose directory name matches.
 /// `features` / `use_defaults` — forwarded to `build_project_at` for the selected member;
 /// ignored when building the entire workspace (all members use their own defaults).
-pub fn build_workspace_with(profile: &str, package: Option<&str>, features: &[String], use_defaults: bool, progress: &Progress) -> Result<Vec<BuildOutput>, FreightError> {
+pub fn build_workspace_with(
+    profile: &str,
+    package: Option<&str>,
+    features: &[String],
+    use_defaults: bool,
+    progress: &Progress,
+) -> Result<Vec<BuildOutput>, FreightError> {
     let cwd = std::env::current_dir()?;
     let ws_dir = find_manifest_dir(&cwd)
         .ok_or_else(|| FreightError::ManifestNotFound(cwd.to_string_lossy().into_owned()))?;
@@ -104,11 +119,16 @@ pub fn build_workspace_with(profile: &str, package: Option<&str>, features: &[St
 
     if let Some(pkg) = package {
         let found = ws.members.iter().any(|m| {
-            ws_dir.join(m.trim_end_matches('/')).file_name()
-                .and_then(|n| n.to_str()) == Some(pkg)
+            ws_dir
+                .join(m.trim_end_matches('/'))
+                .file_name()
+                .and_then(|n| n.to_str())
+                == Some(pkg)
         });
         if !found {
-            return Err(FreightError::ManifestParse(format!("package `{pkg}` not found in workspace")));
+            return Err(FreightError::ManifestParse(format!(
+                "package `{pkg}` not found in workspace"
+            )));
         }
     }
 
@@ -116,12 +136,29 @@ pub fn build_workspace_with(profile: &str, package: Option<&str>, features: &[St
     let mut member_dirs: Vec<PathBuf> = Vec::new();
     for member in &ws.members {
         let member_dir = ws_dir.join(member.trim_end_matches('/'));
-        let member_name = member_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let member_name = member_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
         if let Some(pkg) = package {
-            if member_name != pkg { continue; }
+            if member_name != pkg {
+                continue;
+            }
         }
-        let (mem_features, mem_defaults) = if package.is_some() { (features, use_defaults) } else { (&[][..], true) };
-        outputs.push(build_project_at(&member_dir, profile, mem_features, mem_defaults, None, &[], progress)?);
+        let (mem_features, mem_defaults) = if package.is_some() {
+            (features, use_defaults)
+        } else {
+            (&[][..], true)
+        };
+        outputs.push(build_project_at(
+            &member_dir,
+            profile,
+            mem_features,
+            mem_defaults,
+            None,
+            &[],
+            progress,
+        )?);
         member_dirs.push(member_dir);
     }
 
@@ -133,7 +170,9 @@ pub fn build_workspace_with(profile: &str, package: Option<&str>, features: &[St
     }
     all_commands.sort_by(|a, b| a.file.cmp(&b.file));
     if let Err(e) = compile_commands::write(&ws_dir, &all_commands) {
-        progress(BuildEvent::Warning(format!("could not write workspace compile_commands.json: {e}")));
+        progress(BuildEvent::Warning(format!(
+            "could not write workspace compile_commands.json: {e}"
+        )));
     }
 
     Ok(outputs)
@@ -162,7 +201,14 @@ pub fn test_workspace(profile: &str, filter: Option<&str>) -> Result<TestSummary
 /// Like [`test_workspace`] but routes all progress through `progress`.
 ///
 /// `package` — when `Some`, test only the member whose directory name matches.
-pub fn test_workspace_with(profile: &str, filter: Option<&str>, package: Option<&str>, features: &[String], use_defaults: bool, progress: &Progress) -> Result<TestSummary, FreightError> {
+pub fn test_workspace_with(
+    profile: &str,
+    filter: Option<&str>,
+    package: Option<&str>,
+    features: &[String],
+    use_defaults: bool,
+    progress: &Progress,
+) -> Result<TestSummary, FreightError> {
     let cwd = std::env::current_dir()?;
     let ws_dir = find_manifest_dir(&cwd)
         .ok_or_else(|| FreightError::ManifestNotFound(cwd.to_string_lossy().into_owned()))?;
@@ -171,11 +217,16 @@ pub fn test_workspace_with(profile: &str, filter: Option<&str>, package: Option<
 
     if let Some(pkg) = package {
         let found = ws.members.iter().any(|m| {
-            ws_dir.join(m.trim_end_matches('/')).file_name()
-                .and_then(|n| n.to_str()) == Some(pkg)
+            ws_dir
+                .join(m.trim_end_matches('/'))
+                .file_name()
+                .and_then(|n| n.to_str())
+                == Some(pkg)
         });
         if !found {
-            return Err(FreightError::ManifestParse(format!("package `{pkg}` not found in workspace")));
+            return Err(FreightError::ManifestParse(format!(
+                "package `{pkg}` not found in workspace"
+            )));
         }
     }
 
@@ -183,29 +234,75 @@ pub fn test_workspace_with(profile: &str, filter: Option<&str>, package: Option<
     let mut total_failed = 0;
     for member in &ws.members {
         let member_dir = ws_dir.join(member.trim_end_matches('/'));
-        let member_name = member_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let member_name = member_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
         if let Some(pkg) = package {
-            if member_name != pkg { continue; }
+            if member_name != pkg {
+                continue;
+            }
         }
-        let (mem_features, mem_defaults) = if package.is_some() { (features, use_defaults) } else { (&[][..], true) };
-        let s = test_project_at(&member_dir, profile, filter, mem_features, mem_defaults, &[], progress)?;
+        let (mem_features, mem_defaults) = if package.is_some() {
+            (features, use_defaults)
+        } else {
+            (&[][..], true)
+        };
+        let s = test_project_at(
+            &member_dir,
+            profile,
+            filter,
+            mem_features,
+            mem_defaults,
+            &[],
+            progress,
+        )?;
         total_passed += s.passed;
         total_failed += s.failed;
     }
-    Ok(TestSummary { passed: total_passed, failed: total_failed, total: total_passed + total_failed })
+    Ok(TestSummary {
+        passed: total_passed,
+        failed: total_failed,
+        total: total_passed + total_failed,
+    })
 }
 
 /// Build the project rooted at the current working directory.
-pub fn build_project(profile: &str, features: &[String], use_defaults: bool, sanitize_override: &[String]) -> Result<BuildOutput, FreightError> {
-    build_project_with(profile, features, use_defaults, sanitize_override, &silent())
+pub fn build_project(
+    profile: &str,
+    features: &[String],
+    use_defaults: bool,
+    sanitize_override: &[String],
+) -> Result<BuildOutput, FreightError> {
+    build_project_with(
+        profile,
+        features,
+        use_defaults,
+        sanitize_override,
+        &silent(),
+    )
 }
 
 /// Like [`build_project`] but routes all progress through `progress`.
-pub fn build_project_with(profile: &str, features: &[String], use_defaults: bool, sanitize_override: &[String], progress: &Progress) -> Result<BuildOutput, FreightError> {
+pub fn build_project_with(
+    profile: &str,
+    features: &[String],
+    use_defaults: bool,
+    sanitize_override: &[String],
+    progress: &Progress,
+) -> Result<BuildOutput, FreightError> {
     let cwd = std::env::current_dir()?;
     let project_dir = find_manifest_dir(&cwd)
         .ok_or_else(|| FreightError::ManifestNotFound(cwd.to_string_lossy().into_owned()))?;
-    build_project_at(&project_dir, profile, features, use_defaults, None, sanitize_override, progress)
+    build_project_at(
+        &project_dir,
+        profile,
+        features,
+        use_defaults,
+        None,
+        sanitize_override,
+        progress,
+    )
 }
 
 /// Build the project at a specific `project_dir`.
@@ -213,7 +310,15 @@ pub fn build_project_with(profile: &str, features: &[String], use_defaults: bool
 /// `target_override` overrides the target triple from `~/.freight/config.toml`.
 /// `sanitize_override` replaces the profile's `sanitize` list when non-empty.
 /// All progress events are sent through `progress`.
-pub fn build_project_at(project_dir: &Path, profile: &str, features: &[String], use_defaults: bool, target_override: Option<&str>, sanitize_override: &[String], progress: &Progress) -> Result<BuildOutput, FreightError> {
+pub fn build_project_at(
+    project_dir: &Path,
+    profile: &str,
+    features: &[String],
+    use_defaults: bool,
+    target_override: Option<&str>,
+    sanitize_override: &[String],
+    progress: &Progress,
+) -> Result<BuildOutput, FreightError> {
     let mut ctx = load_project_at(project_dir, profile)?;
     if let Some(t) = target_override {
         ctx.manifest.compiler.target = Some(t.to_string());
@@ -222,17 +327,43 @@ pub fn build_project_at(project_dir: &Path, profile: &str, features: &[String], 
         apply_sanitize_override(&mut ctx.manifest, profile, sanitize_override);
     }
     inject_option_handler_flags(&mut ctx)?;
-    let ProjectContext { project_dir, manifest, effective_backend, templates, detected, found } = &ctx;
+    let ProjectContext {
+        project_dir,
+        manifest,
+        effective_backend,
+        templates,
+        detected,
+        found,
+    } = &ctx;
 
-    progress(BuildEvent::BuildStarted { name: manifest.package.name.clone(), profile: profile.to_string() });
+    progress(BuildEvent::BuildStarted {
+        name: manifest.package.name.clone(),
+        profile: profile.to_string(),
+    });
 
     // Merge profile-level features into the caller-supplied list before resolving.
     let profile_features_buf: Vec<String> = match profile {
-        "dev"     => manifest.profile.dev.as_ref().map_or(vec![], |p| p.features.clone()),
-        "release" => manifest.profile.release.as_ref().map_or(vec![], |p| p.features.clone()),
-        other     => manifest.profile.custom.get(other).map_or(vec![], |p| p.features.clone()),
+        "dev" => manifest
+            .profile
+            .dev
+            .as_ref()
+            .map_or(vec![], |p| p.features.clone()),
+        "release" => manifest
+            .profile
+            .release
+            .as_ref()
+            .map_or(vec![], |p| p.features.clone()),
+        other => manifest
+            .profile
+            .custom
+            .get(other)
+            .map_or(vec![], |p| p.features.clone()),
     };
-    let all_requested: Vec<String> = features.iter().chain(profile_features_buf.iter()).cloned().collect();
+    let all_requested: Vec<String> = features
+        .iter()
+        .chain(profile_features_buf.iter())
+        .cloned()
+        .collect();
 
     let resolution = features::resolve_features(&manifest.features, &all_requested, use_defaults)?;
     let feature_defines = features::to_defines(&resolution.active);
@@ -240,7 +371,7 @@ pub fn build_project_at(project_dir: &Path, profile: &str, features: &[String], 
 
     ensure_git_deps_fetched(project_dir, manifest, progress)?;
 
-    // Auto-fetch any registry deps not yet in .deps/ — same as `freight fetch`
+    // Auto-fetch any registry deps not yet in target/deps/ — same as `freight fetch`
     // but implicit, so `freight add` + `freight build` is the only workflow needed.
     {
         let mut cfg = GlobalConfig::load();
@@ -251,7 +382,7 @@ pub fn build_project_at(project_dir: &Path, profile: &str, features: &[String], 
             for o in outcomes {
                 if matches!(o.action, crate::dep_cmds::RegistryDepAction::Downloaded) {
                     progress(BuildEvent::FetchingDep {
-                        name:   o.name.clone(),
+                        name: o.name.clone(),
                         source: format!("registry@{}", o.version),
                     });
                 }
@@ -266,11 +397,22 @@ pub fn build_project_at(project_dir: &Path, profile: &str, features: &[String], 
 
     let resolved_deps = resolve_dep_graph(project_dir, manifest, false, &activated_deps)?;
     let to_drop = check_slot_conflicts(&resolved_deps, manifest)?;
-    let resolved_deps: Vec<ResolvedDep> = resolved_deps.into_iter()
+    let resolved_deps: Vec<ResolvedDep> = resolved_deps
+        .into_iter()
         .filter(|d| !to_drop.contains(&d.name))
         .collect();
-    let built = build_resolved_deps(manifest, project_dir, effective_backend, profile, templates, detected, &resolved_deps, progress)?;
-    let (foreign_built, _pkg_configs, tool_paths) = crate::meta::build_foreign_deps(project_dir, manifest, profile, progress)?;
+    let built = build_resolved_deps(
+        manifest,
+        project_dir,
+        effective_backend,
+        profile,
+        templates,
+        detected,
+        &resolved_deps,
+        progress,
+    )?;
+    let (foreign_built, _pkg_configs, tool_paths) =
+        crate::meta::build_foreign_deps(project_dir, manifest, profile, progress)?;
 
     let mut all_libs = built.libs.clone();
     let mut all_dep_includes = built.include_dirs.clone();
@@ -293,7 +435,8 @@ pub fn build_project_at(project_dir: &Path, profile: &str, features: &[String], 
     // generated header directory to include_dirs so #include "foo.pb.h" works.
     let all_sources = if manifest.language.contains_key("proto") {
         let proto_settings = manifest.effective_language_settings("proto");
-        let result = proto::run_protoc(project_dir, profile, &proto_settings, &tool_paths, progress)?;
+        let result =
+            proto::run_protoc(project_dir, profile, &proto_settings, &tool_paths, progress)?;
         if !result.generated_include_dir.as_os_str().is_empty() {
             include_dirs.push(result.generated_include_dir);
         }
@@ -307,18 +450,28 @@ pub fn build_project_at(project_dir: &Path, profile: &str, features: &[String], 
     // When the project uses C++20+, precompile dep headers as header units so
     // consumers can write `import "dep.h";` instead of `#include "dep.h"`.
     // Failures are non-fatal — we just skip and compile normally.
-    let hu_flags: Vec<String> = if let Some(cpp_std) = manifest.language.get("cpp")
+    let hu_flags: Vec<String> = if let Some(cpp_std) = manifest
+        .language
+        .get("cpp")
         .and_then(|l| l.std.as_deref())
         .filter(|s| header_units::is_module_std(s))
     {
         let units = header_units::precompile_dep_headers(
-            project_dir, &all_dep_includes, cpp_std,
-            effective_backend, detected, profile,
+            project_dir,
+            &all_dep_includes,
+            cpp_std,
+            effective_backend,
+            detected,
+            profile,
         );
         if let Some(compiler) = compile::select_compiler("cpp", effective_backend, detected, None) {
             header_units::import_flags(&units, compiler)
-        } else { vec![] }
-    } else { vec![] };
+        } else {
+            vec![]
+        }
+    } else {
+        vec![]
+    };
 
     // If a PCH header is configured, compile it and inject the use flag into
     // every source file. Failures are non-fatal.
@@ -329,12 +482,25 @@ pub fn build_project_at(project_dir: &Path, profile: &str, features: &[String], 
             .or_else(|| compile::select_compiler("c", effective_backend, detected, None));
         if let Some(compiler) = primary {
             match pch::compile_pch(
-                project_dir, pch_header, profile, compiler,
-                &include_dirs, &compile_defines, &[],
+                project_dir,
+                pch_header,
+                profile,
+                compiler,
+                &include_dirs,
+                &compile_defines,
+                &[],
             ) {
                 Ok(Some(compiled)) => {
-                    pch_compile_flags = compiled.use_flag.split_whitespace().map(str::to_owned).collect();
-                    pch_clangd_flags  = compiled.clangd_flag.split_whitespace().map(str::to_owned).collect();
+                    pch_compile_flags = compiled
+                        .use_flag
+                        .split_whitespace()
+                        .map(str::to_owned)
+                        .collect();
+                    pch_clangd_flags = compiled
+                        .clangd_flag
+                        .split_whitespace()
+                        .map(str::to_owned)
+                        .collect();
                 }
                 Ok(None) => {}
                 Err(e) => progress(BuildEvent::Warning(format!("PCH skipped: {e}"))),
@@ -344,37 +510,78 @@ pub fn build_project_at(project_dir: &Path, profile: &str, features: &[String], 
 
     let mut extra_flags = hu_flags.clone();
     extra_flags.extend(pch_compile_flags);
-    let compile_result = build_sources(project_dir, manifest, effective_backend, profile, &all_sources, &include_dirs, detected, &compile_defines, &extra_flags, progress)?;
+    let compile_result = build_sources(
+        project_dir,
+        manifest,
+        effective_backend,
+        profile,
+        &all_sources,
+        &include_dirs,
+        detected,
+        &compile_defines,
+        &extra_flags,
+        progress,
+    )?;
 
     let link_result = link_targets(
-        project_dir, manifest, effective_backend, profile,
-        &compile_result.objects, detected, templates,
-        &all_libs, &all_raw_link_flags, progress,
+        project_dir,
+        manifest,
+        effective_backend,
+        profile,
+        &compile_result.objects,
+        detected,
+        templates,
+        &all_libs,
+        &all_raw_link_flags,
+        progress,
     )?;
 
     // Keep freight.lock in sync with the resolved dep graph. Lock-write failures
     // are non-fatal — we surface them on stderr but still return success.
     let lock = LockFile::generate(project_dir, manifest, &resolved_deps);
     if let Err(e) = lock.save(project_dir) {
-        progress(BuildEvent::Warning(format!("could not write freight.lock: {e}")));
+        progress(BuildEvent::Warning(format!(
+            "could not write freight.lock: {e}"
+        )));
     }
 
     let cc = compile_commands::generate_incremental(
-        project_dir, manifest, effective_backend, detected, profile,
-        &all_sources, &include_dirs, &feature_defines, &pch_clangd_flags,
+        project_dir,
+        manifest,
+        effective_backend,
+        detected,
+        profile,
+        &all_sources,
+        &include_dirs,
+        &feature_defines,
+        &pch_clangd_flags,
         Some(&compile_result.compiled_sources),
     );
-    if let Err(e) = compile_commands::write(project_dir, &cc)
-        .and_then(|_| compile_commands::write_incremental_cache(
-            project_dir, manifest, effective_backend, detected, profile,
-            &all_sources, &include_dirs, &feature_defines, &pch_clangd_flags,
-        ))
-    {
-        progress(BuildEvent::Warning(format!("could not write compile_commands.json: {e}")));
+    if let Err(e) = compile_commands::write(project_dir, &cc).and_then(|_| {
+        compile_commands::write_incremental_cache(
+            project_dir,
+            manifest,
+            effective_backend,
+            detected,
+            profile,
+            &all_sources,
+            &include_dirs,
+            &feature_defines,
+            &pch_clangd_flags,
+        )
+    }) {
+        progress(BuildEvent::Warning(format!(
+            "could not write compile_commands.json: {e}"
+        )));
     }
 
-    let binaries = link_result.outputs.iter()
-        .filter(|p| !p.extension().is_some_and(|e| e == "a" || e == "so" || e == "dylib" || e == "dll"))
+    let binaries = link_result
+        .outputs
+        .iter()
+        .filter(|p| {
+            !p.extension()
+                .is_some_and(|e| e == "a" || e == "so" || e == "dylib" || e == "dll")
+        })
         .cloned()
         .collect();
 
@@ -391,9 +598,19 @@ pub fn build_project_at(project_dir: &Path, profile: &str, features: &[String], 
 /// Resolves the dep graph to collect dep include dirs (no compilation), so
 /// entries include the same `-I` flags that a real build would use. Returns
 /// the number of entries written.
-pub fn generate_compile_commands_at(project_dir: &Path, profile: &str) -> Result<usize, FreightError> {
+pub fn generate_compile_commands_at(
+    project_dir: &Path,
+    profile: &str,
+) -> Result<usize, FreightError> {
     let ctx = load_project_at(project_dir, profile)?;
-    let ProjectContext { project_dir, manifest, effective_backend, templates: _, detected, found } = &ctx;
+    let ProjectContext {
+        project_dir,
+        manifest,
+        effective_backend,
+        templates: _,
+        detected,
+        found,
+    } = &ctx;
 
     let resolution = features::resolve_features(&manifest.features, &[], true)?;
     let feature_defines = features::to_defines(&resolution.active);
@@ -405,15 +622,31 @@ pub fn generate_compile_commands_at(project_dir: &Path, profile: &str) -> Result
     include_dirs.extend(dep_includes);
 
     let commands = compile_commands::generate_incremental(
-        project_dir, manifest, effective_backend, detected, profile,
-        &found.sources, &include_dirs, &feature_defines, &[], None,
+        project_dir,
+        manifest,
+        effective_backend,
+        detected,
+        profile,
+        &found.sources,
+        &include_dirs,
+        &feature_defines,
+        &[],
+        None,
     );
     let count = commands.len();
-    compile_commands::write(project_dir, &commands)
-        .and_then(|_| compile_commands::write_incremental_cache(
-            project_dir, manifest, effective_backend, detected, profile,
-            &found.sources, &include_dirs, &feature_defines, &[],
-        ))?;
+    compile_commands::write(project_dir, &commands).and_then(|_| {
+        compile_commands::write_incremental_cache(
+            project_dir,
+            manifest,
+            effective_backend,
+            detected,
+            profile,
+            &found.sources,
+            &include_dirs,
+            &feature_defines,
+            &[],
+        )
+    })?;
     Ok(count)
 }
 
@@ -442,15 +675,29 @@ pub fn emit_asm_project_with(profile: &str, progress: &Progress) -> Result<(), F
     let project_dir = find_manifest_dir(&cwd)
         .ok_or_else(|| FreightError::ManifestNotFound(cwd.to_string_lossy().into_owned()))?;
     let ctx = load_project_at(&project_dir, profile)?;
-    let ProjectContext { project_dir, manifest, effective_backend, detected, found, .. } = &ctx;
+    let ProjectContext {
+        project_dir,
+        manifest,
+        effective_backend,
+        detected,
+        found,
+        ..
+    } = &ctx;
 
     let resolution = features::resolve_features(&manifest.features, &[], true)?;
     let feature_defines = features::to_defines(&resolution.active);
     let include_dirs = found.include_dirs.clone();
 
     compile::emit_asm_sources(
-        project_dir, manifest, effective_backend, profile,
-        &found.sources, &include_dirs, detected, &feature_defines, progress,
+        project_dir,
+        manifest,
+        effective_backend,
+        profile,
+        &found.sources,
+        &include_dirs,
+        detected,
+        &feature_defines,
+        progress,
     )
 }
 
@@ -472,35 +719,97 @@ pub fn clean_project_at(project_dir: &Path) -> Result<(), FreightError> {
 }
 
 /// Build and run the tests of the project rooted at the current working directory.
-pub fn test_project(profile: &str, filter: Option<&str>, features: &[String], use_defaults: bool, sanitize_override: &[String]) -> Result<TestSummary, FreightError> {
-    test_project_with(profile, filter, features, use_defaults, sanitize_override, &silent())
+pub fn test_project(
+    profile: &str,
+    filter: Option<&str>,
+    features: &[String],
+    use_defaults: bool,
+    sanitize_override: &[String],
+) -> Result<TestSummary, FreightError> {
+    test_project_with(
+        profile,
+        filter,
+        features,
+        use_defaults,
+        sanitize_override,
+        &silent(),
+    )
 }
 
 /// Like [`test_project`] but routes all progress through `progress`.
-pub fn test_project_with(profile: &str, filter: Option<&str>, features: &[String], use_defaults: bool, sanitize_override: &[String], progress: &Progress) -> Result<TestSummary, FreightError> {
+pub fn test_project_with(
+    profile: &str,
+    filter: Option<&str>,
+    features: &[String],
+    use_defaults: bool,
+    sanitize_override: &[String],
+    progress: &Progress,
+) -> Result<TestSummary, FreightError> {
     let cwd = std::env::current_dir()?;
     let project_dir = find_manifest_dir(&cwd)
         .ok_or_else(|| FreightError::ManifestNotFound(cwd.to_string_lossy().into_owned()))?;
-    test_project_at(&project_dir, profile, filter, features, use_defaults, sanitize_override, progress)
+    test_project_at(
+        &project_dir,
+        profile,
+        filter,
+        features,
+        use_defaults,
+        sanitize_override,
+        progress,
+    )
 }
 
 /// Build and execute the project's test binaries.
-pub fn test_project_at(project_dir: &Path, profile: &str, filter: Option<&str>, features: &[String], use_defaults: bool, sanitize_override: &[String], progress: &Progress) -> Result<TestSummary, FreightError> {
+pub fn test_project_at(
+    project_dir: &Path,
+    profile: &str,
+    filter: Option<&str>,
+    features: &[String],
+    use_defaults: bool,
+    sanitize_override: &[String],
+    progress: &Progress,
+) -> Result<TestSummary, FreightError> {
     let mut ctx = load_project_at(project_dir, profile)?;
     if !sanitize_override.is_empty() {
         apply_sanitize_override(&mut ctx.manifest, profile, sanitize_override);
     }
     inject_option_handler_flags(&mut ctx)?;
-    let ProjectContext { project_dir, manifest, effective_backend, templates, detected, found } = &ctx;
+    let ProjectContext {
+        project_dir,
+        manifest,
+        effective_backend,
+        templates,
+        detected,
+        found,
+    } = &ctx;
 
-    progress(BuildEvent::BuildStarted { name: manifest.package.name.clone(), profile: profile.to_string() });
+    progress(BuildEvent::BuildStarted {
+        name: manifest.package.name.clone(),
+        profile: profile.to_string(),
+    });
 
     let profile_features_buf: Vec<String> = match profile {
-        "dev"     => manifest.profile.dev.as_ref().map_or(vec![], |p| p.features.clone()),
-        "release" => manifest.profile.release.as_ref().map_or(vec![], |p| p.features.clone()),
-        other     => manifest.profile.custom.get(other).map_or(vec![], |p| p.features.clone()),
+        "dev" => manifest
+            .profile
+            .dev
+            .as_ref()
+            .map_or(vec![], |p| p.features.clone()),
+        "release" => manifest
+            .profile
+            .release
+            .as_ref()
+            .map_or(vec![], |p| p.features.clone()),
+        other => manifest
+            .profile
+            .custom
+            .get(other)
+            .map_or(vec![], |p| p.features.clone()),
     };
-    let all_requested: Vec<String> = features.iter().chain(profile_features_buf.iter()).cloned().collect();
+    let all_requested: Vec<String> = features
+        .iter()
+        .chain(profile_features_buf.iter())
+        .cloned()
+        .collect();
 
     let resolution = features::resolve_features(&manifest.features, &all_requested, use_defaults)?;
     let feature_defines = features::to_defines(&resolution.active);
@@ -515,11 +824,22 @@ pub fn test_project_at(project_dir: &Path, profile: &str, filter: Option<&str>, 
     // Build deps (include dev-dependencies for test runs).
     let resolved_deps = resolve_dep_graph(project_dir, manifest, true, &activated_deps)?;
     let to_drop = check_slot_conflicts(&resolved_deps, manifest)?;
-    let resolved_deps: Vec<ResolvedDep> = resolved_deps.into_iter()
+    let resolved_deps: Vec<ResolvedDep> = resolved_deps
+        .into_iter()
         .filter(|d| !to_drop.contains(&d.name))
         .collect();
-    let built = build_resolved_deps(manifest, project_dir, effective_backend, profile, templates, detected, &resolved_deps, progress)?;
-    let (foreign_built, _pkg_configs, tool_paths) = crate::meta::build_foreign_deps(project_dir, manifest, profile, progress)?;
+    let built = build_resolved_deps(
+        manifest,
+        project_dir,
+        effective_backend,
+        profile,
+        templates,
+        detected,
+        &resolved_deps,
+        progress,
+    )?;
+    let (foreign_built, _pkg_configs, tool_paths) =
+        crate::meta::build_foreign_deps(project_dir, manifest, profile, progress)?;
 
     let mut all_libs = built.libs.clone();
     let mut all_dep_includes = built.include_dirs.clone();
@@ -538,7 +858,8 @@ pub fn test_project_at(project_dir: &Path, profile: &str, filter: Option<&str>, 
     // Proto codegen — same step as in build_project_at.
     let all_sources = if manifest.language.contains_key("proto") {
         let proto_settings = manifest.effective_language_settings("proto");
-        let result = proto::run_protoc(project_dir, profile, &proto_settings, &tool_paths, progress)?;
+        let result =
+            proto::run_protoc(project_dir, profile, &proto_settings, &tool_paths, progress)?;
         if !result.generated_include_dir.as_os_str().is_empty() {
             include_dirs.push(result.generated_include_dir);
         }
@@ -555,33 +876,65 @@ pub fn test_project_at(project_dir: &Path, profile: &str, filter: Option<&str>, 
             .or_else(|| compile::select_compiler("c", effective_backend, detected, None));
         if let Some(compiler) = primary {
             match pch::compile_pch(
-                project_dir, pch_header, profile, compiler,
-                &include_dirs, &compile_defines, &[],
+                project_dir,
+                pch_header,
+                profile,
+                compiler,
+                &include_dirs,
+                &compile_defines,
+                &[],
             ) {
-                Ok(Some(compiled)) => compiled.use_flag
+                Ok(Some(compiled)) => compiled
+                    .use_flag
                     .split_whitespace()
                     .map(str::to_owned)
                     .collect(),
                 Ok(None) => vec![],
-                Err(e) => { progress(BuildEvent::Warning(format!("PCH skipped: {e}"))); vec![] }
+                Err(e) => {
+                    progress(BuildEvent::Warning(format!("PCH skipped: {e}")));
+                    vec![]
+                }
             }
-        } else { vec![] }
-    } else { vec![] };
+        } else {
+            vec![]
+        }
+    } else {
+        vec![]
+    };
 
-    let compile_result = build_sources(project_dir, manifest, effective_backend, profile, &all_sources, &include_dirs, detected, &compile_defines, &pch_extra_test, progress)?;
+    let compile_result = build_sources(
+        project_dir,
+        manifest,
+        effective_backend,
+        profile,
+        &all_sources,
+        &include_dirs,
+        detected,
+        &compile_defines,
+        &pch_extra_test,
+        progress,
+    )?;
 
     // Objects from [[bin]] sources contain a main() — exclude from test linking.
-    let bin_obj_paths: std::collections::HashSet<PathBuf> = manifest.bins.iter()
+    let bin_obj_paths: std::collections::HashSet<PathBuf> = manifest
+        .bins
+        .iter()
         .map(|b| object_path(project_dir, profile, Path::new(&b.src)))
         .collect();
-    let lib_objects: Vec<PathBuf> = compile_result.objects.iter()
+    let lib_objects: Vec<PathBuf> = compile_result
+        .objects
+        .iter()
         .filter(|o| !bin_obj_paths.contains(*o))
         .cloned()
         .collect();
 
     let test_dir = project_dir.join("tests");
     if !test_dir.is_dir() {
-        return Ok(TestSummary { passed: 0, failed: 0, total: 0 });
+        return Ok(TestSummary {
+            passed: 0,
+            failed: 0,
+            total: 0,
+        });
     }
 
     let ext_map = discover::build_ext_map(manifest, templates);
@@ -602,18 +955,34 @@ pub fn test_project_at(project_dir: &Path, profile: &str, filter: Option<&str>, 
             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("test");
             if filter.map_or(true, |f| f == stem) {
                 let rel = path.strip_prefix(project_dir).unwrap_or(path).to_path_buf();
-                test_srcs.push(SourceFile { path: rel, lang_key: lang_key.clone() });
+                test_srcs.push(SourceFile {
+                    path: rel,
+                    lang_key: lang_key.clone(),
+                });
             }
         }
     }
     test_srcs.sort_by(|a, b| a.path.cmp(&b.path));
 
     if test_srcs.is_empty() {
-        return Ok(TestSummary { passed: 0, failed: 0, total: 0 });
+        return Ok(TestSummary {
+            passed: 0,
+            failed: 0,
+            total: 0,
+        });
     }
 
     let test_compile = compile_sources(
-        project_dir, manifest, effective_backend, profile, &test_srcs, &include_dirs, detected, &feature_defines, &[], progress,
+        project_dir,
+        manifest,
+        effective_backend,
+        profile,
+        &test_srcs,
+        &include_dirs,
+        detected,
+        &feature_defines,
+        &[],
+        progress,
     )?;
 
     let out_dir = project_dir.join("target").join(profile).join("tests");
@@ -623,25 +992,44 @@ pub fn test_project_at(project_dir: &Path, profile: &str, filter: Option<&str>, 
     let mut failed = 0usize;
 
     for (src, test_obj) in test_srcs.iter().zip(test_compile.objects.iter()) {
-        let stem = src.path.file_stem().and_then(|s| s.to_str()).unwrap_or("test");
+        let stem = src
+            .path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("test");
         let test_bin = out_dir.join(stem);
 
-        progress(BuildEvent::TestLinking { name: stem.to_string() });
+        progress(BuildEvent::TestLinking {
+            name: stem.to_string(),
+        });
 
         let all_objs: Vec<PathBuf> = std::iter::once(test_obj.clone())
             .chain(lib_objects.iter().cloned())
             .collect();
         link_test_binary(
-            &all_objs, &test_bin, manifest, effective_backend, profile,
-            detected, templates, &all_libs, &all_raw_link_flags,
+            &all_objs,
+            &test_bin,
+            manifest,
+            effective_backend,
+            profile,
+            detected,
+            templates,
+            &all_libs,
+            &all_raw_link_flags,
         )?;
 
-        progress(BuildEvent::TestRunning { name: stem.to_string() });
-        let ok = Command::new(&test_bin).status()
+        progress(BuildEvent::TestRunning {
+            name: stem.to_string(),
+        });
+        let ok = Command::new(&test_bin)
+            .status()
             .map(|s| s.success())
             .unwrap_or(false);
 
-        progress(BuildEvent::TestResult { name: stem.to_string(), passed: ok });
+        progress(BuildEvent::TestResult {
+            name: stem.to_string(),
+            passed: ok,
+        });
         if ok {
             passed += 1;
         } else {
@@ -649,13 +1037,23 @@ pub fn test_project_at(project_dir: &Path, profile: &str, filter: Option<&str>, 
         }
     }
 
-    Ok(TestSummary { passed, failed, total: passed + failed })
+    Ok(TestSummary {
+        passed,
+        failed,
+        total: passed + failed,
+    })
 }
 
 // ── Bench pipeline ────────────────────────────────────────────────────────────
 
 /// Benchmark every member of a workspace (or a specific member when `package` is given).
-pub fn bench_workspace_with(filter: Option<&str>, package: Option<&str>, features: &[String], use_defaults: bool, progress: &Progress) -> Result<BenchSummary, FreightError> {
+pub fn bench_workspace_with(
+    filter: Option<&str>,
+    package: Option<&str>,
+    features: &[String],
+    use_defaults: bool,
+    progress: &Progress,
+) -> Result<BenchSummary, FreightError> {
     let cwd = std::env::current_dir()?;
     let ws_dir = find_manifest_dir(&cwd)
         .ok_or_else(|| FreightError::ManifestNotFound(cwd.to_string_lossy().into_owned()))?;
@@ -664,39 +1062,76 @@ pub fn bench_workspace_with(filter: Option<&str>, package: Option<&str>, feature
 
     if let Some(pkg) = package {
         let found = ws.members.iter().any(|m| {
-            ws_dir.join(m.trim_end_matches('/')).file_name()
-                .and_then(|n| n.to_str()) == Some(pkg)
+            ws_dir
+                .join(m.trim_end_matches('/'))
+                .file_name()
+                .and_then(|n| n.to_str())
+                == Some(pkg)
         });
         if !found {
-            return Err(FreightError::ManifestParse(format!("package `{pkg}` not found in workspace")));
+            return Err(FreightError::ManifestParse(format!(
+                "package `{pkg}` not found in workspace"
+            )));
         }
     }
 
     let mut all: Vec<BenchResult> = Vec::new();
     for member in &ws.members {
         let member_dir = ws_dir.join(member.trim_end_matches('/'));
-        let member_name = member_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let member_name = member_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
         if let Some(pkg) = package {
-            if member_name != pkg { continue; }
+            if member_name != pkg {
+                continue;
+            }
         }
-        let (mem_features, mem_defaults) = if package.is_some() { (features, use_defaults) } else { (&[][..], true) };
-        let s = bench_project_at(&member_dir, "bench", filter, mem_features, mem_defaults, progress)?;
+        let (mem_features, mem_defaults) = if package.is_some() {
+            (features, use_defaults)
+        } else {
+            (&[][..], true)
+        };
+        let s = bench_project_at(
+            &member_dir,
+            "bench",
+            filter,
+            mem_features,
+            mem_defaults,
+            progress,
+        )?;
         all.extend(s.results);
     }
     Ok(BenchSummary { results: all })
 }
 
 /// Build and run benchmark binaries found in `benches/`.
-pub fn bench_project(filter: Option<&str>, features: &[String], use_defaults: bool) -> Result<BenchSummary, FreightError> {
+pub fn bench_project(
+    filter: Option<&str>,
+    features: &[String],
+    use_defaults: bool,
+) -> Result<BenchSummary, FreightError> {
     bench_project_with(filter, features, use_defaults, &silent())
 }
 
 /// Like [`bench_project`] but routes progress through `progress`.
-pub fn bench_project_with(filter: Option<&str>, features: &[String], use_defaults: bool, progress: &Progress) -> Result<BenchSummary, FreightError> {
+pub fn bench_project_with(
+    filter: Option<&str>,
+    features: &[String],
+    use_defaults: bool,
+    progress: &Progress,
+) -> Result<BenchSummary, FreightError> {
     let cwd = std::env::current_dir()?;
     let project_dir = find_manifest_dir(&cwd)
         .ok_or_else(|| FreightError::ManifestNotFound(cwd.to_string_lossy().into_owned()))?;
-    bench_project_at(&project_dir, "bench", filter, features, use_defaults, progress)
+    bench_project_at(
+        &project_dir,
+        "bench",
+        filter,
+        features,
+        use_defaults,
+        progress,
+    )
 }
 
 /// Build and run benchmark binaries for the project at `project_dir`.
@@ -716,12 +1151,27 @@ pub fn bench_project_at(
 ) -> Result<BenchSummary, FreightError> {
     let mut ctx = load_project_at(project_dir, profile)?;
     inject_option_handler_flags(&mut ctx)?;
-    let ProjectContext { project_dir, manifest, effective_backend, templates, detected, found } = &ctx;
+    let ProjectContext {
+        project_dir,
+        manifest,
+        effective_backend,
+        templates,
+        detected,
+        found,
+    } = &ctx;
     let project_dir = project_dir.as_path();
 
-    let profile_features_buf: Vec<String> = manifest.build_settings_for(profile)
-        .sanitize.iter().map(|s| format!("sanitize_{s}")).collect();
-    let all_requested: Vec<String> = features.iter().chain(profile_features_buf.iter()).cloned().collect();
+    let profile_features_buf: Vec<String> = manifest
+        .build_settings_for(profile)
+        .sanitize
+        .iter()
+        .map(|s| format!("sanitize_{s}"))
+        .collect();
+    let all_requested: Vec<String> = features
+        .iter()
+        .chain(profile_features_buf.iter())
+        .cloned()
+        .collect();
 
     let resolution = features::resolve_features(&manifest.features, &all_requested, use_defaults)?;
     let feature_defines = features::to_defines(&resolution.active);
@@ -731,11 +1181,22 @@ pub fn bench_project_at(
 
     let resolved_deps = resolve_dep_graph(project_dir, manifest, false, &activated_deps)?;
     let to_drop = check_slot_conflicts(&resolved_deps, manifest)?;
-    let resolved_deps: Vec<ResolvedDep> = resolved_deps.into_iter()
+    let resolved_deps: Vec<ResolvedDep> = resolved_deps
+        .into_iter()
         .filter(|d| !to_drop.contains(&d.name))
         .collect();
-    let built = build_resolved_deps(manifest, project_dir, effective_backend, profile, templates, detected, &resolved_deps, progress)?;
-    let (foreign_built, _pkg_configs, tool_paths) = crate::meta::build_foreign_deps(project_dir, manifest, profile, progress)?;
+    let built = build_resolved_deps(
+        manifest,
+        project_dir,
+        effective_backend,
+        profile,
+        templates,
+        detected,
+        &resolved_deps,
+        progress,
+    )?;
+    let (foreign_built, _pkg_configs, tool_paths) =
+        crate::meta::build_foreign_deps(project_dir, manifest, profile, progress)?;
 
     let mut all_libs = built.libs.clone();
     let mut all_dep_includes = built.include_dirs.clone();
@@ -752,7 +1213,8 @@ pub fn bench_project_at(
     // Proto codegen — same step as in build_project_at.
     let bench_sources = if manifest.language.contains_key("proto") {
         let proto_settings = manifest.effective_language_settings("proto");
-        let result = proto::run_protoc(project_dir, profile, &proto_settings, &tool_paths, progress)?;
+        let result =
+            proto::run_protoc(project_dir, profile, &proto_settings, &tool_paths, progress)?;
         if !result.generated_include_dir.as_os_str().is_empty() {
             include_dirs.push(result.generated_include_dir);
         }
@@ -763,13 +1225,28 @@ pub fn bench_project_at(
         found.sources.clone()
     };
 
-    let compile_result = build_sources(project_dir, manifest, effective_backend, profile, &bench_sources, &include_dirs, detected, &feature_defines, &[], progress)?;
+    let compile_result = build_sources(
+        project_dir,
+        manifest,
+        effective_backend,
+        profile,
+        &bench_sources,
+        &include_dirs,
+        detected,
+        &feature_defines,
+        &[],
+        progress,
+    )?;
 
     // Exclude [[bin]] entry-point objects (contain a main()) from bench linking.
-    let bin_obj_paths: std::collections::HashSet<PathBuf> = manifest.bins.iter()
+    let bin_obj_paths: std::collections::HashSet<PathBuf> = manifest
+        .bins
+        .iter()
         .map(|b| object_path(project_dir, profile, Path::new(&b.src)))
         .collect();
-    let lib_objects: Vec<PathBuf> = compile_result.objects.iter()
+    let lib_objects: Vec<PathBuf> = compile_result
+        .objects
+        .iter()
         .filter(|o| !bin_obj_paths.contains(*o))
         .cloned()
         .collect();
@@ -797,7 +1274,10 @@ pub fn bench_project_at(
             let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("bench");
             if filter.map_or(true, |f| f == stem) {
                 let rel = path.strip_prefix(project_dir).unwrap_or(path).to_path_buf();
-                bench_srcs.push(SourceFile { path: rel, lang_key: lang_key.clone() });
+                bench_srcs.push(SourceFile {
+                    path: rel,
+                    lang_key: lang_key.clone(),
+                });
             }
         }
     }
@@ -808,7 +1288,16 @@ pub fn bench_project_at(
     }
 
     let bench_compile = compile_sources(
-        project_dir, manifest, effective_backend, profile, &bench_srcs, &include_dirs, detected, &feature_defines, &[], progress,
+        project_dir,
+        manifest,
+        effective_backend,
+        profile,
+        &bench_srcs,
+        &include_dirs,
+        detected,
+        &feature_defines,
+        &[],
+        progress,
     )?;
 
     let out_dir = project_dir.join("target").join(profile).join("benches");
@@ -818,25 +1307,41 @@ pub fn bench_project_at(
     let mut results = Vec::new();
 
     for (src, bench_obj) in bench_srcs.iter().zip(bench_compile.objects.iter()) {
-        let stem = src.path.file_stem().and_then(|s| s.to_str()).unwrap_or("bench");
+        let stem = src
+            .path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("bench");
         let bench_bin = out_dir.join(stem);
 
-        progress(BuildEvent::BenchLinking { name: stem.to_string() });
+        progress(BuildEvent::BenchLinking {
+            name: stem.to_string(),
+        });
 
         let all_objs: Vec<PathBuf> = std::iter::once(bench_obj.clone())
             .chain(lib_objects.iter().cloned())
             .collect();
         link_test_binary(
-            &all_objs, &bench_bin, manifest, effective_backend, profile,
-            detected, templates, &all_libs, &all_raw_link_flags,
+            &all_objs,
+            &bench_bin,
+            manifest,
+            effective_backend,
+            profile,
+            detected,
+            templates,
+            &all_libs,
+            &all_raw_link_flags,
         )?;
 
-        progress(BuildEvent::BenchRunning { name: stem.to_string() });
+        progress(BuildEvent::BenchRunning {
+            name: stem.to_string(),
+        });
 
         let mut samples_ns: Vec<u64> = Vec::with_capacity(BENCH_RUNS);
         for _ in 0..BENCH_RUNS {
             let t0 = std::time::Instant::now();
-            let ok = Command::new(&bench_bin).status()
+            let ok = Command::new(&bench_bin)
+                .status()
                 .map(|s| s.success())
                 .unwrap_or(false);
             let elapsed = t0.elapsed().as_nanos() as u64;
@@ -855,8 +1360,17 @@ pub fn bench_project_at(
             (sum / runs as u64, min, max)
         };
 
-        progress(BuildEvent::BenchResult { name: stem.to_string(), mean_ns });
-        results.push(BenchResult { name: stem.to_string(), mean_ns, min_ns, max_ns, runs });
+        progress(BuildEvent::BenchResult {
+            name: stem.to_string(),
+            mean_ns,
+        });
+        results.push(BenchResult {
+            name: stem.to_string(),
+            mean_ns,
+            min_ns,
+            max_ns,
+            runs,
+        });
     }
 
     Ok(BenchSummary { results })
@@ -864,13 +1378,19 @@ pub fn bench_project_at(
 
 // ── Git dep helpers ───────────────────────────────────────────────────────────
 
-/// Auto-clone any git deps whose `.deps/<name>/` directory doesn't exist yet.
+/// Auto-clone any git deps whose `target/deps/<name>/` directory doesn't exist yet.
 /// Runs silently when all deps are present.
-fn ensure_git_deps_fetched(project_dir: &Path, manifest: &Manifest, progress: &Progress) -> Result<(), FreightError> {
-    let deps_dir = project_dir.join(".deps");
+fn ensure_git_deps_fetched(
+    project_dir: &Path,
+    manifest: &Manifest,
+    progress: &Progress,
+) -> Result<(), FreightError> {
+    let deps_dir = project_dir.join("target").join("deps");
 
     for (name, dep) in &manifest.dependencies {
-        let Dependency::Detailed(d) = dep else { continue };
+        let Dependency::Detailed(d) = dep else {
+            continue;
+        };
         let Some(url) = &d.git else { continue };
 
         let dest = deps_dir.join(name);
@@ -878,9 +1398,18 @@ fn ensure_git_deps_fetched(project_dir: &Path, manifest: &Manifest, progress: &P
             continue;
         }
 
-        progress(BuildEvent::FetchingDep { name: name.clone(), source: format!("git+{url}") });
+        progress(BuildEvent::FetchingDep {
+            name: name.clone(),
+            source: format!("git+{url}"),
+        });
         std::fs::create_dir_all(&deps_dir)?;
-        git::clone_dep(&dest, url, d.branch.as_deref(), d.tag.as_deref(), d.rev.as_deref())?;
+        git::clone_dep(
+            &dest,
+            url,
+            d.branch.as_deref(),
+            d.tag.as_deref(),
+            d.rev.as_deref(),
+        )?;
     }
 
     Ok(())
@@ -891,13 +1420,22 @@ fn ensure_git_deps_fetched(project_dir: &Path, manifest: &Manifest, progress: &P
 /// enforce the pin by checking out that exact SHA. For branch-tracked deps,
 /// print a warning when the repo has drifted from the locked SHA so the user
 /// knows to run `freight update`.
-fn verify_git_dep_shas(project_dir: &Path, manifest: &Manifest, lock: &LockFile, progress: &Progress) {
+fn verify_git_dep_shas(
+    project_dir: &Path,
+    manifest: &Manifest,
+    lock: &LockFile,
+    progress: &Progress,
+) {
     for (name, dep) in &manifest.dependencies {
-        let Dependency::Detailed(d) = dep else { continue };
+        let Dependency::Detailed(d) = dep else {
+            continue;
+        };
         let Some(_url) = &d.git else { continue };
 
-        let dep_dir = project_dir.join(".deps").join(name);
-        if !dep_dir.exists() { continue; }
+        let dep_dir = project_dir.join("target").join("deps").join(name);
+        if !dep_dir.exists() {
+            continue;
+        }
 
         let current = match git::current_rev(&dep_dir) {
             Some(sha) => sha,
@@ -905,7 +1443,9 @@ fn verify_git_dep_shas(project_dir: &Path, manifest: &Manifest, lock: &LockFile,
         };
 
         // Find the SHA the lock file recorded for this dep.
-        let locked_sha = lock.packages.iter()
+        let locked_sha = lock
+            .packages
+            .iter()
             .find(|p| &p.name == name)
             .and_then(|p| p.source.as_deref())
             .and_then(|src| src.split('#').nth(1))
@@ -917,7 +1457,9 @@ fn verify_git_dep_shas(project_dir: &Path, manifest: &Manifest, lock: &LockFile,
         if let Some(pinned) = &d.rev {
             if !current.starts_with(pinned.as_str()) {
                 if let Err(e) = git::checkout_rev(&dep_dir, pinned) {
-                    progress(BuildEvent::Warning(format!("could not checkout pinned rev for `{name}`: {e}")));
+                    progress(BuildEvent::Warning(format!(
+                        "could not checkout pinned rev for `{name}`: {e}"
+                    )));
                 }
             }
             continue;
@@ -954,11 +1496,44 @@ fn build_sources(
     if has_modules(&scanned) {
         // C++20 modules have their own dependency ordering — unity doesn't apply.
         let mut plan = plan_module_build(project_dir, profile, scanned)?;
-        compile_module_sources(project_dir, manifest, backend, profile, &mut plan, include_dirs, detected, feature_defines, header_unit_flags, progress)
+        compile_module_sources(
+            project_dir,
+            manifest,
+            backend,
+            profile,
+            &mut plan,
+            include_dirs,
+            detected,
+            feature_defines,
+            header_unit_flags,
+            progress,
+        )
     } else if manifest.compiler.unity {
-        compile::compile_sources_unity(project_dir, manifest, backend, profile, sources, include_dirs, detected, feature_defines, header_unit_flags, progress)
+        compile::compile_sources_unity(
+            project_dir,
+            manifest,
+            backend,
+            profile,
+            sources,
+            include_dirs,
+            detected,
+            feature_defines,
+            header_unit_flags,
+            progress,
+        )
     } else {
-        compile_sources(project_dir, manifest, backend, profile, sources, include_dirs, detected, feature_defines, header_unit_flags, progress)
+        compile_sources(
+            project_dir,
+            manifest,
+            backend,
+            profile,
+            sources,
+            include_dirs,
+            detected,
+            feature_defines,
+            header_unit_flags,
+            progress,
+        )
     }
 }
 
@@ -980,7 +1555,10 @@ fn build_resolved_deps(
     progress: &Progress,
 ) -> Result<BuiltDeps, FreightError> {
     if resolved.is_empty() {
-        return Ok(BuiltDeps { libs: vec![], include_dirs: vec![] });
+        return Ok(BuiltDeps {
+            libs: vec![],
+            include_dirs: vec![],
+        });
     }
 
     let mut libs: Vec<PathBuf> = Vec::new();
@@ -994,10 +1572,17 @@ fn build_resolved_deps(
             let effective = root_manifest.effective_dependencies();
             let (req, use_defaults) = effective
                 .get(&dep.name)
-                .and_then(|d| if let Dependency::Detailed(d) = d { Some(d) } else { None })
+                .and_then(|d| {
+                    if let Dependency::Detailed(d) = d {
+                        Some(d)
+                    } else {
+                        None
+                    }
+                })
                 .map(|d| (d.features.clone(), d.default_features))
                 .unwrap_or_default();
-            let resolution = features::resolve_features(&dep.manifest.features, &req, use_defaults)?;
+            let resolution =
+                features::resolve_features(&dep.manifest.features, &req, use_defaults)?;
             features::to_defines(&resolution.active)
         };
 
@@ -1017,32 +1602,63 @@ fn build_resolved_deps(
         let mut dep_include_dirs = dep_found.include_dirs.clone();
         dep_include_dirs.extend(built_include_dirs.iter().cloned());
 
-        progress(BuildEvent::BuildStarted { name: dep.name.clone(), profile: profile.to_string() });
+        progress(BuildEvent::BuildStarted {
+            name: dep.name.clone(),
+            profile: profile.to_string(),
+        });
 
         // Unity override: root manifest's `mylib = { ..., unity = true/false }` wins over dep's own flag.
-        let effective_unity = root_manifest.effective_dependencies()
+        let effective_unity = root_manifest
+            .effective_dependencies()
             .get(&dep.name)
-            .and_then(|d| if let Dependency::Detailed(dd) = d { dd.unity } else { None })
+            .and_then(|d| {
+                if let Dependency::Detailed(dd) = d {
+                    dd.unity
+                } else {
+                    None
+                }
+            })
             .unwrap_or(dep.manifest.compiler.unity);
 
         let compile_result = if effective_unity {
             compile::compile_sources_unity(
-                &dep.dir, &dep.manifest, backend, profile,
-                &dep_found.sources, &dep_include_dirs, detected, &dep_feature_defines, &[], progress,
+                &dep.dir,
+                &dep.manifest,
+                backend,
+                profile,
+                &dep_found.sources,
+                &dep_include_dirs,
+                detected,
+                &dep_feature_defines,
+                &[],
+                progress,
             )?
         } else {
             compile_sources(
-                &dep.dir, &dep.manifest, backend, profile,
-                &dep_found.sources, &dep_include_dirs, detected, &dep_feature_defines, &[], progress,
+                &dep.dir,
+                &dep.manifest,
+                backend,
+                profile,
+                &dep_found.sources,
+                &dep_include_dirs,
+                detected,
+                &dep_feature_defines,
+                &[],
+                progress,
             )?
         };
 
-        let lib_out = dep.dir.join("target").join(profile)
+        let lib_out = dep
+            .dir
+            .join("target")
+            .join(profile)
             .join(format!("lib{}.a", dep.name));
         std::fs::create_dir_all(lib_out.parent().expect("lib_out has parent"))?;
 
         if !lib_out.exists() || compile_result.compiled > 0 {
-            progress(BuildEvent::Archiving { name: format!("lib{}.a", dep.name) });
+            progress(BuildEvent::Archiving {
+                name: format!("lib{}.a", dep.name),
+            });
             let ar = select_linker(&dep.manifest, backend, detected, templates)
                 .map(|l| l.template.ar_binary().to_owned())
                 .unwrap_or_else(|| "ar".to_owned());
@@ -1054,24 +1670,41 @@ fn build_resolved_deps(
         built_include_dirs.extend(exported_includes);
     }
 
-    Ok(BuiltDeps { libs, include_dirs: all_include_dirs })
+    Ok(BuiltDeps {
+        libs,
+        include_dirs: all_include_dirs,
+    })
 }
 
 // ── Sanitizer override helper ─────────────────────────────────────────────────
 
 /// Patch the active profile's sanitize list in-place.
 /// Creates the profile entry if it does not exist yet.
-fn apply_sanitize_override(manifest: &mut crate::manifest::types::Manifest, profile: &str, sanitize: &[String]) {
+fn apply_sanitize_override(
+    manifest: &mut crate::manifest::types::Manifest,
+    profile: &str,
+    sanitize: &[String],
+) {
     let list = sanitize.to_vec();
     match profile {
         "dev" => {
-            manifest.profile.dev.get_or_insert_with(Default::default).sanitize = list;
+            manifest
+                .profile
+                .dev
+                .get_or_insert_with(Default::default)
+                .sanitize = list;
         }
         "release" => {
-            manifest.profile.release.get_or_insert_with(Default::default).sanitize = list;
+            manifest
+                .profile
+                .release
+                .get_or_insert_with(Default::default)
+                .sanitize = list;
         }
         other => {
-            manifest.profile.custom
+            manifest
+                .profile
+                .custom
                 .entry(other.to_string())
                 .or_insert_with(Default::default)
                 .sanitize = list;
@@ -1091,7 +1724,11 @@ fn load_project_at(project_dir: &Path, _profile: &str) -> Result<ProjectContext,
     let configured_backend = if !manifest.compiler.backend.is_auto() {
         manifest.compiler.backend.clone()
     } else {
-        global.default_backend.clone().map(Backend).unwrap_or_default()
+        global
+            .default_backend
+            .clone()
+            .map(Backend)
+            .unwrap_or_default()
     };
     manifest.compiler.target = global.target.clone();
     manifest.compiler.sysroot = std::env::var_os("FREIGHT_SYSROOT")
@@ -1115,7 +1752,9 @@ fn load_project_at(project_dir: &Path, _profile: &str) -> Result<ProjectContext,
     // the build doesn't fail for compilers that aren't installed (e.g. a global
     // `default_backend = "tcc"` set on a machine that doesn't have TCC).
     let effective_backend = if configured_backend.is_auto()
-        || detected.iter().any(|d| backend_matches(d, configured_backend.name()))
+        || detected
+            .iter()
+            .any(|d| backend_matches(d, configured_backend.name()))
     {
         configured_backend
     } else {
@@ -1134,7 +1773,14 @@ fn load_project_at(project_dir: &Path, _profile: &str) -> Result<ProjectContext,
         ));
     }
 
-    Ok(ProjectContext { project_dir: project_dir.to_path_buf(), manifest, effective_backend, templates, detected, found })
+    Ok(ProjectContext {
+        project_dir: project_dir.to_path_buf(),
+        manifest,
+        effective_backend,
+        templates,
+        detected,
+        found,
+    })
 }
 
 fn validate_or_fail(
@@ -1144,8 +1790,11 @@ fn validate_or_fail(
 ) -> Result<(), FreightError> {
     let mut errors = validate(manifest, templates);
     errors.extend(validate_dep_compat(manifest, project_dir, templates));
-    if errors.is_empty() { return Ok(()); }
-    let msgs: Vec<String> = errors.iter()
+    if errors.is_empty() {
+        return Ok(());
+    }
+    let msgs: Vec<String> = errors
+        .iter()
         .map(|e| format!("{}: {}", e.context, e.message))
         .collect();
     Err(FreightError::ManifestParse(msgs.join("\n")))
@@ -1161,38 +1810,64 @@ fn validate_or_fail(
 /// backend for any discovered language, handlers still run for validation but flags are discarded.
 /// If the compiler is not detected at all, the section is skipped silently.
 fn inject_option_handler_flags(ctx: &mut ProjectContext) -> Result<(), FreightError> {
-    let arch = ctx.manifest.target.arch.as_deref().unwrap_or(std::env::consts::ARCH);
+    let arch = ctx
+        .manifest
+        .target
+        .arch
+        .as_deref()
+        .unwrap_or(std::env::consts::ARCH);
     let os = std::env::consts::OS;
 
     // Collect the set of language keys actually present in discovered sources.
-    let discovered_lang_keys: std::collections::HashSet<String> =
-        ctx.found.sources.iter().map(|s| s.lang_key.clone()).collect();
+    let discovered_lang_keys: std::collections::HashSet<String> = ctx
+        .found
+        .sources
+        .iter()
+        .map(|s| s.lang_key.clone())
+        .collect();
 
     // Language-option handlers: look up the active compiler for each discovered or configured
     // language. Running with an empty option map allows template-declared defaults to apply
     // even when `[language.<key>]` omits the option.
-    let lang_keys: std::collections::HashSet<String> = ctx.manifest.language.keys().cloned()
+    let lang_keys: std::collections::HashSet<String> = ctx
+        .manifest
+        .language
+        .keys()
+        .cloned()
         .chain(discovered_lang_keys.iter().cloned())
         .collect();
     for lang_key in lang_keys {
         let extra = ctx.manifest.effective_language_settings(&lang_key).extra;
-        let Some(compiler) = compile::select_compiler(&lang_key, &ctx.effective_backend, &ctx.detected, None) else {
+        let Some(compiler) =
+            compile::select_compiler(&lang_key, &ctx.effective_backend, &ctx.detected, None)
+        else {
             continue;
         };
         let version = compiler.version.clone();
         let template_name = compiler.template.name.clone();
-        let flags = ctx.detected.iter()
+        let flags = ctx
+            .detected
+            .iter()
             .find(|d| d.template.name == template_name)
-            .map(|d| d.template.run_language_option_handlers(&extra, &version, arch, os))
+            .map(|d| {
+                d.template
+                    .run_language_option_handlers(&extra, &version, arch, os)
+            })
             .transpose()?
             .unwrap_or_default();
-        ctx.manifest.language.entry(lang_key).or_default().injected_flags.extend(flags);
+        ctx.manifest
+            .language
+            .entry(lang_key)
+            .or_default()
+            .injected_flags
+            .extend(flags);
     }
 
     // Compiler-option handlers: dispatched per active compiler and per [compiler.<name>] section.
     // Running active compiler handlers with an empty option map allows template-declared defaults
     // to apply even when `[compiler.<name>]` omits the option.
-    let active_tool_names: std::collections::HashSet<String> = discovered_lang_keys.iter()
+    let active_tool_names: std::collections::HashSet<String> = discovered_lang_keys
+        .iter()
         .filter_map(|lang_key| {
             compile::select_compiler(lang_key, &ctx.effective_backend, &ctx.detected, None)
                 .map(|d| d.template.name.clone())
@@ -1200,13 +1875,19 @@ fn inject_option_handler_flags(ctx: &mut ProjectContext) -> Result<(), FreightEr
         .collect();
 
     let mut per_tool: std::collections::HashMap<String, std::collections::HashMap<String, String>> =
-        active_tool_names.iter().map(|name| (name.clone(), std::collections::HashMap::new())).collect();
+        active_tool_names
+            .iter()
+            .map(|name| (name.clone(), std::collections::HashMap::new()))
+            .collect();
 
     // Expand manifest [compiler.<key>] entries: exact name match wins; if the key matches a
     // template's `alias` field, fan the options out to that template too (lower priority).
     for (key, val) in &ctx.manifest.compiler.per_tool {
         // Always apply to the exact-named tool (if detected).
-        per_tool.entry(key.clone()).or_default().extend(val.options.clone());
+        per_tool
+            .entry(key.clone())
+            .or_default()
+            .extend(val.options.clone());
 
         // Also apply to any detected compiler whose `alias` matches this key.
         for d in &ctx.detected {
@@ -1227,12 +1908,17 @@ fn inject_option_handler_flags(ctx: &mut ProjectContext) -> Result<(), FreightEr
         let version = compiler.version.clone();
         // Version requirement: prefer exact-name entry; fall back to the alias entry.
         let alias_key = compiler.template.alias.as_deref();
-        let version_req = ctx.manifest.compiler.per_tool
+        let version_req = ctx
+            .manifest
+            .compiler
+            .per_tool
             .get(&tool_name)
             .or_else(|| alias_key.and_then(|a| ctx.manifest.compiler.per_tool.get(a)))
             .and_then(|o| o.version.as_deref());
         check_manifest_version_bounds(&tool_name, &version, version_req)?;
-        let flags = compiler.template.run_compiler_option_handlers(&options, &version, arch, os)?;
+        let flags = compiler
+            .template
+            .run_compiler_option_handlers(&options, &version, arch, os)?;
 
         // Only propagate flags if this compiler is the active backend for at least one
         // discovered language. If detected but not active, handlers ran for validation only.
@@ -1243,5 +1929,3 @@ fn inject_option_handler_flags(ctx: &mut ProjectContext) -> Result<(), FreightEr
 
     Ok(())
 }
-
-

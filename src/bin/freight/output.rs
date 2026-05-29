@@ -23,7 +23,11 @@ pub fn print_status(verb: &str, detail: &str) {
 // ── Graph output formats ───────────────────────────────────────────────────────
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum GraphFormat { Text, Mermaid, Dot }
+pub enum GraphFormat {
+    Text,
+    Mermaid,
+    Dot,
+}
 
 impl GraphFormat {
     pub fn parse(s: &str) -> Self {
@@ -38,12 +42,12 @@ impl GraphFormat {
 /// An edge in a directed graph: `from → to`.
 pub struct GraphEdge {
     pub from: String,
-    pub to:   String,
+    pub to: String,
 }
 
 /// A named group of nodes (used for stages / subgraphs).
 pub struct GraphCluster {
-    pub id:    String,
+    pub id: String,
     pub label: String,
     pub nodes: Vec<String>,
 }
@@ -62,7 +66,11 @@ pub fn render_mermaid_graph(
     println!("graph LR");
 
     for cluster in clusters {
-        println!("    subgraph {}[\"{}\"]", mermaid_id(&cluster.id), cluster.label);
+        println!(
+            "    subgraph {}[\"{}\"]",
+            mermaid_id(&cluster.id),
+            cluster.label
+        );
         for node in &cluster.nodes {
             println!("        {}[\"{}\"]", mermaid_id(node), node);
         }
@@ -72,7 +80,11 @@ pub fn render_mermaid_graph(
         println!("    {}[\"{}\"]", mermaid_id(node), node);
     }
     for edge in edges {
-        println!("    {} --> {}", mermaid_id(&edge.from), mermaid_id(&edge.to));
+        println!(
+            "    {} --> {}",
+            mermaid_id(&edge.from),
+            mermaid_id(&edge.to)
+        );
     }
     println!("```");
 }
@@ -107,7 +119,15 @@ pub fn render_dot_graph(
 }
 
 fn mermaid_id(s: &str) -> String {
-    s.chars().map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' }).collect()
+    s.chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 fn dot_id(s: &str) -> String {

@@ -25,7 +25,9 @@ fn cmd_remove(package: &str) {
             super::common::refresh_lock(&project_dir);
         }
         Ok(false) => {
-            print_error(&format!("`{package}` not found in [dependencies] or [dev-dependencies]"));
+            print_error(&format!(
+                "`{package}` not found in [dependencies] or [dev-dependencies]"
+            ));
         }
         Err(e) => print_error(&e.to_string()),
     }

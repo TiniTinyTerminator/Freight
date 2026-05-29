@@ -1,6 +1,6 @@
 use freight_core::manifest::types::Dependency;
 use freight_core::manifest::{find_manifest_dir, load_manifest};
-use freight_core::registry::repos::{repo_by_name, registries_in_order};
+use freight_core::registry::repos::{registries_in_order, repo_by_name};
 use freight_core::toolchain::cache::GlobalConfig;
 
 use crate::output::{print_error, print_warning};
@@ -22,15 +22,24 @@ impl Args {
 fn cmd_outdated(repo: Option<&str>) {
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
-        Err(e) => { print_error(&format!("cannot read cwd: {e}")); return; }
+        Err(e) => {
+            print_error(&format!("cannot read cwd: {e}"));
+            return;
+        }
     };
     let project_dir = match find_manifest_dir(&cwd) {
         Some(d) => d,
-        None => { print_error("no freight.toml found"); return; }
+        None => {
+            print_error("no freight.toml found");
+            return;
+        }
     };
     let manifest = match load_manifest(&project_dir) {
         Ok(m) => m,
-        Err(e) => { print_error(&e.to_string()); return; }
+        Err(e) => {
+            print_error(&e.to_string());
+            return;
+        }
     };
 
     let config = {
@@ -42,9 +51,9 @@ fn cmd_outdated(repo: Option<&str>) {
     };
 
     struct RegistryDep {
-        name:     String,
-        current:  String,
-        channel:  Option<String>,
+        name: String,
+        current: String,
+        channel: Option<String>,
         repo_key: Option<String>,
     }
 
@@ -53,7 +62,7 @@ fn cmd_outdated(repo: Option<&str>) {
         match dep {
             Dependency::Simple(ver) => {
                 registry_deps.push(RegistryDep {
-                    name:    name.clone(),
+                    name: name.clone(),
                     current: ver.clone(),
                     channel: None,
                     repo_key: None,
@@ -67,9 +76,11 @@ fn cmd_outdated(repo: Option<&str>) {
                     && !freight_core::manifest::types::is_platform_dep(name) =>
             {
                 let ver = d.version.as_deref().unwrap();
-                if ver.is_empty() || ver == "*" { continue; }
+                if ver.is_empty() || ver == "*" {
+                    continue;
+                }
                 registry_deps.push(RegistryDep {
-                    name:    name.clone(),
+                    name: name.clone(),
                     current: ver.to_string(),
                     channel: d.channel.clone(),
                     repo_key: d.repo.clone(),
@@ -85,9 +96,9 @@ fn cmd_outdated(repo: Option<&str>) {
     }
 
     struct OutdatedRow {
-        name:    String,
+        name: String,
         current: String,
-        latest:  String,
+        latest: String,
         outdated: bool,
     }
 
@@ -98,12 +109,18 @@ fn cmd_outdated(repo: Option<&str>) {
         let repos: Vec<Box<dyn freight_core::registry::PackageRepo>> = if let Some(rname) = repo {
             match repo_by_name(rname, &config) {
                 Ok(r) => vec![r],
-                Err(e) => { print_error(&e.to_string()); return; }
+                Err(e) => {
+                    print_error(&e.to_string());
+                    return;
+                }
             }
         } else if let Some(rkey) = &dep.repo_key {
             match repo_by_name(rkey, &config) {
                 Ok(r) => vec![r],
-                Err(e) => { print_error(&e.to_string()); return; }
+                Err(e) => {
+                    print_error(&e.to_string());
+                    return;
+                }
             }
         } else {
             registries_in_order(&config)
@@ -116,9 +133,9 @@ fn cmd_outdated(repo: Option<&str>) {
                 Ok(Some(info)) => {
                     let outdated = is_outdated(&dep.current, &info.latest);
                     rows.push(OutdatedRow {
-                        name:    dep.name.clone(),
+                        name: dep.name.clone(),
                         current: dep.current.clone(),
-                        latest:  info.latest,
+                        latest: info.latest,
                         outdated,
                     });
                     found = true;
@@ -134,7 +151,10 @@ fn cmd_outdated(repo: Option<&str>) {
             }
         }
         if !found {
-            print_warning(&format!("`{}`: not found in any configured registry", dep.name));
+            print_warning(&format!(
+                "`{}`: not found in any configured registry",
+                dep.name
+            ));
             any_error = true;
         }
     }
@@ -148,9 +168,19 @@ fn cmd_outdated(repo: Option<&str>) {
 
     rows.sort_by(|a, b| a.name.cmp(&b.name));
 
-    let name_w    = rows.iter().map(|r| r.name.len()).max().unwrap_or(4).max(4);
-    let current_w = rows.iter().map(|r| r.current.len()).max().unwrap_or(7).max(7);
-    let latest_w  = rows.iter().map(|r| r.latest.len()).max().unwrap_or(6).max(6);
+    let name_w = rows.iter().map(|r| r.name.len()).max().unwrap_or(4).max(4);
+    let current_w = rows
+        .iter()
+        .map(|r| r.current.len())
+        .max()
+        .unwrap_or(7)
+        .max(7);
+    let latest_w = rows
+        .iter()
+        .map(|r| r.latest.len())
+        .max()
+        .unwrap_or(6)
+        .max(6);
 
     println!(
         "{:<name_w$}  {:<current_w$}  {:<latest_w$}  {}",
@@ -159,15 +189,26 @@ fn cmd_outdated(repo: Option<&str>) {
         "latest".bold(),
         "status".bold(),
     );
-    println!("{}", "─".repeat(name_w + current_w + latest_w + 14).bright_black());
+    println!(
+        "{}",
+        "─"
+            .repeat(name_w + current_w + latest_w + 14)
+            .bright_black()
+    );
 
     let mut any_outdated = false;
     for row in &rows {
         let (latest_col, status_col) = if row.outdated {
             any_outdated = true;
-            (row.latest.yellow().to_string(), "outdated".yellow().to_string())
+            (
+                row.latest.yellow().to_string(),
+                "outdated".yellow().to_string(),
+            )
         } else {
-            (row.latest.green().to_string(), "up to date".green().to_string())
+            (
+                row.latest.green().to_string(),
+                "up to date".green().to_string(),
+            )
         };
         println!(
             "{:<name_w$}  {:<current_w$}  {:<latest_w$}  {}",
@@ -180,7 +221,10 @@ fn cmd_outdated(repo: Option<&str>) {
 
     if any_outdated {
         println!();
-        println!("run {} to upgrade outdated dependencies", "`freight add <name>@<version>`".bright_blue());
+        println!(
+            "run {} to upgrade outdated dependencies",
+            "`freight add <name>@<version>`".bright_blue()
+        );
     } else {
         println!();
         println!("{}", "all dependencies are up to date".green());

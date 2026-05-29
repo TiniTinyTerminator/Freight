@@ -5,10 +5,7 @@ use freight_core::dep_cmds::{locate_project, DetailedDep};
 use freight_core::manifest::types::{Dependency, Manifest};
 use freight_core::manifest::{load_manifest, load_workspace_manifest};
 
-use crate::output::{
-    print_error,
-    GraphEdge, GraphFormat, render_mermaid_graph, render_dot_graph,
-};
+use crate::output::{print_error, render_dot_graph, render_mermaid_graph, GraphEdge, GraphFormat};
 use owo_colors::OwoColorize;
 
 #[derive(clap::Args)]
@@ -39,12 +36,17 @@ impl Args {
 pub fn cmd_tree() {
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
-        Err(e) => { print_error(&format!("cannot read cwd: {e}")); return; }
+        Err(e) => {
+            print_error(&format!("cannot read cwd: {e}"));
+            return;
+        }
     };
 
     if let Some(ws) = load_workspace_manifest(&cwd) {
         for (i, member) in ws.members.iter().enumerate() {
-            if i > 0 { println!(); }
+            if i > 0 {
+                println!();
+            }
             let member_dir = cwd.join(member);
             match load_manifest(&member_dir) {
                 Ok(manifest) => {
@@ -64,7 +66,10 @@ pub fn cmd_tree() {
 
     let (project_dir, manifest) = match locate_project() {
         Ok(p) => p,
-        Err(e) => { print_error(&e.to_string()); return; }
+        Err(e) => {
+            print_error(&e.to_string());
+            return;
+        }
     };
 
     println!(
@@ -175,12 +180,17 @@ pub fn cmd_includes(show_system: bool, format: &str) {
 
     let cwd = match std::env::current_dir() {
         Ok(d) => d,
-        Err(e) => { print_error(&format!("cannot read cwd: {e}")); return; }
+        Err(e) => {
+            print_error(&format!("cannot read cwd: {e}"));
+            return;
+        }
     };
 
     if let Some(ws) = load_workspace_manifest(&cwd) {
         for (i, member) in ws.members.iter().enumerate() {
-            if i > 0 { println!(); }
+            if i > 0 {
+                println!();
+            }
             let member_dir = cwd.join(member);
             match load_manifest(&member_dir) {
                 Ok(manifest) => {
@@ -195,20 +205,34 @@ pub fn cmd_includes(show_system: bool, format: &str) {
 
     let (project_dir, manifest) = match locate_project() {
         Ok(p) => p,
-        Err(e) => { print_error(&e.to_string()); return; }
+        Err(e) => {
+            print_error(&e.to_string());
+            return;
+        }
     };
     print_includes_for(&project_dir, &manifest, show_system, fmt);
 }
 
-fn print_includes_for(project_dir: &std::path::Path, manifest: &Manifest, show_system: bool, fmt: GraphFormat) {
+fn print_includes_for(
+    project_dir: &std::path::Path,
+    manifest: &Manifest,
+    show_system: bool,
+    fmt: GraphFormat,
+) {
     let mut include_dirs: Vec<PathBuf> = Vec::new();
     let inc = project_dir.join("inc");
     let src = project_dir.join("src");
-    if inc.is_dir() { include_dirs.push(inc); }
-    if src.is_dir() { include_dirs.push(src.clone()); }
+    if inc.is_dir() {
+        include_dirs.push(inc);
+    }
+    if src.is_dir() {
+        include_dirs.push(src.clone());
+    }
     for d in &manifest.compiler.includes {
         let p = project_dir.join(d);
-        if p.is_dir() { include_dirs.push(p); }
+        if p.is_dir() {
+            include_dirs.push(p);
+        }
     }
 
     let source_files = collect_source_files(&src);
@@ -223,20 +247,28 @@ fn print_includes_for(project_dir: &std::path::Path, manifest: &Manifest, show_s
         let mut seen_edges: HashSet<(String, String)> = HashSet::new();
 
         for sf in &source_files {
-            let from = sf.strip_prefix(project_dir).unwrap_or(sf)
-                .display().to_string();
+            let from = sf
+                .strip_prefix(project_dir)
+                .unwrap_or(sf)
+                .display()
+                .to_string();
             all_nodes.push(from.clone());
             collect_include_edges(
-                sf, project_dir, &include_dirs, show_system,
-                &mut all_edges, &mut seen_edges, &mut HashSet::new(),
+                sf,
+                project_dir,
+                &include_dirs,
+                show_system,
+                &mut all_edges,
+                &mut seen_edges,
+                &mut HashSet::new(),
             );
         }
 
         let title = format!("{} includes", manifest.package.name);
         match fmt {
             GraphFormat::Mermaid => render_mermaid_graph(&title, &[], &all_edges, &all_nodes),
-            GraphFormat::Dot     => render_dot_graph(&title, &[], &all_edges, &all_nodes),
-            GraphFormat::Text    => unreachable!(),
+            GraphFormat::Dot => render_dot_graph(&title, &[], &all_edges, &all_nodes),
+            GraphFormat::Text => unreachable!(),
         }
         return;
     }
@@ -255,7 +287,11 @@ fn print_includes_for(project_dir: &std::path::Path, manifest: &Manifest, show_s
         let child_prefix = if is_last { "    " } else { "│   " };
 
         let rel = sf.strip_prefix(project_dir).unwrap_or(sf);
-        println!("{}{}", connector.bright_black(), rel.display().to_string().yellow());
+        println!(
+            "{}{}",
+            connector.bright_black(),
+            rel.display().to_string().yellow()
+        );
 
         print_include_tree(
             sf,
@@ -272,14 +308,18 @@ fn print_includes_for(project_dir: &std::path::Path, manifest: &Manifest, show_s
 fn collect_source_files(src_dir: &Path) -> Vec<PathBuf> {
     const SOURCE_EXTS: &[&str] = &["c", "cc", "cpp", "cxx", "c++", "cu", "hip", "m", "mm"];
     let mut files = Vec::new();
-    if !src_dir.is_dir() { return files; }
+    if !src_dir.is_dir() {
+        return files;
+    }
     collect_files_recursive(src_dir, SOURCE_EXTS, &mut files);
     files.sort();
     files
 }
 
 fn collect_files_recursive(dir: &Path, exts: &[&str], out: &mut Vec<PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut entries: Vec<_> = rd.filter_map(|e| e.ok()).collect();
     entries.sort_by_key(|e| e.file_name());
     for entry in entries {
@@ -303,25 +343,46 @@ fn collect_include_edges(
     seen_edges: &mut HashSet<(String, String)>,
     in_stack: &mut HashSet<PathBuf>,
 ) {
-    let from = file.strip_prefix(project_dir).unwrap_or(file).display().to_string();
+    let from = file
+        .strip_prefix(project_dir)
+        .unwrap_or(file)
+        .display()
+        .to_string();
     for (inc, is_system) in parse_includes(file) {
-        if is_system && !show_system { continue; }
+        if is_system && !show_system {
+            continue;
+        }
         let to = if is_system {
             format!("<{inc}>")
         } else {
             match resolve_include(&inc, file, include_dirs) {
-                Some(ref resolved) => resolved.strip_prefix(project_dir).unwrap_or(resolved).display().to_string(),
+                Some(ref resolved) => resolved
+                    .strip_prefix(project_dir)
+                    .unwrap_or(resolved)
+                    .display()
+                    .to_string(),
                 None => format!("\"{inc}\" (not found)"),
             }
         };
         let key = (from.clone(), to.clone());
         if seen_edges.insert(key) {
-            edges.push(GraphEdge { from: from.clone(), to: to.clone() });
+            edges.push(GraphEdge {
+                from: from.clone(),
+                to: to.clone(),
+            });
             if !is_system {
                 if let Some(resolved) = resolve_include(&inc, file, include_dirs) {
                     if !in_stack.contains(&resolved) {
                         in_stack.insert(resolved.clone());
-                        collect_include_edges(&resolved, project_dir, include_dirs, show_system, edges, seen_edges, in_stack);
+                        collect_include_edges(
+                            &resolved,
+                            project_dir,
+                            include_dirs,
+                            show_system,
+                            edges,
+                            seen_edges,
+                            in_stack,
+                        );
                         in_stack.remove(&resolved);
                     }
                 }
@@ -331,13 +392,19 @@ fn collect_include_edges(
 }
 
 fn parse_includes(path: &Path) -> Vec<(String, bool)> {
-    let Ok(text) = std::fs::read_to_string(path) else { return Vec::new() };
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return Vec::new();
+    };
     let mut result = Vec::new();
     for line in text.lines() {
         let line = line.trim();
-        if !line.starts_with('#') { continue; }
+        if !line.starts_with('#') {
+            continue;
+        }
         let rest = line[1..].trim_start();
-        if !rest.starts_with("include") { continue; }
+        if !rest.starts_with("include") {
+            continue;
+        }
         let rest = rest[7..].trim_start();
         if let Some(inner) = rest.strip_prefix('"').and_then(|s| s.split('"').next()) {
             result.push((inner.to_string(), false));
@@ -351,11 +418,15 @@ fn parse_includes(path: &Path) -> Vec<(String, bool)> {
 fn resolve_include(include: &str, from_file: &Path, include_dirs: &[PathBuf]) -> Option<PathBuf> {
     if let Some(parent) = from_file.parent() {
         let candidate = parent.join(include);
-        if candidate.is_file() { return Some(candidate); }
+        if candidate.is_file() {
+            return Some(candidate);
+        }
     }
     for dir in include_dirs {
         let candidate = dir.join(include);
-        if candidate.is_file() { return Some(candidate); }
+        if candidate.is_file() {
+            return Some(candidate);
+        }
     }
     None
 }
@@ -371,7 +442,8 @@ fn print_include_tree(
     show_system: bool,
 ) {
     let includes = parse_includes(file);
-    let visible: Vec<_> = includes.iter()
+    let visible: Vec<_> = includes
+        .iter()
         .filter(|(_, sys)| show_system || !sys)
         .collect();
 
@@ -388,7 +460,12 @@ fn print_include_tree(
 
         match resolve_include(inc, file, include_dirs) {
             None => {
-                println!("{}{} {}", branch, format!("\"{inc}\"").yellow(), "[not found]".red());
+                println!(
+                    "{}{} {}",
+                    branch,
+                    format!("\"{inc}\"").yellow(),
+                    "[not found]".red()
+                );
             }
             Some(resolved) => {
                 let rel = resolved.strip_prefix(project_dir).unwrap_or(&resolved);
@@ -415,7 +492,12 @@ fn print_include_tree(
                     continue;
                 }
 
-                println!("{}{} {}", branch, format!("\"{inc}\"").yellow(), rel.display().to_string().bright_black());
+                println!(
+                    "{}{} {}",
+                    branch,
+                    format!("\"{inc}\"").yellow(),
+                    rel.display().to_string().bright_black()
+                );
                 globally_seen.insert(resolved.clone());
                 in_stack.insert(resolved.clone());
                 print_include_tree(

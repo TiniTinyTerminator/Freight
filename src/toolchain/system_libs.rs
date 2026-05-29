@@ -20,151 +20,176 @@ pub struct SystemLibStub {
 // ── Hardcoded stubs ───────────────────────────────────────────────────────────
 
 struct RawStub {
-    name:     &'static str,
-    link:     &'static str,
+    name: &'static str,
+    link: &'static str,
     supports: &'static str,
-    hdrs:     &'static [&'static str],
+    hdrs: &'static [&'static str],
 }
 
 const STUBS: &[RawStub] = &[
     // ── Cross-platform ────────────────────────────────────────────────────────
     RawStub {
-        name: "m", link: "m",
+        name: "m",
+        link: "m",
         supports: "linux | freebsd | openbsd | netbsd | dragonfly | solaris | illumos | android",
         hdrs: &["math.h", "complex.h", "tgmath.h", "fenv.h"],
     },
-
     // ── Unix / POSIX ──────────────────────────────────────────────────────────
     RawStub {
-        name: "pthread", link: "pthread",
+        name: "pthread",
+        link: "pthread",
         supports: "unix",
         hdrs: &["pthread.h", "semaphore.h", "sched.h"],
     },
     RawStub {
-        name: "dl", link: "dl",
+        name: "dl",
+        link: "dl",
         supports: "linux | android | freebsd | netbsd | openbsd | dragonfly | solaris | illumos",
         hdrs: &["dlfcn.h"],
     },
     RawStub {
-        name: "rt", link: "rt",
+        name: "rt",
+        link: "rt",
         supports: "linux | android | solaris | illumos",
         hdrs: &["time.h", "mqueue.h", "aio.h"],
     },
     RawStub {
-        name: "resolv", link: "resolv",
+        name: "resolv",
+        link: "resolv",
         supports: "linux | freebsd | openbsd | netbsd | dragonfly | solaris | illumos",
         hdrs: &["resolv.h", "arpa/nameser.h"],
     },
     RawStub {
-        name: "execinfo", link: "execinfo",
+        name: "execinfo",
+        link: "execinfo",
         supports: "freebsd | openbsd | netbsd | dragonfly",
         hdrs: &["execinfo.h"],
     },
-
     // ── Windows ───────────────────────────────────────────────────────────────
     RawStub {
-        name: "kernel32", link: "kernel32",
+        name: "kernel32",
+        link: "kernel32",
         supports: "windows",
         hdrs: &["windows.h"],
     },
     RawStub {
-        name: "user32", link: "user32",
+        name: "user32",
+        link: "user32",
         supports: "windows",
         hdrs: &["windows.h", "winuser.h"],
     },
     RawStub {
-        name: "gdi32", link: "gdi32",
+        name: "gdi32",
+        link: "gdi32",
         supports: "windows",
         hdrs: &["windows.h", "wingdi.h"],
     },
     RawStub {
-        name: "shell32", link: "shell32",
+        name: "shell32",
+        link: "shell32",
         supports: "windows",
         hdrs: &["shlobj.h", "shellapi.h"],
     },
     RawStub {
-        name: "ole32", link: "ole32",
+        name: "ole32",
+        link: "ole32",
         supports: "windows",
         hdrs: &["objbase.h", "combaseapi.h"],
     },
     RawStub {
-        name: "oleaut32", link: "oleaut32",
+        name: "oleaut32",
+        link: "oleaut32",
         supports: "windows",
         hdrs: &["oaidl.h", "oleauto.h"],
     },
     RawStub {
-        name: "advapi32", link: "advapi32",
+        name: "advapi32",
+        link: "advapi32",
         supports: "windows",
         hdrs: &["windows.h", "wincrypt.h", "aclapi.h"],
     },
     RawStub {
-        name: "ws2_32", link: "ws2_32",
+        name: "ws2_32",
+        link: "ws2_32",
         supports: "windows",
         hdrs: &["winsock2.h", "ws2tcpip.h", "mswsock.h"],
     },
     RawStub {
-        name: "iphlpapi", link: "iphlpapi",
+        name: "iphlpapi",
+        link: "iphlpapi",
         supports: "windows",
         hdrs: &["iphlpapi.h", "iptypes.h"],
     },
     RawStub {
-        name: "ntdll", link: "ntdll",
+        name: "ntdll",
+        link: "ntdll",
         supports: "windows",
         hdrs: &["winternl.h"],
     },
     RawStub {
-        name: "dbghelp", link: "dbghelp",
+        name: "dbghelp",
+        link: "dbghelp",
         supports: "windows",
         hdrs: &["dbghelp.h"],
     },
     RawStub {
-        name: "psapi", link: "psapi",
+        name: "psapi",
+        link: "psapi",
         supports: "windows",
         hdrs: &["psapi.h"],
     },
     RawStub {
-        name: "winmm", link: "winmm",
+        name: "winmm",
+        link: "winmm",
         supports: "windows",
         hdrs: &["mmsystem.h", "timeapi.h"],
     },
     RawStub {
-        name: "setupapi", link: "setupapi",
+        name: "setupapi",
+        link: "setupapi",
         supports: "windows",
         hdrs: &["setupapi.h", "devguid.h"],
     },
     RawStub {
-        name: "comctl32", link: "comctl32",
+        name: "comctl32",
+        link: "comctl32",
         supports: "windows",
         hdrs: &["commctrl.h"],
     },
     RawStub {
-        name: "comdlg32", link: "comdlg32",
+        name: "comdlg32",
+        link: "comdlg32",
         supports: "windows",
         hdrs: &["commdlg.h"],
     },
     RawStub {
-        name: "bcrypt", link: "bcrypt",
+        name: "bcrypt",
+        link: "bcrypt",
         supports: "windows",
         hdrs: &["bcrypt.h"],
     },
     RawStub {
-        name: "uuid", link: "uuid",
+        name: "uuid",
+        link: "uuid",
         supports: "windows",
         hdrs: &["guiddef.h", "basetyps.h"],
     },
     // ── Direct3D / DXGI ───────────────────────────────────────────────────────
     RawStub {
-        name: "d3d11", link: "d3d11",
+        name: "d3d11",
+        link: "d3d11",
         supports: "windows",
         hdrs: &["d3d11.h", "d3dcommon.h"],
     },
     RawStub {
-        name: "d3d12", link: "d3d12",
+        name: "d3d12",
+        link: "d3d12",
         supports: "windows",
         hdrs: &["d3d12.h", "d3d12sdklayers.h"],
     },
     RawStub {
-        name: "dxgi", link: "dxgi",
+        name: "dxgi",
+        link: "dxgi",
         supports: "windows",
         hdrs: &["dxgi.h", "dxgi1_2.h", "dxgi1_6.h"],
     },
@@ -174,12 +199,13 @@ const STUBS: &[RawStub] = &[
 
 /// Return all built-in system-lib stubs that match the current host platform.
 pub fn load_system_lib_stubs() -> Vec<SystemLibStub> {
-    STUBS.iter()
+    STUBS
+        .iter()
         .filter(|s| eval_supports(s.supports))
         .map(|s| SystemLibStub {
-            name:      s.name.to_string(),
+            name: s.name.to_string(),
             link_name: s.link.to_string(),
-            headers:   s.hdrs.iter().map(|h| h.to_string()).collect(),
+            headers: s.hdrs.iter().map(|h| h.to_string()).collect(),
         })
         .collect()
 }

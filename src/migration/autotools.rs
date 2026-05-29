@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use regex::Regex;
-use toml_edit::{Array, DocumentMut, Item, Table, value};
+use toml_edit::{value, Array, DocumentMut, Item, Table};
 
 // ── Public entry point ────────────────────────────────────────────────────────
 
@@ -30,11 +30,23 @@ struct PathDep {
 pub fn purge_autotools(dir: &Path) -> Vec<String> {
     let mut removed = Vec::new();
     let files = [
-        "configure", "configure.ac", "configure.in", "config.status",
-        "config.guess", "config.sub", "config.log",
-        "Makefile.am", "Makefile.in", "Makefile",
-        "aclocal.m4", "install-sh", "missing", "depcomp", "compile",
-        "ltmain.sh", "libtool",
+        "configure",
+        "configure.ac",
+        "configure.in",
+        "config.status",
+        "config.guess",
+        "config.sub",
+        "config.log",
+        "Makefile.am",
+        "Makefile.in",
+        "Makefile",
+        "aclocal.m4",
+        "install-sh",
+        "missing",
+        "depcomp",
+        "compile",
+        "ltmain.sh",
+        "libtool",
     ];
     for name in &files {
         let p = dir.join(name);
@@ -143,7 +155,9 @@ pub fn import_autotools(input: &Path, out_dir: Option<&Path>) -> Result<ImportRe
             Ok(sub_result) => {
                 // Prefix subdir warnings so the user knows which subdir they came from.
                 warnings.extend(
-                    sub_result.warnings.into_iter()
+                    sub_result
+                        .warnings
+                        .into_iter()
                         .map(|w| format!("[{subdir_name}] {w}")),
                 );
                 all_written.extend(sub_result.written);
@@ -169,27 +183,33 @@ pub fn import_autotools(input: &Path, out_dir: Option<&Path>) -> Result<ImportRe
                 }
             }
             Err(e) => {
-                warnings.push(format!(
-                    "SUBDIRS: failed to migrate '{subdir_name}': {e:#}"
-                ));
+                warnings.push(format!("SUBDIRS: failed to migrate '{subdir_name}': {e:#}"));
             }
         }
     }
 
     // ── 4. Emit freight.toml ──────────────────────────────────────────────────
     let toml = emit_toml(
-        &pkg_name, &pkg_version, &targets, lang_std.as_deref(),
-        &extra_defines, &deps, &path_deps, &warnings,
+        &pkg_name,
+        &pkg_version,
+        &targets,
+        lang_std.as_deref(),
+        &extra_defines,
+        &deps,
+        &path_deps,
+        &warnings,
     );
 
     std::fs::create_dir_all(out_root)
         .with_context(|| format!("creating {}", out_root.display()))?;
     let dest = out_root.join("freight.toml");
-    std::fs::write(&dest, &toml)
-        .with_context(|| format!("writing {}", dest.display()))?;
+    std::fs::write(&dest, &toml).with_context(|| format!("writing {}", dest.display()))?;
     all_written.push(dest);
 
-    Ok(ImportResult { written: all_written, warnings })
+    Ok(ImportResult {
+        written: all_written,
+        warnings,
+    })
 }
 
 // ── configure.ac parser ───────────────────────────────────────────────────────
@@ -197,14 +217,20 @@ pub fn import_autotools(input: &Path, out_dir: Option<&Path>) -> Result<ImportRe
 fn find_configure_ac(dir: &Path) -> Option<PathBuf> {
     for name in &["configure.ac", "configure.in"] {
         let p = dir.join(name);
-        if p.exists() { return Some(p); }
+        if p.exists() {
+            return Some(p);
+        }
     }
     None
 }
 
 fn find_file(dir: &Path, name: &str) -> Option<PathBuf> {
     let p = dir.join(name);
-    if p.exists() { Some(p) } else { None }
+    if p.exists() {
+        Some(p)
+    } else {
+        None
+    }
 }
 
 fn parse_configure_ac(content: &str, warnings: &mut Vec<String>) -> (String, String, Vec<String>) {
@@ -217,17 +243,24 @@ fn parse_configure_ac(content: &str, warnings: &mut Vec<String>) -> (String, Str
     if let Some(cap) = ac_init.captures(content) {
         let n = sanitize_name(cap[1].trim());
         let v = cap[2].trim().to_string();
-        if !n.is_empty() { name = n; }
-        if !v.is_empty() { version = v; }
+        if !n.is_empty() {
+            name = n;
+        }
+        if !v.is_empty() {
+            version = v;
+        }
     }
 
     // PKG_CHECK_MODULES(PREFIX, module [>= ver])
-    let pkg_check = Regex::new(r"PKG_CHECK_MODULES(?:_OPTIONAL)?\s*\(\s*\w+\s*,\s*([^\)]+)\)").unwrap();
+    let pkg_check =
+        Regex::new(r"PKG_CHECK_MODULES(?:_OPTIONAL)?\s*\(\s*\w+\s*,\s*([^\)]+)\)").unwrap();
     for cap in pkg_check.captures_iter(content) {
         // May be "foo >= 1.0" or "foo bar" (multiple)
         for part in cap[1].split_whitespace() {
-            let part = part.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_');
-            if part.is_empty() || part.starts_with(|c: char| c.is_ascii_digit())
+            let part =
+                part.trim_matches(|c: char| !c.is_ascii_alphanumeric() && c != '-' && c != '_');
+            if part.is_empty()
+                || part.starts_with(|c: char| c.is_ascii_digit())
                 || matches!(part, ">=" | "<=" | ">" | "<" | "=")
             {
                 continue;
@@ -258,10 +291,17 @@ fn parse_configure_ac(content: &str, warnings: &mut Vec<String>) -> (String, Str
 // ── Makefile.am parser ────────────────────────────────────────────────────────
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-enum TargetKind { Bin, StaticLib, SharedLib }
+enum TargetKind {
+    Bin,
+    StaticLib,
+    SharedLib,
+}
 
 #[derive(Debug)]
-struct TargetSpec { name: String, kind: TargetKind }
+struct TargetSpec {
+    name: String,
+    kind: TargetKind,
+}
 
 /// Returns `(targets, lang_std, defines, subdirs)`.
 /// `subdirs` is the list of directory names from any `SUBDIRS = ...` line.
@@ -279,54 +319,92 @@ fn parse_makefile_am(
 
     for line in joined.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') { continue; }
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
 
         // bin_PROGRAMS / noinst_PROGRAMS / check_PROGRAMS / sbin_PROGRAMS / libexec_PROGRAMS
-        if let Some(rest) = strip_lhs(line, &["bin_PROGRAMS", "sbin_PROGRAMS",
-            "libexec_PROGRAMS", "noinst_PROGRAMS", "check_PROGRAMS",
-            "dist_bin_SCRIPTS"])
-        {
+        if let Some(rest) = strip_lhs(
+            line,
+            &[
+                "bin_PROGRAMS",
+                "sbin_PROGRAMS",
+                "libexec_PROGRAMS",
+                "noinst_PROGRAMS",
+                "check_PROGRAMS",
+                "dist_bin_SCRIPTS",
+            ],
+        ) {
             for name in rest.split_whitespace() {
                 let n = sanitize_name(name);
                 if !n.is_empty() && !targets.iter().any(|t| t.name == n) {
-                    targets.push(TargetSpec { name: n, kind: TargetKind::Bin });
+                    targets.push(TargetSpec {
+                        name: n,
+                        kind: TargetKind::Bin,
+                    });
                 }
             }
         }
         // lib_LIBRARIES / noinst_LIBRARIES (static)
-        else if let Some(rest) = strip_lhs(line, &["lib_LIBRARIES", "noinst_LIBRARIES",
-            "pkglib_LIBRARIES", "check_LIBRARIES"])
-        {
+        else if let Some(rest) = strip_lhs(
+            line,
+            &[
+                "lib_LIBRARIES",
+                "noinst_LIBRARIES",
+                "pkglib_LIBRARIES",
+                "check_LIBRARIES",
+            ],
+        ) {
             for name in rest.split_whitespace() {
                 let n = sanitize_name(strip_lib_ext(name));
                 if !n.is_empty() && !targets.iter().any(|t| t.name == n) {
-                    targets.push(TargetSpec { name: n, kind: TargetKind::StaticLib });
+                    targets.push(TargetSpec {
+                        name: n,
+                        kind: TargetKind::StaticLib,
+                    });
                 }
             }
         }
         // lib_LTLIBRARIES / noinst_LTLIBRARIES (libtool → shared)
-        else if let Some(rest) = strip_lhs(line, &["lib_LTLIBRARIES", "noinst_LTLIBRARIES",
-            "pkglib_LTLIBRARIES"])
-        {
+        else if let Some(rest) = strip_lhs(
+            line,
+            &[
+                "lib_LTLIBRARIES",
+                "noinst_LTLIBRARIES",
+                "pkglib_LTLIBRARIES",
+            ],
+        ) {
             for name in rest.split_whitespace() {
                 // .la → treat as shared lib
                 let stripped = name.strip_suffix(".la").unwrap_or(name);
                 let n = sanitize_name(strip_lib_ext(stripped));
                 if !n.is_empty() && !targets.iter().any(|t| t.name == n) {
-                    targets.push(TargetSpec { name: n, kind: TargetKind::SharedLib });
+                    targets.push(TargetSpec {
+                        name: n,
+                        kind: TargetKind::SharedLib,
+                    });
                 }
             }
         }
         // AM_CFLAGS / AM_CXXFLAGS
-        else if let Some(flags) = strip_lhs(line, &["AM_CFLAGS", "AM_CXXFLAGS",
-            "AM_CPPFLAGS", "CFLAGS", "CXXFLAGS"])
-        {
+        else if let Some(flags) = strip_lhs(
+            line,
+            &[
+                "AM_CFLAGS",
+                "AM_CXXFLAGS",
+                "AM_CPPFLAGS",
+                "CFLAGS",
+                "CXXFLAGS",
+            ],
+        ) {
             if lang_std.is_none() {
                 lang_std = extract_std(flags);
             }
             for tok in flags.split_whitespace() {
                 if let Some(def) = tok.strip_prefix("-D") {
-                    if !def.is_empty() { defines.push(def.to_string()); }
+                    if !def.is_empty() {
+                        defines.push(def.to_string());
+                    }
                 }
             }
         }
@@ -360,7 +438,8 @@ fn parse_makefile_in(
     warnings: &mut Vec<String>,
 ) -> (Vec<TargetSpec>, Option<String>, Vec<String>) {
     // Strip @VARIABLE@ tokens (autoconf substitutions) to reduce parse noise
-    let cleaned = Regex::new(r"@[A-Z_]+@").unwrap()
+    let cleaned = Regex::new(r"@[A-Z_]+@")
+        .unwrap()
         .replace_all(content, "")
         .into_owned();
 
@@ -373,22 +452,33 @@ fn parse_makefile_in(
     // Look for STATICLIB / SHAREDLIB / PROGRAMS variable patterns
     for line in joined.lines() {
         let line = line.trim();
-        if line.is_empty() || line.starts_with('#') { continue; }
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
 
         if let Some(rest) = strip_lhs(line, &["STATICLIB", "STATIC_LIB"]) {
             for name in rest.split_whitespace() {
                 let n = sanitize_name(strip_lib_ext(name));
                 if !n.is_empty() {
-                    targets.push(TargetSpec { name: n, kind: TargetKind::StaticLib });
+                    targets.push(TargetSpec {
+                        name: n,
+                        kind: TargetKind::StaticLib,
+                    });
                 }
             }
-        } else if let Some(rest) = strip_lhs(line, &["SHAREDLIB", "SHARED_LIB", "SHAREDLIBV", "SHAREDLIBM"]) {
+        } else if let Some(rest) = strip_lhs(
+            line,
+            &["SHAREDLIB", "SHARED_LIB", "SHAREDLIBV", "SHAREDLIBM"],
+        ) {
             // Only take the first one
             if targets.iter().all(|t| t.kind != TargetKind::SharedLib) {
                 if let Some(name) = rest.split_whitespace().next() {
                     let n = sanitize_name(strip_lib_ext(name));
                     if !n.is_empty() {
-                        targets.push(TargetSpec { name: n, kind: TargetKind::SharedLib });
+                        targets.push(TargetSpec {
+                            name: n,
+                            kind: TargetKind::SharedLib,
+                        });
                     }
                 }
             }
@@ -396,21 +486,29 @@ fn parse_makefile_in(
             for name in rest.split_whitespace() {
                 let n = sanitize_name(name);
                 if !n.is_empty() {
-                    targets.push(TargetSpec { name: n, kind: TargetKind::Bin });
+                    targets.push(TargetSpec {
+                        name: n,
+                        kind: TargetKind::Bin,
+                    });
                 }
             }
         } else if let Some(flags) = strip_lhs(line, &["CFLAGS", "CXXFLAGS", "CPPFLAGS"]) {
-            if lang_std.is_none() { lang_std = extract_std(flags); }
+            if lang_std.is_none() {
+                lang_std = extract_std(flags);
+            }
             for tok in flags.split_whitespace() {
                 if let Some(def) = tok.strip_prefix("-D") {
-                    if !def.is_empty() { defines.push(def.to_string()); }
+                    if !def.is_empty() {
+                        defines.push(def.to_string());
+                    }
                 }
             }
         }
     }
 
     if targets.is_empty() {
-        warnings.push("Could not determine targets from Makefile.in — check output manually".into());
+        warnings
+            .push("Could not determine targets from Makefile.in — check output manually".into());
     }
 
     (targets, lang_std, defines)
@@ -436,15 +534,20 @@ fn emit_toml(
         .iter()
         .map(|w| format!("# warning: {w}\n"))
         .collect::<String>();
-    let header = format!("# Generated by freight migrate autotools — review before committing.\n{header}");
+    let header =
+        format!("# Generated by freight migrate autotools — review before committing.\n{header}");
 
     let mut pkg = Table::new();
-    pkg["name"]    = value(name);
+    pkg["name"] = value(name);
     pkg["version"] = value(version);
     doc["package"] = Item::Table(pkg);
 
     if let Some(std) = lang_std {
-        let lang_key = if std.starts_with("c++") || std.starts_with("gnu++") { "c++" } else { "c" };
+        let lang_key = if std.starts_with("c++") || std.starts_with("gnu++") {
+            "c++"
+        } else {
+            "c"
+        };
         let mut lang_tbl = Table::new();
         lang_tbl["std"] = value(std);
         let mut lang_outer = Table::new();
@@ -455,7 +558,9 @@ fn emit_toml(
     if !defines.is_empty() {
         let mut build_tbl = Table::new();
         let mut arr = Array::new();
-        for d in defines { arr.push(d.as_str()); }
+        for d in defines {
+            arr.push(d.as_str());
+        }
         build_tbl["defines"] = value(arr);
         doc["build"] = Item::Table(build_tbl);
     }
@@ -501,8 +606,7 @@ fn emit_toml(
 
 /// Libraries that pkg-config / freight finds automatically — don't emit as deps.
 const AUTO_LINKED: &[&str] = &[
-    "m", "c", "gcc", "gcc_s", "stdc++", "dl", "rt", "pthread",
-    "resolv", "nsl", "socket", "util",
+    "m", "c", "gcc", "gcc_s", "stdc++", "dl", "rt", "pthread", "resolv", "nsl", "socket", "util",
 ];
 
 fn join_continuations(content: &str) -> String {
@@ -525,7 +629,8 @@ fn strip_lhs<'a>(line: &'a str, names: &[&str]) -> Option<&'a str> {
     for name in names {
         if let Some(rest) = line.strip_prefix(name) {
             let rest = rest.trim_start();
-            if let Some(rhs) = rest.strip_prefix("+=")
+            if let Some(rhs) = rest
+                .strip_prefix("+=")
                 .or_else(|| rest.strip_prefix(":="))
                 .or_else(|| rest.strip_prefix('='))
             {
@@ -549,14 +654,24 @@ fn extract_std(flags: &str) -> Option<String> {
 fn strip_lib_ext(name: &str) -> &str {
     let name = name.strip_suffix(".la").unwrap_or(name);
     let name = name.strip_suffix(".a").unwrap_or(name);
-    let name = if let Some(p) = name.find(".so") { &name[..p] } else { name };
+    let name = if let Some(p) = name.find(".so") {
+        &name[..p]
+    } else {
+        name
+    };
     name.strip_prefix("lib").unwrap_or(name)
 }
 
 fn sanitize_name(s: &str) -> String {
     s.trim_matches(|c: char| !c.is_ascii_alphanumeric())
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
         .collect()
 }
 
@@ -566,7 +681,9 @@ fn has_main_function(dir: &Path) -> bool {
     for entry in WalkDir::new(dir).max_depth(3).into_iter().flatten() {
         let path = entry.path();
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        if !exts.contains(&ext) { continue; }
+        if !exts.contains(&ext) {
+            continue;
+        }
         if let Ok(content) = std::fs::read_to_string(path) {
             if content.contains("int main(") || content.contains("int main (") {
                 return true;
@@ -673,36 +790,45 @@ mod tests {
     #[test]
     fn subdirs_recursed_and_emitted_as_path_deps() {
         use std::fs;
-        let root = std::env::temp_dir().join(format!(
-            "autotools-subdirs-test-{}",
-            std::process::id()
-        ));
+        let root =
+            std::env::temp_dir().join(format!("autotools-subdirs-test-{}", std::process::id()));
         // Root: configure.ac + Makefile.am with SUBDIRS = mylib
         fs::create_dir_all(root.join("mylib")).unwrap();
-        fs::write(
-            root.join("configure.ac"),
-            "AC_INIT([myapp], [1.0])\n",
-        ).unwrap();
+        fs::write(root.join("configure.ac"), "AC_INIT([myapp], [1.0])\n").unwrap();
         fs::write(
             root.join("Makefile.am"),
             "SUBDIRS = mylib\nbin_PROGRAMS = myapp\n",
-        ).unwrap();
+        )
+        .unwrap();
         // Subdir: its own Makefile.am with a static library
         fs::write(
             root.join("mylib/Makefile.am"),
             "lib_LIBRARIES = libmylib.a\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         let result = import_autotools(&root, Some(&root)).unwrap();
 
         // Both freight.tomls should have been written
-        assert!(result.written.iter().any(|p| p == &root.join("freight.toml")));
-        assert!(result.written.iter().any(|p| p == &root.join("mylib/freight.toml")));
+        assert!(result
+            .written
+            .iter()
+            .any(|p| p == &root.join("freight.toml")));
+        assert!(result
+            .written
+            .iter()
+            .any(|p| p == &root.join("mylib/freight.toml")));
 
         // Root manifest should have mylib as a path dep
         let root_toml = fs::read_to_string(root.join("freight.toml")).unwrap();
-        assert!(root_toml.contains("mylib"), "expected mylib path dep in root manifest:\n{root_toml}");
-        assert!(root_toml.contains("mylib"), "expected 'mylib' in root manifest:\n{root_toml}");
+        assert!(
+            root_toml.contains("mylib"),
+            "expected mylib path dep in root manifest:\n{root_toml}"
+        );
+        assert!(
+            root_toml.contains("mylib"),
+            "expected 'mylib' in root manifest:\n{root_toml}"
+        );
 
         fs::remove_dir_all(&root).unwrap();
     }

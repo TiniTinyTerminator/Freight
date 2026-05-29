@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use freight_core::install::{install_project, package_project, InstalledKind, InstallOptions};
+use freight_core::install::{install_project, package_project, InstallOptions, InstalledKind};
 use freight_core::manifest::{find_manifest_dir, load_workspace_manifest};
 
 use crate::output::{print_error, print_status, print_success, print_warning};
@@ -29,7 +29,13 @@ pub struct Args {
 impl Args {
     pub fn run(self) {
         self.build.apply();
-        cmd_install(Some(&self.prefix), self.destdir.as_deref(), self.release, self.no_build, self.target.as_deref());
+        cmd_install(
+            Some(&self.prefix),
+            self.destdir.as_deref(),
+            self.release,
+            self.no_build,
+            self.target.as_deref(),
+        );
     }
 }
 
@@ -53,21 +59,32 @@ impl PackageArgs {
     }
 }
 
-pub fn cmd_install(prefix: Option<&str>, destdir: Option<&str>, release: bool, no_build: bool, target: Option<&str>) {
+pub fn cmd_install(
+    prefix: Option<&str>,
+    destdir: Option<&str>,
+    release: bool,
+    no_build: bool,
+    target: Option<&str>,
+) {
     let cwd = std::env::current_dir().expect("cannot read cwd");
 
     let opts = InstallOptions {
-        prefix:   prefix.map(PathBuf::from).unwrap_or_else(|| {
-            if cfg!(windows) { PathBuf::from(r"C:\Program Files") }
-            else             { PathBuf::from("/usr/local") }
+        prefix: prefix.map(PathBuf::from).unwrap_or_else(|| {
+            if cfg!(windows) {
+                PathBuf::from(r"C:\Program Files")
+            } else {
+                PathBuf::from("/usr/local")
+            }
         }),
-        destdir:  destdir.map(PathBuf::from),
+        destdir: destdir.map(PathBuf::from),
         release,
         no_build,
-        target:   target.map(str::to_string),
+        target: target.map(str::to_string),
     };
 
-    let display_prefix = opts.destdir.as_ref()
+    let display_prefix = opts
+        .destdir
+        .as_ref()
         .map(|d| format!("{} (destdir: {})", opts.prefix.display(), d.display()))
         .unwrap_or_else(|| opts.prefix.display().to_string());
 
@@ -77,7 +94,10 @@ pub fn cmd_install(prefix: Option<&str>, destdir: Option<&str>, release: bool, n
         for member in &ws.members {
             let member_dir = cwd.join(member);
             use owo_colors::OwoColorize;
-            print_status("Installing", &format!("{} → {}", member.bold(), display_prefix));
+            print_status(
+                "Installing",
+                &format!("{} → {}", member.bold(), display_prefix),
+            );
             match install_project(&member_dir, &opts) {
                 Ok(result) => {
                     for item in &result.items {
@@ -90,11 +110,17 @@ pub fn cmd_install(prefix: Option<&str>, destdir: Option<&str>, release: bool, n
                     }
                     total += result.items.len();
                 }
-                Err(e) => { print_error(&format!("{member}: {e}")); any_error = true; }
+                Err(e) => {
+                    print_error(&format!("{member}: {e}"));
+                    any_error = true;
+                }
             }
         }
         if !any_error {
-            print_success(&format!("{total} file{} installed", if total == 1 { "" } else { "s" }));
+            print_success(&format!(
+                "{total} file{} installed",
+                if total == 1 { "" } else { "s" }
+            ));
         }
         return;
     }
@@ -113,14 +139,17 @@ pub fn cmd_install(prefix: Option<&str>, destdir: Option<&str>, release: bool, n
                 }
             }
             let n = result.items.len();
-            print_success(&format!("{n} file{} installed", if n == 1 { "" } else { "s" }));
+            print_success(&format!(
+                "{n} file{} installed",
+                if n == 1 { "" } else { "s" }
+            ));
         }
         Err(e) => print_error(&e.to_string()),
     }
 }
 
 pub fn cmd_package(release: bool, targets: &[String]) {
-    let cwd         = std::env::current_dir().expect("cannot read cwd");
+    let cwd = std::env::current_dir().expect("cannot read cwd");
     let project_dir = find_manifest_dir(&cwd).unwrap_or(cwd);
 
     // No explicit targets → native build.
@@ -128,14 +157,17 @@ pub fn cmd_package(release: bool, targets: &[String]) {
         print_status("Packaging", &project_dir.display().to_string());
         match package_project(&project_dir, release, None) {
             Ok(archive) => print_success(&format!("→ {}", archive.display())),
-            Err(e)      => print_error(&e.to_string()),
+            Err(e) => print_error(&e.to_string()),
         }
         return;
     }
 
     let mut succeeded = 0usize;
     for target in targets {
-        print_status("Packaging", &format!("{} [{}]", project_dir.display(), target));
+        print_status(
+            "Packaging",
+            &format!("{} [{}]", project_dir.display(), target),
+        );
         match package_project(&project_dir, release, Some(target)) {
             Ok(archive) => {
                 print_success(&format!("→ {}", archive.display()));
