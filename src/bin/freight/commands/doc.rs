@@ -491,7 +491,8 @@ impl RenderCtx {
 #[derive(Clone, Copy, PartialEq)]
 enum TreeNodeKind {
     Dep,
-    Group,
+    SectionHdr, // "Classes & Types", "Namespaces", "Free Symbols" — collapsible section header
+    Group,      // namespace — navigates to NamespacePage when activated
     Symbol,
     Readme,
 }
@@ -515,6 +516,17 @@ enum Focus {
     Meta,
 }
 
+/// What the centre panel currently shows.
+#[derive(Clone, PartialEq)]
+enum NavMode {
+    Welcome,
+    Readme(usize),
+    DepOverview(usize),
+    TypePage(usize, usize),       // (dep_idx, item_idx)
+    NamespacePage(usize, String), // (dep_idx, ns_name)
+    SymbolDetail(usize, usize),   // (dep_idx, item_idx)
+}
+
 struct DocApp<'a> {
     deps: &'a [DocDependency],
     ctx: RenderCtx,
@@ -532,6 +544,7 @@ struct DocApp<'a> {
 
     // Which dep's content is currently shown in the centre panel.
     content_dep_idx: Option<usize>,
+    nav_mode: NavMode,
 
     // Content (centre)
     blocks: Vec<ContentBlock>,
@@ -575,6 +588,7 @@ impl<'a> DocApp<'a> {
             doc_items: Vec::new(),
             dep_item_ranges: vec![None; n],
             content_dep_idx: None,
+            nav_mode: NavMode::Welcome,
             blocks: Vec::new(),
             total_lines: 0,
             scroll: 0,
@@ -588,100 +602,140 @@ impl<'a> DocApp<'a> {
         }
     }
 
-    /// Toggle a Dep node: extract items + build content on first open; just toggle on re-open.
-    fn open_dep_node(&mut self, tree_idx: usize) {
+    /// Extract items and build the sidebar sub-tree for a dep, if not already done.
+    fn load_dep_if_needed(&mut self, tree_idx: usize) {
+        if self.tree[tree_idx].loaded {
+            return;
+        }
         let dep_idx = self.tree[tree_idx].dep_idx.unwrap();
 
+        let item_offset = self.doc_items.len();
+        let new_items = extract_dep_items(&self.deps[dep_idx]);
+        let item_count = new_items.len();
+        self.doc_items.extend(new_items);
+        self.dep_item_ranges[dep_idx] = Some((item_offset, item_count));
+
+        let sub = build_api_subtree(
+            &self.doc_items[item_offset..item_offset + item_count],
+            item_offset,
+            1,
+            dep_idx,
+        );
+
+        let has_readme = readme_exists(&self.deps[dep_idx]);
+        let mut ins = tree_idx + 1;
+        if has_readme {
+            self.tree.insert(
+                ins,
+                TreeNode {
+                    label: "README".to_string(),
+                    depth: 1,
+                    kind: TreeNodeKind::Readme,
+                    expanded: false,
+                    item_idx: None,
+                    dep_idx: Some(dep_idx),
+                    loaded: false,
+                },
+            );
+            ins += 1;
+        }
+        for (i, node) in sub.into_iter().enumerate() {
+            self.tree.insert(ins + i, node);
+        }
+        self.tree[tree_idx].loaded = true;
+    }
+
+    /// Activate a Dep node: load items (first time), show overview page, toggle expanded.
+    fn open_dep_node(&mut self, tree_idx: usize) {
+        let dep_idx = self.tree[tree_idx].dep_idx.unwrap();
         self.meta_lines = render_pkg_meta(&self.deps[dep_idx]);
         self.meta_scroll = 0;
 
-        if !self.tree[tree_idx].loaded {
-            // Extract items and record their range in doc_items.
-            let item_offset = self.doc_items.len();
-            let new_items = extract_dep_items(&self.deps[dep_idx]);
-            let item_count = new_items.len();
-            self.doc_items.extend(new_items);
-            self.dep_item_ranges[dep_idx] = Some((item_offset, item_count));
+        self.load_dep_if_needed(tree_idx);
 
-            // Build API sub-tree.
-            let sub = build_api_subtree(
-                &self.doc_items[item_offset..item_offset + item_count],
-                item_offset,
-                1,
-            );
-
-            // Insert README node (depth 1) then API nodes.
-            let has_readme = readme_exists(&self.deps[dep_idx]);
-            let mut ins = tree_idx + 1;
-            if has_readme {
-                self.tree.insert(
-                    ins,
-                    TreeNode {
-                        label: "README".to_string(),
-                        depth: 1,
-                        kind: TreeNodeKind::Readme,
-                        expanded: false,
-                        item_idx: None,
-                        dep_idx: Some(dep_idx),
-                        loaded: false,
-                    },
-                );
-                ins += 1;
-            }
-            for (i, node) in sub.into_iter().enumerate() {
-                self.tree.insert(ins + i, node);
-            }
-            self.tree[tree_idx].loaded = true;
-        }
-
-        // Build (or re-build if switching deps) the centre-panel content.
-        self.render_dep_content(dep_idx);
-        self.scroll = 0;
+        self.nav_mode = NavMode::DepOverview(dep_idx);
+        self.rebuild_content();
         self.tree[tree_idx].expanded = !self.tree[tree_idx].expanded;
         self.focus = Focus::Content;
     }
 
-    /// Populate `blocks` / `links` / `vlines` / `line_map` for `dep_idx`.
-    /// Always prepends the README (if present) before the API items.
-    fn render_dep_content(&mut self, dep_idx: usize) {
+    /// Rebuild `blocks` / `links` / `vlines` from `self.nav_mode`.
+    fn rebuild_content(&mut self) {
         self.blocks.clear();
         self.content_links.clear();
         self.item_vlines.clear();
         self.item_line_map.clear();
+        self.scroll = 0;
 
-        let dep = &self.deps[dep_idx];
+        let mode = self.nav_mode.clone();
+        match mode {
+            NavMode::Welcome => {}
 
-        // 1. README section (if it exists).
-        if readme_exists(dep) {
-            let (rb, rl) = load_readme_content(dep, &self.ctx);
-            self.blocks.extend(rb);
-            self.content_links.extend(rl);
-            // Separator before API items.
-            self.blocks.push(ContentBlock::Lines(vec![
-                Line::raw(""),
-                Line::styled("─".repeat(78), Style::default().fg(Color::DarkGray)),
-                Line::raw(""),
-            ]));
-        }
+            NavMode::Readme(dep_idx) => {
+                let (rb, rl) = load_readme_content(&self.deps[dep_idx], &self.ctx);
+                self.blocks.extend(rb);
+                self.content_links.extend(rl);
+                self.content_dep_idx = Some(dep_idx);
+            }
 
-        // 2. API items (if any).
-        if let Some((offset, count)) = self.dep_item_ranges[dep_idx] {
-            if count > 0 {
-                let items = &self.doc_items[offset..offset + count];
-                load_all_items(
-                    items,
-                    offset,
-                    &self.ctx,
-                    &mut self.blocks,
-                    &mut self.content_links,
-                    &mut self.item_vlines,
-                    &mut self.item_line_map,
-                );
+            NavMode::DepOverview(dep_idx) => {
+                if let Some((offset, count)) = self.dep_item_ranges[dep_idx] {
+                    let (blks, lnks) =
+                        render_overview_blocks(&self.deps[dep_idx], &self.doc_items[offset..offset + count]);
+                    self.blocks = blks;
+                    self.content_links = lnks;
+                }
+                self.content_dep_idx = Some(dep_idx);
+            }
+
+            NavMode::TypePage(dep_idx, item_idx) => {
+                if let Some((offset, count)) = self.dep_item_ranges[dep_idx] {
+                    if item_idx < self.doc_items.len() {
+                        let (blks, lnks) = render_type_page_blocks(
+                            &self.doc_items[item_idx],
+                            item_idx,
+                            &self.doc_items[offset..offset + count],
+                            offset,
+                            &self.ctx,
+                        );
+                        self.blocks = blks;
+                        self.content_links = lnks;
+                    }
+                }
+                self.content_dep_idx = Some(dep_idx);
+            }
+
+            NavMode::NamespacePage(dep_idx, ref ns) => {
+                let ns = ns.clone();
+                if let Some((offset, count)) = self.dep_item_ranges[dep_idx] {
+                    let (blks, lnks) =
+                        render_ns_page_blocks(&ns, &self.doc_items[offset..offset + count], offset, &self.ctx);
+                    self.blocks = blks;
+                    self.content_links = lnks;
+                }
+                self.content_dep_idx = Some(dep_idx);
+            }
+
+            NavMode::SymbolDetail(dep_idx, item_idx) => {
+                if self.dep_item_ranges[dep_idx].is_some() {
+                    if item_idx < self.doc_items.len() {
+                        let item = self.doc_items[item_idx].clone();
+                        load_all_items(
+                            std::slice::from_ref(&item),
+                            item_idx,
+                            &self.ctx,
+                            &mut self.blocks,
+                            &mut self.content_links,
+                            &mut self.item_vlines,
+                            &mut self.item_line_map,
+                        );
+                    }
+                }
+                self.content_dep_idx = Some(dep_idx);
             }
         }
 
         self.total_lines = self.blocks.iter().map(ContentBlock::line_count).sum();
-        self.content_dep_idx = Some(dep_idx);
     }
 
     fn open_tree_item(&mut self) {
@@ -696,40 +750,55 @@ impl<'a> DocApp<'a> {
                 let new_len = visible_nodes(&self.tree).len();
                 self.tree_cursor = self.tree_cursor.min(new_len.saturating_sub(1));
             }
-            TreeNodeKind::Group => {
+            TreeNodeKind::SectionHdr => {
                 self.tree[idx].expanded = !self.tree[idx].expanded;
                 let new_len = visible_nodes(&self.tree).len();
                 self.tree_cursor = self.tree_cursor.min(new_len.saturating_sub(1));
             }
+            TreeNodeKind::Group => {
+                // Navigate to namespace page.
+                if let Some(dep_idx) = self.tree[idx].dep_idx {
+                    let ns = self.tree[idx].label.clone();
+                    self.nav_mode = NavMode::NamespacePage(dep_idx, ns);
+                    self.rebuild_content();
+                    self.focus = Focus::Content;
+                }
+            }
             TreeNodeKind::Symbol => {
-                if let Some(item_idx) = self.tree[idx].item_idx {
-                    self.jump_to_item(item_idx);
+                if let (Some(item_idx), Some(dep_idx)) =
+                    (self.tree[idx].item_idx, self.tree[idx].dep_idx)
+                {
+                    let item = &self.doc_items[item_idx];
+                    self.nav_mode = if is_type_kind(&item.kind) {
+                        NavMode::TypePage(dep_idx, item_idx)
+                    } else {
+                        NavMode::SymbolDetail(dep_idx, item_idx)
+                    };
+                    self.rebuild_content();
+                    self.focus = Focus::Content;
                 }
             }
             TreeNodeKind::Readme => {
                 let dep_idx = self.tree[idx].dep_idx.unwrap();
-                // If this dep's content isn't showing, load it.
-                if self.content_dep_idx != Some(dep_idx) {
-                    // Ensure items are extracted first (they may not be if the dep
-                    // node was expanded via a different path).
-                    if self.dep_item_ranges[dep_idx].is_none() {
-                        let offset = self.doc_items.len();
-                        let items = extract_dep_items(&self.deps[dep_idx]);
-                        let count = items.len();
-                        self.doc_items.extend(items);
-                        self.dep_item_ranges[dep_idx] = Some((offset, count));
-                    }
-                    self.render_dep_content(dep_idx);
-                }
-                self.scroll = 0;
+                self.nav_mode = NavMode::Readme(dep_idx);
+                self.rebuild_content();
                 self.focus = Focus::Content;
             }
         }
     }
 
     fn jump_to_item(&mut self, item_idx: usize) {
-        if let Some(&vline) = self.item_line_map.get(&item_idx) {
-            self.scroll = vline;
+        let dep_idx = self.dep_item_ranges.iter().position(|r| {
+            r.map_or(false, |(off, cnt)| item_idx >= off && item_idx < off + cnt)
+        });
+        if let Some(dep_idx) = dep_idx {
+            let item = &self.doc_items[item_idx];
+            self.nav_mode = if is_type_kind(&item.kind) {
+                NavMode::TypePage(dep_idx, item_idx)
+            } else {
+                NavMode::SymbolDetail(dep_idx, item_idx)
+            };
+            self.rebuild_content();
             self.focus = Focus::Content;
         }
     }
@@ -741,35 +810,6 @@ impl<'a> DocApp<'a> {
                 || item.name.ends_with(&format!(".{target}"))
         });
         if let Some(item_idx) = found {
-            // Highlight the tree node
-            let vis = visible_nodes(&self.tree);
-            if let Some(cursor) = vis
-                .iter()
-                .position(|&ti| self.tree[ti].item_idx == Some(item_idx))
-            {
-                self.tree_cursor = cursor;
-            } else {
-                if let Some(ti) = self.tree.iter().position(|n| n.item_idx == Some(item_idx)) {
-                    let depth = self.tree[ti].depth;
-                    if depth > 0 {
-                        for pi in (0..ti).rev() {
-                            if self.tree[pi].depth < depth
-                                && matches!(
-                                    self.tree[pi].kind,
-                                    TreeNodeKind::Group | TreeNodeKind::Dep
-                                )
-                            {
-                                self.tree[pi].expanded = true;
-                                break;
-                            }
-                        }
-                    }
-                    let vis2 = visible_nodes(&self.tree);
-                    if let Some(cursor) = vis2.iter().position(|&x| x == ti) {
-                        self.tree_cursor = cursor;
-                    }
-                }
-            }
             self.jump_to_item(item_idx);
         }
     }
@@ -1125,10 +1165,8 @@ fn draw_app(frame: &mut ratatui::Frame, app: &mut DocApp<'_>) {
 
 fn draw_help_bar(frame: &mut ratatui::Frame, app: &DocApp<'_>, area: Rect) {
     let text = match app.focus {
-        Focus::Left => "↑/↓  Enter expand/open  →/← focus  q quit",
-        Focus::Content => {
-            "↑/↓  PgUp/PgDn  Tab next decl  Shift-Tab prev decl  click link  ← tree  q quit"
-        }
+        Focus::Left => "↑/↓  Enter navigate  Tab→content  q quit",
+        Focus::Content => "↑/↓  PgUp/Dn  Tab next section  click link  ← tree  q quit",
         Focus::Meta => "↑/↓  Tab/← focus  q quit",
     };
     frame.render_widget(
@@ -1187,41 +1225,45 @@ fn draw_tree(frame: &mut ratatui::Frame, app: &mut DocApp<'_>, area: Rect) {
                         Span::styled(format!("{pad}{arrow}"), Style::default().fg(scope_color)),
                         Span::styled(
                             node.label.clone(),
-                            Style::default()
-                                .fg(Color::Reset)
-                                .add_modifier(Modifier::BOLD),
+                            Style::default().fg(Color::Reset).add_modifier(Modifier::BOLD),
                         ),
                     ]))
                 }
-                TreeNodeKind::Group => {
+                TreeNodeKind::SectionHdr => {
                     let arrow = if node.expanded { "▾ " } else { "▸ " };
                     ListItem::new(Line::from(vec![
                         Span::raw(pad),
                         Span::styled(
                             format!("{arrow}{}", node.label),
-                            Style::default().fg(Color::Yellow),
+                            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
                         ),
                     ]))
                 }
-                TreeNodeKind::Symbol => {
-                    let color = node
-                        .item_idx
-                        .and_then(|ii| app.doc_items.get(ii))
-                        .map(|it| match it.kind.label() {
-                            "fn" | "sub" | "func" => Color::LightBlue,
-                            "struct" | "class" => Color::LightGreen,
-                            "enum" => Color::LightMagenta,
-                            _ => Color::Reset,
-                        })
-                        .unwrap_or(Color::Reset);
+                TreeNodeKind::Group => {
+                    // Namespace node — non-expandable, navigates to NamespacePage.
                     ListItem::new(Line::from(vec![
                         Span::raw(pad),
-                        Span::styled(format!("  {}", node.label), Style::default().fg(color)),
+                        Span::styled("[ns]  ", Style::default().fg(Color::Yellow)),
+                        Span::raw(node.label.clone()),
+                    ]))
+                }
+                TreeNodeKind::Symbol => {
+                    let (badge, badge_color) = node
+                        .item_idx
+                        .and_then(|ii| app.doc_items.get(ii))
+                        .map(|it| kind_badge_info(&it.kind))
+                        .unwrap_or(("[???]", Color::DarkGray));
+                    ListItem::new(Line::from(vec![
+                        Span::raw(pad),
+                        Span::styled(badge, Style::default().fg(badge_color)),
+                        Span::raw("  "),
+                        Span::raw(node.label.clone()),
                     ]))
                 }
                 TreeNodeKind::Readme => ListItem::new(Line::from(vec![
                     Span::raw(pad),
-                    Span::styled("  README", Style::default().fg(Color::Cyan)),
+                    Span::styled("[doc]  ", Style::default().fg(Color::Cyan)),
+                    Span::raw("README"),
                 ])),
             }
         })
@@ -1239,10 +1281,41 @@ fn draw_tree(frame: &mut ratatui::Frame, app: &mut DocApp<'_>, area: Rect) {
     );
 }
 
+fn content_title(app: &DocApp<'_>) -> String {
+    match &app.nav_mode {
+        NavMode::Welcome => "docs".to_string(),
+        NavMode::Readme(di) => format!(
+            "README — {}",
+            app.deps.get(*di).map(|d| d.name.as_str()).unwrap_or("")
+        ),
+        NavMode::DepOverview(di) => format!(
+            "Overview — {}",
+            app.deps.get(*di).map(|d| d.name.as_str()).unwrap_or("")
+        ),
+        NavMode::TypePage(_, ii) => {
+            let item = app.doc_items.get(*ii);
+            format!(
+                "{} — {}",
+                item.map(|i| i.kind.label()).unwrap_or("type"),
+                item.map(|i| local_name_of(&i.name)).unwrap_or("")
+            )
+        }
+        NavMode::NamespacePage(_, ns) => format!("namespace — {ns}"),
+        NavMode::SymbolDetail(_, ii) => {
+            let item = app.doc_items.get(*ii);
+            format!(
+                "{} — {}",
+                item.map(|i| i.kind.label()).unwrap_or("item"),
+                item.map(|i| local_name_of(&i.name)).unwrap_or("")
+            )
+        }
+    }
+}
+
 fn draw_content(frame: &mut ratatui::Frame, app: &mut DocApp<'_>, area: Rect) {
     let focused = app.focus == Focus::Content;
     let outer = Block::default()
-        .title("docs")
+        .title(content_title(app))
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
         .border_style(if focused {
@@ -1576,134 +1649,134 @@ fn extract_dep_items(dep: &DocDependency) -> Vec<DocItem> {
     docify::extract::extract_dir(&scan_dir).items
 }
 
-/// Build API sub-tree nodes for one dependency's items.
+/// Build API sub-tree nodes for one dependency's items, mirroring the Doxygen
+/// web sidebar: three collapsible sections (Classes & Types / Namespaces / Free
+/// Symbols).  Empty sections are omitted.
 ///
 /// `item_offset` is the position of `items[0]` in the global `doc_items` vec.
-/// `base_depth` is the depth of the generated nodes (1 for dep children).
-///
-/// Grouping mirrors Doxygen's class-reference layout:
-/// - If multiple languages are present a language node wraps each language's items.
-/// - Within each language, namespaced items are grouped under a namespace node.
-/// - Within each namespace (or at the free-symbol level), items are sub-grouped by
-///   kind when multiple kinds are present: Types → Modules → Functions → Variables.
-fn build_api_subtree(items: &[DocItem], item_offset: usize, base_depth: usize) -> Vec<TreeNode> {
-    use std::collections::BTreeMap;
+/// `base_depth` is the depth of the generated nodes (1 for direct dep children).
+/// `dep_idx` is stored on every generated node for navigation.
+fn build_api_subtree(
+    items: &[DocItem],
+    item_offset: usize,
+    base_depth: usize,
+    dep_idx: usize,
+) -> Vec<TreeNode> {
+    use std::collections::BTreeSet;
 
-    // --- 1. Group indices by language ---
-    let mut by_lang: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+    let mut type_indices: Vec<usize> = Vec::new();
+    let mut namespaces: BTreeSet<String> = BTreeSet::new();
+    let mut free_indices: Vec<usize> = Vec::new();
+
     for (i, item) in items.iter().enumerate() {
-        if item.name.is_empty() { continue; }
-        by_lang.entry(item.lang.label().to_string()).or_default().push(item_offset + i);
+        if item.name.is_empty() {
+            continue;
+        }
+        let global = item_offset + i;
+        let has_ns = item.name.contains("::") || item.name.contains('.');
+
+        if is_type_kind(&item.kind) {
+            type_indices.push(global);
+        } else if has_ns {
+            // Collect the top-level namespace prefix.
+            let p = item.name.rfind("::").or_else(|| item.name.rfind('.')).unwrap();
+            namespaces.insert(item.name[..p].to_string());
+        } else {
+            free_indices.push(global);
+        }
     }
 
-    let single_lang = by_lang.len() <= 1;
-    let mut tree = Vec::new();
+    // Sort type and free lists by local name.
+    type_indices.sort_by(|&a, &b| {
+        local_name_of(&items[a - item_offset].name)
+            .cmp(local_name_of(&items[b - item_offset].name))
+    });
+    free_indices.sort_by(|&a, &b| {
+        local_name_of(&items[a - item_offset].name)
+            .cmp(local_name_of(&items[b - item_offset].name))
+    });
 
-    for (lang, lang_indices) in &by_lang {
-        // Language group (only when multiple languages are present)
-        let ns_depth = if single_lang {
-            base_depth
-        } else {
+    let mut tree: Vec<TreeNode> = Vec::new();
+    let sym_depth = base_depth + 1;
+
+    // --- Classes & Types ---
+    if !type_indices.is_empty() {
+        tree.push(TreeNode {
+            label: "Classes & Types".to_string(),
+            depth: base_depth,
+            kind: TreeNodeKind::SectionHdr,
+            expanded: true,
+            item_idx: None,
+            dep_idx: Some(dep_idx),
+            loaded: false,
+        });
+        for global in type_indices {
+            let item = &items[global - item_offset];
             tree.push(TreeNode {
-                label: lang.clone(),
-                depth: base_depth,
-                kind: TreeNodeKind::Group,
-                expanded: true,
-                item_idx: None,
-                dep_idx: None,
+                label: local_name_of(&item.name).to_string(),
+                depth: sym_depth,
+                kind: TreeNodeKind::Symbol,
+                expanded: false,
+                item_idx: Some(global),
+                dep_idx: Some(dep_idx),
                 loaded: false,
             });
-            base_depth + 1
-        };
-
-        // --- 2. Partition into namespaced vs. free ---
-        let mut by_ns: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-        let mut free: Vec<usize> = Vec::new();
-        for &idx in lang_indices {
-            let name = &items[idx - item_offset].name;
-            if let Some(p) = name.rfind("::").or_else(|| name.rfind('.')) {
-                by_ns.entry(name[..p].to_string()).or_default().push(idx);
-            } else {
-                free.push(idx);
-            }
         }
+    }
 
-        // --- 3. Namespace groups ---
-        for (ns, ns_indices) in &by_ns {
+    // --- Namespaces ---
+    if !namespaces.is_empty() {
+        tree.push(TreeNode {
+            label: "Namespaces".to_string(),
+            depth: base_depth,
+            kind: TreeNodeKind::SectionHdr,
+            expanded: true,
+            item_idx: None,
+            dep_idx: Some(dep_idx),
+            loaded: false,
+        });
+        for ns in &namespaces {
             tree.push(TreeNode {
                 label: ns.clone(),
-                depth: ns_depth,
+                depth: sym_depth,
                 kind: TreeNodeKind::Group,
-                expanded: true,
+                expanded: false,
                 item_idx: None,
-                dep_idx: None,
+                dep_idx: Some(dep_idx),
                 loaded: false,
             });
-            push_kind_groups(&mut tree, ns_indices, items, item_offset, ns_depth + 1);
         }
+    }
 
-        // --- 4. Free symbols ---
-        push_kind_groups(&mut tree, &free, items, item_offset, ns_depth);
+    // --- Free Symbols ---
+    if !free_indices.is_empty() {
+        tree.push(TreeNode {
+            label: "Free Symbols".to_string(),
+            depth: base_depth,
+            kind: TreeNodeKind::SectionHdr,
+            expanded: true,
+            item_idx: None,
+            dep_idx: Some(dep_idx),
+            loaded: false,
+        });
+        for global in free_indices {
+            let item = &items[global - item_offset];
+            tree.push(TreeNode {
+                label: local_name_of(&item.name).to_string(),
+                depth: sym_depth,
+                kind: TreeNodeKind::Symbol,
+                expanded: false,
+                item_idx: Some(global),
+                dep_idx: Some(dep_idx),
+                loaded: false,
+            });
+        }
     }
 
     tree
 }
 
-/// Append kind sub-groups (or direct symbol nodes when only one kind is present).
-fn push_kind_groups(
-    tree: &mut Vec<TreeNode>,
-    indices: &[usize],
-    items: &[DocItem],
-    item_offset: usize,
-    depth: usize,
-) {
-    if indices.is_empty() { return; }
-
-    // Sort by (kind_rank, local_name)
-    let mut sorted: Vec<(u8, String, usize)> = indices.iter().map(|&idx| {
-        let it    = &items[idx - item_offset];
-        let local = it.name.rfind("::").or_else(|| it.name.rfind('.'))
-            .map_or(it.name.as_str(), |p| &it.name[p + 2..]);
-        (kind_rank(&it.kind), local.to_lowercase(), idx)
-    }).collect();
-    sorted.sort();
-
-    let multi_kind = {
-        let mut r = sorted[0].0;
-        sorted.iter().any(|(rank, _, _)| { let changed = *rank != r; r = *rank; changed })
-    };
-
-    let mut cur_rank: Option<u8> = None;
-    for (rank, _, idx) in sorted {
-        if multi_kind && Some(rank) != cur_rank {
-            cur_rank = Some(rank);
-            tree.push(TreeNode {
-                label: kind_section_label(rank).to_string(),
-                depth,
-                kind: TreeNodeKind::Group,
-                expanded: true,
-                item_idx: None,
-                dep_idx: None,
-                loaded: false,
-            });
-        }
-        let item = &items[idx - item_offset];
-        let sym_depth = if multi_kind { depth + 1 } else { depth };
-        let local     = item.name.rfind("::").or_else(|| item.name.rfind('.'))
-            .map_or(item.name.as_str(), |p| &item.name[p + 2..]);
-        tree.push(TreeNode {
-            label: local.to_owned(),
-            depth: sym_depth,
-            kind: TreeNodeKind::Symbol,
-            expanded: false,
-            item_idx: Some(idx),
-            dep_idx: None,
-            loaded: false,
-        });
-    }
-}
-
-/// Return indices of currently-visible tree nodes, respecting collapsed groups and deps.
+/// Return indices of currently-visible tree nodes, respecting collapsed sections and deps.
 fn visible_nodes(tree: &[TreeNode]) -> Vec<usize> {
     let mut vis = Vec::new();
     let mut skip: Option<usize> = None;
@@ -1715,11 +1788,310 @@ fn visible_nodes(tree: &[TreeNode]) -> Vec<usize> {
             skip = None;
         }
         vis.push(i);
-        if matches!(node.kind, TreeNodeKind::Group | TreeNodeKind::Dep) && !node.expanded {
+        if matches!(node.kind, TreeNodeKind::SectionHdr | TreeNodeKind::Dep) && !node.expanded {
             skip = Some(node.depth);
         }
     }
     vis
+}
+
+// ── Doxygen-style page renderers ──────────────────────────────────────────────
+
+fn is_type_kind(kind: &DocKind) -> bool {
+    matches!(
+        kind,
+        DocKind::Class | DocKind::Struct | DocKind::Interface | DocKind::Enum | DocKind::Typedef
+    )
+}
+
+fn local_name_of(name: &str) -> &str {
+    name.rfind("::").or_else(|| name.rfind('.'))
+        .map(|p| &name[p + 2..])
+        .unwrap_or(name)
+}
+
+fn kind_badge_info(kind: &DocKind) -> (&'static str, Color) {
+    match kind {
+        DocKind::Class     => ("[cls]", Color::LightGreen),
+        DocKind::Struct    => ("[str]", Color::LightGreen),
+        DocKind::Enum      => ("[enm]", Color::LightMagenta),
+        DocKind::Interface => ("[ifc]", Color::LightYellow),
+        DocKind::Typedef   => ("[typ]", Color::Cyan),
+        DocKind::Module    => ("[mod]", Color::Yellow),
+        DocKind::Function  => ("[fn] ", Color::LightBlue),
+        DocKind::Subroutine => ("[sub]", Color::LightBlue),
+        DocKind::Macro     => ("[mac]", Color::LightRed),
+        DocKind::Variable  => ("[var]", Color::Gray),
+        DocKind::Unknown   => ("[???]", Color::DarkGray),
+    }
+}
+
+/// Render one item as a single summary row: badge  name  brief.
+fn item_row_line(item: &DocItem, width: usize) -> Line<'static> {
+    let (badge, badge_color) = kind_badge_info(&item.kind);
+    let local = local_name_of(&item.name).to_string();
+    let brief = item.brief.as_str().trim().to_string();
+
+    let name_w: usize = 22;
+    let used = 2 + 5 + 2 + name_w + 2; // "  " + badge(5) + "  " + name + "  "
+    let brief_w = width.saturating_sub(used);
+
+    let name_col: String = if local.chars().count() <= name_w {
+        format!("{:<width$}", local, width = name_w)
+    } else {
+        let s: String = local.chars().take(name_w.saturating_sub(1)).collect();
+        format!("{s}…")
+    };
+    let brief_col: String = if brief_w == 0 || brief.is_empty() {
+        String::new()
+    } else if brief.chars().count() <= brief_w {
+        brief
+    } else {
+        let s: String = brief.chars().take(brief_w.saturating_sub(1)).collect();
+        format!("{s}…")
+    };
+
+    Line::from(vec![
+        Span::raw("  "),
+        Span::styled(badge, Style::default().fg(badge_color)),
+        Span::raw("  "),
+        Span::styled(name_col, Style::default().fg(Color::White)),
+        Span::raw("  "),
+        Span::styled(brief_col, Style::default().fg(Color::DarkGray)),
+    ])
+}
+
+/// Overview page for a dependency (mirrors `navIndex` in the web UI).
+/// Returns (blocks, content_links) — links let mouse-clicks navigate to detail pages.
+fn render_overview_blocks(
+    dep: &DocDependency,
+    items: &[DocItem],
+) -> (Vec<ContentBlock>, Vec<(usize, String)>) {
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    let mut links: Vec<(usize, String)> = Vec::new();
+
+    lines.push(Line::raw(""));
+    lines.push(heading_line(
+        pulldown_cmark::HeadingLevel::H1,
+        &format!("{} {}", dep.name, dep.version),
+    ));
+    lines.push(Line::raw(""));
+
+    let types: Vec<&DocItem> = items
+        .iter()
+        .filter(|i| is_type_kind(&i.kind) && !i.name.is_empty())
+        .collect();
+    let free: Vec<&DocItem> = items
+        .iter()
+        .filter(|i| !i.name.is_empty() && !is_type_kind(&i.kind) && !i.name.contains("::") && !i.name.contains('.'))
+        .collect();
+    // Unique namespace prefixes (from namespaced items).
+    let mut ns_set: std::collections::BTreeSet<String> = Default::default();
+    for item in items.iter().filter(|i| !i.name.is_empty()) {
+        if let Some(p) = item.name.rfind("::").or_else(|| item.name.rfind('.')) {
+            ns_set.insert(item.name[..p].to_string());
+        }
+    }
+
+    if !types.is_empty() {
+        lines.push(section_kind_line("Classes & Types"));
+        lines.push(Line::raw(""));
+        for item in &types {
+            let vl = lines.len();
+            links.push((vl, item.name.clone()));
+            lines.push(item_row_line(item, 76));
+        }
+        lines.push(Line::raw(""));
+    }
+
+    if !ns_set.is_empty() {
+        lines.push(section_kind_line("Namespaces"));
+        lines.push(Line::raw(""));
+        for ns in &ns_set {
+            lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled("[ns]  ", Style::default().fg(Color::Yellow)),
+                Span::raw(ns.clone()),
+            ]));
+        }
+        lines.push(Line::raw(""));
+    }
+
+    if !free.is_empty() {
+        lines.push(section_kind_line("Free Symbols"));
+        lines.push(Line::raw(""));
+        for item in &free {
+            let vl = lines.len();
+            links.push((vl, item.name.clone()));
+            lines.push(item_row_line(item, 76));
+        }
+        lines.push(Line::raw(""));
+    }
+
+    if types.is_empty() && ns_set.is_empty() && free.is_empty() {
+        lines.push(Line::styled(
+            "  No documented symbols found.",
+            Style::default().fg(Color::DarkGray),
+        ));
+        lines.push(Line::raw(""));
+        lines.push(Line::styled(
+            "  Open README for more information.",
+            Style::default().fg(Color::DarkGray),
+        ));
+    }
+
+    (vec![ContentBlock::Lines(lines)], links)
+}
+
+/// Type detail page (mirrors `navClass` / `navSymbol` in the web UI).
+/// Shows the type's own docs then a summary table of its members.
+fn render_type_page_blocks(
+    type_item: &DocItem,
+    _type_item_global: usize,
+    all_items: &[DocItem],
+    _item_offset: usize,
+    ctx: &RenderCtx,
+) -> (Vec<ContentBlock>, Vec<(usize, String)>) {
+    let mut blocks: Vec<ContentBlock> = Vec::new();
+    let mut links: Vec<(usize, String)> = Vec::new();
+
+    // Header.
+    let (badge, badge_color) = kind_badge_info(&type_item.kind);
+    blocks.push(ContentBlock::Lines(vec![
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled(
+                format!("{}  ", badge),
+                Style::default().fg(badge_color).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                type_item.name.clone(),
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::styled("─".repeat(60), Style::default().fg(Color::DarkGray)),
+        Line::raw(""),
+    ]));
+
+    // Full doc for the type itself.
+    let md = docify::render_tui::items_to_markdown(std::slice::from_ref(type_item));
+    let (item_blocks, item_links) = markdown_to_blocks(&md, 76, ctx);
+    let base_vl: usize = blocks.iter().map(|b| b.line_count()).sum();
+    for (vl, tgt) in item_links {
+        links.push((base_vl + vl, tgt));
+    }
+    blocks.extend(item_blocks);
+
+    // Member tables: search for items with prefix "TypeName::" or "TypeName.".
+    let prefix_cc = format!("{}::", type_item.name);
+    let prefix_dot = format!("{}.", type_item.name);
+
+    let mut fns: Vec<&DocItem> = Vec::new();
+    let mut vars: Vec<&DocItem> = Vec::new();
+
+    for item in all_items.iter().filter(|i| {
+        !i.name.is_empty()
+            && (i.name.starts_with(&prefix_cc) || i.name.starts_with(&prefix_dot))
+    }) {
+        if matches!(item.kind, DocKind::Function | DocKind::Subroutine | DocKind::Macro) {
+            fns.push(item);
+        } else {
+            vars.push(item);
+        }
+    }
+
+    for (label, members) in [("Member Functions", &fns), ("Fields & Constants", &vars)] {
+        if members.is_empty() {
+            continue;
+        }
+        blocks.push(ContentBlock::Lines(vec![
+            Line::raw(""),
+            section_kind_line(label),
+            Line::raw(""),
+        ]));
+        for member in members.iter() {
+            let row_vl: usize = blocks.iter().map(|b| b.line_count()).sum();
+            links.push((row_vl, member.name.clone()));
+            blocks.push(ContentBlock::Lines(vec![item_row_line(member, 76)]));
+        }
+    }
+
+    blocks.push(ContentBlock::Lines(vec![Line::raw("")]));
+    (blocks, links)
+}
+
+/// Namespace detail page (mirrors `navNamespace` in the web UI).
+/// Shows all items whose name has `ns` as a prefix.
+fn render_ns_page_blocks(
+    ns: &str,
+    all_items: &[DocItem],
+    _item_offset: usize,
+    _ctx: &RenderCtx,
+) -> (Vec<ContentBlock>, Vec<(usize, String)>) {
+    let mut blocks: Vec<ContentBlock> = Vec::new();
+    let mut links: Vec<(usize, String)> = Vec::new();
+
+    blocks.push(ContentBlock::Lines(vec![
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled("[mod]  ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                ns.to_string(),
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::styled("─".repeat(60), Style::default().fg(Color::DarkGray)),
+        Line::raw(""),
+    ]));
+
+    let prefix_cc = format!("{ns}::");
+    let prefix_dot = format!("{ns}.");
+
+    let mut types: Vec<&DocItem> = Vec::new();
+    let mut fns: Vec<&DocItem> = Vec::new();
+    let mut vars: Vec<&DocItem> = Vec::new();
+
+    for item in all_items.iter().filter(|i| {
+        !i.name.is_empty()
+            && (i.name.starts_with(&prefix_cc) || i.name.starts_with(&prefix_dot))
+    }) {
+        if is_type_kind(&item.kind) {
+            types.push(item);
+        } else if matches!(item.kind, DocKind::Function | DocKind::Subroutine | DocKind::Macro) {
+            fns.push(item);
+        } else {
+            vars.push(item);
+        }
+    }
+
+    for (label, members) in [
+        ("Types", &types),
+        ("Functions", &fns),
+        ("Variables & Constants", &vars),
+    ] {
+        if members.is_empty() {
+            continue;
+        }
+        blocks.push(ContentBlock::Lines(vec![
+            section_kind_line(label),
+            Line::raw(""),
+        ]));
+        for member in members.iter() {
+            let row_vl: usize = blocks.iter().map(|b| b.line_count()).sum();
+            links.push((row_vl, member.name.clone()));
+            blocks.push(ContentBlock::Lines(vec![item_row_line(member, 76)]));
+        }
+        blocks.push(ContentBlock::Lines(vec![Line::raw("")]));
+    }
+
+    if types.is_empty() && fns.is_empty() && vars.is_empty() {
+        blocks.push(ContentBlock::Lines(vec![Line::styled(
+            format!("  No items found in '{ns}'."),
+            Style::default().fg(Color::DarkGray),
+        )]));
+    }
+
+    (blocks, links)
 }
 
 /// Render package metadata from the dep's freight.toml as styled lines.
@@ -2629,34 +3001,29 @@ mod tree_tests {
 
     #[test]
     fn build_api_subtree_namespaced_items_visible() {
-        // Items with "ns::name" form are grouped under the namespace, then sub-grouped
-        // by kind when multiple kinds are present (Doxygen-style).
+        // Class in a namespace → "Classes & Types" section.
+        // Functions in a namespace → "Namespaces" section (group node for the ns).
         let items = vec![
             make_item("stats::mean", DocKind::Function),
             make_item("stats::variance", DocKind::Function),
             make_item("stats::OrderStatistics", DocKind::Class),
             make_item("", DocKind::Unknown), // @file block — should be skipped
         ];
-        let sub = build_api_subtree(&items, 0, 1);
+        let sub = build_api_subtree(&items, 0, 1, 0);
 
-        // All items are C++ (single lang) → no language group.
-        // Namespace group "stats" + kind sub-groups "Types"/"Functions" + 3 symbols.
-        let groups: Vec<_> = sub
-            .iter()
-            .filter(|n| matches!(n.kind, TreeNodeKind::Group))
-            .collect();
-        let syms: Vec<_> = sub
-            .iter()
-            .filter(|n| matches!(n.kind, TreeNodeKind::Symbol))
-            .collect();
-        assert_eq!(groups.len(), 3, "stats + Types + Functions groups");
-        assert_eq!(syms.len(), 3, "expected 3 symbols");
+        let hdrs: Vec<_> = sub.iter().filter(|n| matches!(n.kind, TreeNodeKind::SectionHdr)).collect();
+        let groups: Vec<_> = sub.iter().filter(|n| matches!(n.kind, TreeNodeKind::Group)).collect();
+        let syms: Vec<_> = sub.iter().filter(|n| matches!(n.kind, TreeNodeKind::Symbol)).collect();
+
+        // "Classes & Types" (OrderStatistics) + "Namespaces" (stats group)
+        assert_eq!(hdrs.len(), 2, "Classes & Types and Namespaces section headers");
+        assert_eq!(groups.len(), 1, "one namespace group: stats");
+        assert_eq!(syms.len(), 1, "one type symbol: OrderStatistics");
+        assert_eq!(hdrs[0].label, "Classes & Types");
+        assert_eq!(hdrs[1].label, "Namespaces");
         assert_eq!(groups[0].label, "stats");
-        assert!(groups[0].expanded, "group should start expanded");
-        assert_eq!(groups[1].label, "Types");
-        assert_eq!(groups[2].label, "Functions");
+        assert_eq!(syms[0].label, "OrderStatistics");
 
-        // Build a minimal tree with a Dep + the subtree.
         let mut tree = vec![TreeNode {
             label: "dep 0.1".to_string(),
             depth: 0,
@@ -2669,24 +3036,24 @@ mod tree_tests {
         tree.extend(sub);
 
         let vis = visible_nodes(&tree);
-        // dep + stats + Types + OrderStatistics + Functions + mean + variance = 7
-        assert_eq!(
-            vis.len(),
-            7,
-            "dep, namespace group, 2 kind groups, and 3 symbols"
-        );
+        // dep + "Classes & Types" hdr + OrderStatistics + "Namespaces" hdr + stats = 5
+        assert_eq!(vis.len(), 5, "dep, 2 section headers, 1 type symbol, 1 ns group");
     }
 
     #[test]
     fn build_api_subtree_flat_items_visible() {
-        // Items without "::" go to roots and are directly visible.
+        // Top-level functions (no "::") go to "Free Symbols" section.
         let items = vec![
             make_item("clamp", DocKind::Function),
             make_item("lerp", DocKind::Function),
         ];
-        let sub = build_api_subtree(&items, 0, 1);
-        assert_eq!(sub.len(), 2);
-        assert!(sub.iter().all(|n| matches!(n.kind, TreeNodeKind::Symbol)));
+        let sub = build_api_subtree(&items, 0, 1, 0);
+
+        let hdrs: Vec<_> = sub.iter().filter(|n| matches!(n.kind, TreeNodeKind::SectionHdr)).collect();
+        let syms: Vec<_> = sub.iter().filter(|n| matches!(n.kind, TreeNodeKind::Symbol)).collect();
+        assert_eq!(hdrs.len(), 1, "only Free Symbols section header");
+        assert_eq!(syms.len(), 2, "clamp + lerp");
+        assert_eq!(hdrs[0].label, "Free Symbols");
 
         let mut tree = vec![TreeNode {
             label: "dep 0.1".to_string(),
@@ -2699,13 +3066,14 @@ mod tree_tests {
         }];
         tree.extend(sub);
         let vis = visible_nodes(&tree);
-        assert_eq!(vis.len(), 3, "dep + 2 symbols");
+        // dep + "Free Symbols" hdr + clamp + lerp = 4
+        assert_eq!(vis.len(), 4, "dep, section header, 2 symbols");
     }
 
     #[test]
     fn collapsed_dep_hides_children() {
         let items = vec![make_item("foo", DocKind::Function)];
-        let sub = build_api_subtree(&items, 0, 1);
+        let sub = build_api_subtree(&items, 0, 1, 0);
         let mut tree = vec![TreeNode {
             label: "dep 0.1".to_string(),
             depth: 0,
