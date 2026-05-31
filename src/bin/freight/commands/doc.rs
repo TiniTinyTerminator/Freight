@@ -917,51 +917,36 @@ fn handle_key(app: &mut DocApp<'_>, key: KeyEvent) -> bool {
             app.focus = Focus::Content;
         }
 
-        // Tab: Left→next dep node; Content→next declaration; Meta→Left.
-        // Shift-Tab: Left→prev dep node; Content→prev declaration; Meta→Left.
+        // Tab / Shift-Tab: jump between sections in the content pane from any focus.
         KeyEvent {
             code: KeyCode::Tab,
             modifiers: KeyModifiers::NONE,
             ..
         } => match app.focus {
-            Focus::Left => {
-                let vis = visible_nodes(&app.tree);
-                let next = vis
-                    .iter()
-                    .position(|&ti| {
-                        app.tree[ti].kind == TreeNodeKind::Dep
-                            && ti > vis.get(app.tree_cursor).copied().unwrap_or(0)
-                    })
-                    .unwrap_or(app.tree_cursor);
-                app.tree_cursor = next;
-            }
-            Focus::Content => {
-                app.next_declaration();
-            }
-            Focus::Meta => {
-                app.focus = Focus::Left;
-            }
+            Focus::Left | Focus::Content => app.next_declaration(),
+            Focus::Meta => app.focus = Focus::Left,
         },
         KeyEvent {
             code: KeyCode::BackTab,
             ..
         } => match app.focus {
-            Focus::Left => {
-                let vis = visible_nodes(&app.tree);
-                let cur_ti = vis.get(app.tree_cursor).copied().unwrap_or(0);
-                let prev = vis
-                    .iter()
-                    .rposition(|&ti| app.tree[ti].kind == TreeNodeKind::Dep && ti < cur_ti)
-                    .unwrap_or(app.tree_cursor);
-                app.tree_cursor = prev;
-            }
-            Focus::Content => {
-                app.prev_declaration();
-            }
-            _ => {
-                app.focus = Focus::Left;
-            }
+            Focus::Left | Focus::Content => app.prev_declaration(),
+            Focus::Meta => app.focus = Focus::Left,
         },
+
+        // PageUp / PageDown: scroll content pane from any focus.
+        KeyEvent {
+            code: KeyCode::PageUp,
+            ..
+        } => {
+            app.scroll = app.scroll.saturating_sub(20);
+        }
+        KeyEvent {
+            code: KeyCode::PageDown,
+            ..
+        } => {
+            app.scroll = (app.scroll + 20).min(app.total_lines.saturating_sub(1));
+        }
 
         KeyEvent {
             code: KeyCode::Esc, ..
@@ -1003,21 +988,6 @@ fn handle_left_key(app: &mut DocApp<'_>, key: KeyEvent) {
         } => {
             let vis_len = visible_nodes(&app.tree).len();
             app.tree_cursor = (app.tree_cursor + 1).min(vis_len.saturating_sub(1));
-        }
-        KeyEvent {
-            code: KeyCode::PageUp,
-            ..
-        } => {
-            let v = app.tree_visible.max(1);
-            app.tree_cursor = app.tree_cursor.saturating_sub(v);
-        }
-        KeyEvent {
-            code: KeyCode::PageDown,
-            ..
-        } => {
-            let v = app.tree_visible.max(1);
-            let n = visible_nodes(&app.tree).len().saturating_sub(1);
-            app.tree_cursor = (app.tree_cursor + v).min(n);
         }
         KeyEvent {
             code: KeyCode::Home,
@@ -1071,16 +1041,6 @@ fn handle_content_key(app: &mut DocApp<'_>, key: KeyEvent) {
             app.scroll = (app.scroll + 1).min(total.saturating_sub(1));
         }
         KeyEvent {
-            code: KeyCode::PageUp,
-            ..
-        } => {
-            app.scroll = app.scroll.saturating_sub(20);
-        }
-        KeyEvent {
-            code: KeyCode::PageDown,
-            ..
-        }
-        | KeyEvent {
             code: KeyCode::Char(' '),
             ..
         } => {
@@ -1216,7 +1176,7 @@ fn draw_app(frame: &mut ratatui::Frame, app: &mut DocApp<'_>) {
 
 fn draw_help_bar(frame: &mut ratatui::Frame, app: &DocApp<'_>, area: Rect) {
     let text = match app.focus {
-        Focus::Left => "↑/↓  PgUp/Dn  Tab next pkg  Enter open  →content  q quit",
+        Focus::Left => "↑/↓  Enter open  Tab/PgUp/Dn scroll docs  → content focus  q quit",
         Focus::Content => "↑/↓  PgUp/Dn  Tab next section  Enter/click link  ← tree  q quit",
         Focus::Meta => "↑/↓  Tab/← focus  q quit",
     };
