@@ -1497,14 +1497,19 @@ fn push_fenced_code(out: &mut Vec<Line<'static>>, fence_lang: &str, code: &str, 
         border,
     ));
 
-    // Code lines — syntax highlighted, wrapped in │ … │
+    // Code lines — syntax highlighted, padded to width and wrapped in │ … │
+    let inner_w = w.saturating_sub(4); // "│ " + content + " │"
     let md_src = format!("```{fence_lang}\n{code}\n```\n");
     let rendered = tui_markdown::from_str(&md_src);
     for line in rendered.lines {
         let raw: String = line.spans.iter().map(|s| s.content.as_ref()).collect();
         if raw.trim().starts_with("```") { continue; }
+        let text_len: usize = raw.chars().count();
+        let padding = " ".repeat(inner_w.saturating_sub(text_len));
         let mut spans: Vec<Span<'static>> = vec![Span::styled("│ ", border)];
         spans.extend(line.spans.into_iter().map(|s| Span::styled(s.content.into_owned(), s.style)));
+        spans.push(Span::raw(padding));
+        spans.push(Span::styled(" │", border));
         out.push(Line::from(spans));
     }
 
