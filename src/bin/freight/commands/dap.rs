@@ -39,6 +39,7 @@ struct DapServer {
     breakpoints_applied: bool,
     debug_started: bool,
     configuration_done: bool,
+    init_request: Option<Value>,
 }
 
 impl DapServer {
@@ -59,6 +60,7 @@ impl DapServer {
             breakpoints_applied: false,
             debug_started: false,
             configuration_done: false,
+            init_request: None,
         }
     }
 
@@ -103,6 +105,7 @@ impl DapServer {
     }
 
     fn handle_initialize(&mut self, request: &Value) -> anyhow::Result<()> {
+        self.init_request = Some(request.clone());
         self.response(
             request,
             json!({
@@ -124,8 +127,14 @@ impl DapServer {
         }
 
         if config["mode"].as_str().unwrap_or("run") == "debug" {
-            match self.launch_debug(&config) {
-                Ok(()) => {
+            match self.launch_debug(request, &config) {
+                Ok(true) => {
+                    // Passthrough mode: the relay already handled the full session,
+                    // including forwarding the adapter's launch response and initialized
+                    // event to VS Code. Nothing more to send.
+                }
+                Ok(false) => {
+                    // MI2 mode: we own the protocol; send initialized + launch response.
                     self.event("initialized", json!({}))?;
                     self.response(request, json!({}))?;
                     if self.configuration_done {
@@ -143,7 +152,6 @@ impl DapServer {
 
         match self.launch_run(&config) {
             Ok(()) => {
-                self.event("initialized", json!({}))?;
                 self.response(request, json!({}))?;
             }
             Err(err) => {
@@ -178,7 +186,9 @@ impl DapServer {
         Ok(())
     }
 
-    fn launch_debug(&mut self, config: &Value) -> anyhow::Result<()> {
+    /// Returns `Ok(true)` if passthrough mode ran the full session inline.
+    /// Returns `Ok(false)` if MI2 mode was set up and the caller should drive the protocol.
+    fn launch_debug(&mut self, launch_request: &Value, config: &Value) -> anyhow::Result<bool> {
         let project_dir = find_project_dir()?;
         let manifest = load_manifest(&project_dir)?;
         let mut global_cfg = GlobalConfig::load();
@@ -232,7 +242,7 @@ impl DapServer {
                         &debugger.path,
                         &["--interpreter=dap"],
                         &binary,
-                        config,
+                        launch_request,
                     )
                 } else {
                     self.output(
@@ -244,7 +254,8 @@ impl DapServer {
                         ),
                         "console",
                     )?;
-                    self.launch_gdb_mi2(&debugger.path, &binary, config)
+                    self.launch_gdb_mi2(&debugger.path, &binary, config)?;
+                    Ok(false)
                 }
             }
             "lldb" => {
@@ -257,7 +268,7 @@ impl DapServer {
                         ),
                         "console",
                     )?;
-                    self.run_passthrough(&dap_bin, &[], &binary, config)
+                    self.run_passthrough(&dap_bin, &[], &binary, launch_request)
                 } else {
                     anyhow::bail!(
                         "lldb-dap / lldb-vscode not found; install lldb-dap alongside lldb for DAP support"
@@ -272,24 +283,18 @@ impl DapServer {
         }
     }
 
-    /// Passthrough mode: build, then proxy all DAP messages to the adapter subprocess,
-    /// injecting `arguments.program` into the `launch` request.
+    /// Passthrough mode: spawn the native DAP adapter, bootstrap it with `initialize`
+    /// and `launch` (which VS Code already sent to us), then relay all subsequent
+    /// traffic bidirectionally until the adapter exits.
+    ///
+    /// Returns `Ok(true)` always; the full session is handled inline.
     fn run_passthrough(
         &mut self,
         adapter_bin: &Path,
         adapter_args: &[&str],
         binary: &Path,
-        _config: &Value,
-    ) -> anyhow::Result<()> {
-        // Collect all buffered requests up to (and including) `launch`, inject
-        // `program`, then forward them to the adapter.  After `launch` we enter
-        // a simple relay loop.
-
-        // Drain any requests that arrived before we were called (initialize, …).
-        // We cannot do that here because we don't own `self.requests` in a
-        // reentrant way – instead we run the adapter subprocess and do the relay
-        // synchronously on this thread, returning only when the adapter exits.
-
+        launch_request: &Value,
+    ) -> anyhow::Result<bool> {
         let mut child = Command::new(adapter_bin)
             .args(adapter_args)
             .stdin(Stdio::piped())
@@ -300,44 +305,64 @@ impl DapServer {
         let mut adapter_stdin = child.stdin.take().ok_or_else(|| anyhow::anyhow!("adapter stdin unavailable"))?;
         let adapter_stdout = child.stdout.take().ok_or_else(|| anyhow::anyhow!("adapter stdout unavailable"))?;
 
-        // Channel: adapter stdout bytes → our stdout
+        // Pump adapter stdout into a channel so we can interleave it with VS Code requests.
         let (adapter_out_tx, adapter_out_rx) = mpsc::channel::<Vec<u8>>();
-        {
-            std::thread::spawn(move || {
-                let mut reader = BufReader::new(adapter_stdout);
-                loop {
-                    match read_dap_frame(&mut reader) {
-                        Some(frame) => {
-                            // Re-wrap with Content-Length header
-                            let header = format!("Content-Length: {}\r\n\r\n", frame.len());
-                            let mut msg = header.into_bytes();
-                            msg.extend_from_slice(&frame);
-                            if adapter_out_tx.send(msg).is_err() {
-                                break;
-                            }
+        std::thread::spawn(move || {
+            let mut reader = BufReader::new(adapter_stdout);
+            loop {
+                match read_dap_frame(&mut reader) {
+                    Some(frame) => {
+                        let header = format!("Content-Length: {}\r\n\r\n", frame.len());
+                        let mut msg = header.into_bytes();
+                        msg.extend_from_slice(&frame);
+                        if adapter_out_tx.send(msg).is_err() {
+                            break;
                         }
-                        None => break,
                     }
+                    None => break,
                 }
-            });
+            }
+        });
+
+        // Bootstrap the adapter with the requests VS Code already sent us.
+        // The adapter needs `initialize` before it can accept `launch`.
+        let init_req = self.init_request.clone().unwrap_or_else(|| json!({
+            "type": "request",
+            "seq": 1,
+            "command": "initialize",
+            "arguments": {
+                "clientID": "vscode",
+                "adapterID": "freight",
+                "linesStartAt1": true,
+                "columnsStartAt1": true,
+                "pathFormat": "path"
+            }
+        }));
+        write_dap(&mut adapter_stdin, &init_req)?;
+
+        // Drain the adapter's `initialize` response — we already sent our own
+        // capabilities to VS Code and must not forward the adapter's duplicate.
+        let _ = adapter_out_rx.recv_timeout(Duration::from_secs(5));
+
+        // Forward `launch` with the built binary injected.
+        let mut fwd_launch = launch_request.clone();
+        if let Some(args) = fwd_launch["arguments"].as_object_mut() {
+            args.insert("program".to_string(), Value::String(binary.to_string_lossy().into_owned()));
         }
+        write_dap(&mut adapter_stdin, &fwd_launch)?;
 
-        let binary_str = binary.to_string_lossy().into_owned();
-        let mut launch_forwarded = false;
-
+        // Relay loop: forward adapter output to VS Code, VS Code requests to adapter.
+        // The adapter's `launch` response and `initialized` event come through here
+        // and are forwarded to VS Code, satisfying the pending `launch` request.
         loop {
-            // Forward any bytes from adapter stdout to our stdout.
             while let Ok(bytes) = adapter_out_rx.try_recv() {
                 self.stdout.write_all(&bytes)?;
                 self.stdout.flush()?;
             }
 
-            // Read next request from VS Code (with a short timeout so we can
-            // keep draining adapter output).
-            let mut request = match self.requests.recv_timeout(Duration::from_millis(20)) {
+            let request = match self.requests.recv_timeout(Duration::from_millis(20)) {
                 Ok(r) => r,
                 Err(mpsc::RecvTimeoutError::Timeout) => {
-                    // Check if adapter has exited.
                     if let Ok(Some(_)) = child.try_wait() {
                         break;
                     }
@@ -346,30 +371,20 @@ impl DapServer {
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             };
 
-            // Inject `program` into the launch request.
-            if request["command"].as_str() == Some("launch") && !launch_forwarded {
-                launch_forwarded = true;
-                if let Some(args) = request["arguments"].as_object_mut() {
-                    args.insert("program".to_string(), Value::String(binary_str.clone()));
-                }
-            }
-
             write_dap(&mut adapter_stdin, &request)?;
 
-            // If this was `disconnect` / `terminate`, break after forwarding.
             match request["command"].as_str().unwrap_or("") {
                 "disconnect" | "terminate" => break,
                 _ => {}
             }
         }
 
-        // Drain remaining adapter output.
         let _ = child.wait();
         while let Ok(bytes) = adapter_out_rx.try_recv() {
             let _ = self.stdout.write_all(&bytes);
         }
         let _ = self.stdout.flush();
-        Ok(())
+        Ok(true)
     }
 
     /// GDB/MI2 bridge (fallback for GDB < 14).
