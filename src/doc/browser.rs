@@ -200,6 +200,8 @@ struct App {
     detail_links:  Vec<DocLink>,
     /// When true, detail pane shows source file instead of doc text.
     show_source:   bool,
+    /// Cached source file: (path, lines). Invalidated when the path changes.
+    source_cache:  Option<(std::path::PathBuf, Vec<String>)>,
     /// Loading indicator while the background stdlib thread is running.
     stdlib_status: Option<(usize, usize, String)>, // (done, total, label)
 }
@@ -385,6 +387,7 @@ impl App {
             sym_index,
             detail_links: Vec::new(),
             show_source: false,
+            source_cache: None,
             stdlib_status: Some((0, 1, "starting…".to_string())),
         };
         // Expand first package by default.
@@ -567,14 +570,46 @@ impl App {
         && y >= area.y && y < area.y + area.height
     }
 
+    fn selected_source_item(&self) -> Option<&DocItem> {
+        if let Some((pi, ii)) = self.external_item {
+            return self.hidden.get(pi)?.items.get(ii);
+        }
+        match self.selected_row()?.kind {
+            RowKind::Group { pkg_idx, item_idx }
+            | RowKind::Symbol { pkg_idx, item_idx }
+            | RowKind::Member { pkg_idx, item_idx } => {
+                self.packages.get(pkg_idx)?.items.get(item_idx)
+            }
+            _ => None,
+        }
+    }
+
+    fn ensure_source_cache(&mut self, path: &std::path::Path) {
+        if self.source_cache.as_ref().is_some_and(|(p, _)| p == path) {
+            return;
+        }
+        let lines = std::fs::read_to_string(path)
+            .map(|s| s.lines().map(String::from).collect::<Vec<_>>())
+            .unwrap_or_default();
+        self.source_cache = Some((path.to_path_buf(), lines));
+    }
+
     fn scroll_detail(&mut self, delta: i32) {
-        let inner_w = self.detail_area.width.saturating_sub(2) as usize;
         let inner_h = self.detail_area.height.saturating_sub(2) as usize;
-        let lines = detail_lines(self);
-        let total_visual = visual_row_count(&lines, inner_w);
-        let max = total_visual.saturating_sub(inner_h) as i32;
-        let next = (self.scroll as i32 + delta).clamp(0, max) as u16;
-        self.scroll = next;
+        let max = if self.show_source {
+            // Virtual scroll: total = header(2) + all source lines.
+            let path = self.selected_source_item().map(|i| i.file.clone());
+            let total = if let Some(path) = path {
+                self.ensure_source_cache(&path);
+                self.source_cache.as_ref().map(|(_, l)| l.len()).unwrap_or(0) + 2
+            } else { 0 };
+            total.saturating_sub(inner_h) as i32
+        } else {
+            let inner_w = self.detail_area.width.saturating_sub(2) as usize;
+            let lines = detail_lines(self);
+            visual_row_count(&lines, inner_w).saturating_sub(inner_h) as i32
+        };
+        self.scroll = (self.scroll as i32 + delta).clamp(0, max) as u16;
     }
 
     fn activate_detail_link(&mut self, x: u16, y: u16) -> bool {
@@ -825,11 +860,29 @@ fn render_detail(app: &mut App, f: &mut Frame) {
     let inner = block.inner(app.detail_area);
     f.render_widget(block, app.detail_area);
 
+    // Source view: virtual window — only render visible lines, no Paragraph::scroll.
+    if app.show_source {
+        if let Some(item) = app.selected_source_item() {
+            let path = item.file.clone();
+            let decl_line = item.line.saturating_sub(1);
+            let lang = item.lang.clone();
+            let file_label = path.display().to_string();
+            app.ensure_source_cache(&path);
+            if let Some((_, cached)) = &app.source_cache {
+                let lines = source_lines_windowed(
+                    cached, decl_line, &lang, &file_label,
+                    app.scroll as usize, inner.height as usize,
+                );
+                f.render_widget(Paragraph::new(lines), inner);
+            }
+        }
+        return;
+    }
+
     let mut lines = detail_lines(app);
     app.detail_links.clear();
-    // For hidden items being shown externally, treat them as "current" so they don't link to themselves.
     let current = if app.external_item.is_some() {
-        None // hidden items don't self-link; they're not in visible pkg index
+        None
     } else {
         app.selected_row().and_then(|r| match &r.kind {
             RowKind::Group  { pkg_idx, item_idx }
@@ -864,53 +917,60 @@ fn detail_title(app: &App) -> String {
     }
 }
 
-fn source_lines(item: &DocItem, lang: &DocLanguage, width: usize) -> Vec<Line<'static>> {
-    let Ok(src) = std::fs::read_to_string(&item.file) else {
-        return vec![Line::styled(
-            format!("source not available: {}", item.file.display()),
-            Style::default().fg(COLOR_HINT),
-        )];
-    };
-    let lines: Vec<&str> = src.lines().collect();
-    let decl_line = item.line.saturating_sub(1); // 0-indexed
+/// Render a window of source lines from the cache.
+/// `scroll` and `viewport_h` are in "virtual rows" where row 0 = header, row 1 = blank,
+/// rows 2.. = code lines.
+fn source_lines_windowed(
+    cached_lines: &[String],
+    decl_line: usize,
+    lang: &DocLanguage,
+    file_label: &str,
+    scroll: usize,
+    viewport_h: usize,
+) -> Vec<Line<'static>> {
+    let fence = lang_fence(lang);
     let mut out = Vec::new();
-    out.push(Line::styled(
-        format!(" {} : line {}", item.file.display(), item.line),
-        Style::default().fg(COLOR_HINT),
-    ));
-    out.push(Line::raw(""));
-    for (i, &line) in lines.iter().enumerate() {
-        let abs = i;
-        let is_decl = abs == decl_line;
-        let num_style = if is_decl {
-            Style::default().fg(Color::Yellow)
-        } else {
-            Style::default().fg(Color::DarkGray)
-        };
-        let marker = if is_decl { "▶ " } else { "  " };
-        let mut spans = vec![
-            Span::styled(format!("{:>5} ", abs + 1), num_style),
-            Span::styled(marker.to_string(), Style::default().fg(Color::Yellow)),
-        ];
-        // Syntax-highlight the source line via tui_markdown code block.
-        let fence = lang_fence(lang);
-        let md = format!("```{fence}\n{line}\n```\n");
-        let rendered = tui_markdown::from_str(&md);
-        let code_spans: Vec<Span<'static>> = rendered.lines.into_iter()
-            .find(|l| {
-                let t: String = l.spans.iter().map(|s| s.content.as_ref()).collect();
-                !t.trim().starts_with("```")
-            })
-            .map(|l| l.spans.into_iter()
-                .map(|s| Span::styled(s.content.into_owned(), s.style))
-                .collect())
-            .unwrap_or_else(|| vec![Span::raw(line.to_string())]);
-        spans.extend(code_spans);
-        out.push(Line::from(spans));
+    for vrow in scroll..scroll + viewport_h {
+        match vrow {
+            0 => out.push(Line::styled(
+                format!(" {file_label} : line {}", decl_line + 1),
+                Style::default().fg(COLOR_HINT),
+            )),
+            1 => out.push(Line::raw("")),
+            n => {
+                let abs = n - 2; // 0-indexed source line
+                if abs >= cached_lines.len() { break; }
+                let line = &cached_lines[abs];
+                let is_decl = abs == decl_line;
+                let num_style = if is_decl {
+                    Style::default().fg(Color::Yellow)
+                } else {
+                    Style::default().fg(Color::DarkGray)
+                };
+                let marker = if is_decl { "▶ " } else { "  " };
+                let mut spans = vec![
+                    Span::styled(format!("{:>5} ", abs + 1), num_style),
+                    Span::styled(marker.to_string(), Style::default().fg(Color::Yellow)),
+                ];
+                let md = format!("```{fence}\n{line}\n```\n");
+                let rendered = tui_markdown::from_str(&md);
+                let code_spans: Vec<Span<'static>> = rendered.lines.into_iter()
+                    .find(|l| {
+                        let t: String = l.spans.iter().map(|s| s.content.as_ref()).collect();
+                        !t.trim().starts_with("```")
+                    })
+                    .map(|l| l.spans.into_iter()
+                        .map(|s| Span::styled(s.content.into_owned(), s.style))
+                        .collect())
+                    .unwrap_or_else(|| vec![Span::raw(line.clone())]);
+                spans.extend(code_spans);
+                out.push(Line::from(spans));
+            }
+        }
     }
-    let _ = width;
     out
 }
+
 
 fn detail_lines(app: &App) -> Vec<Line<'static>> {
     let width = app.detail_area.width.saturating_sub(4) as usize;
@@ -919,11 +979,7 @@ fn detail_lines(app: &App) -> Vec<Line<'static>> {
     if let Some((pi, ii)) = app.external_item {
         if let Some(pkg) = app.hidden.get(pi) {
             if let Some(item) = pkg.items.get(ii) {
-                return if app.show_source {
-                    source_lines(item, &item.lang, width)
-                } else {
-                    symbol_lines(item, &pkg.items, width)
-                };
+                return symbol_lines(item, &pkg.items, width);
             }
         }
     }
@@ -935,12 +991,7 @@ fn detail_lines(app: &App) -> Vec<Line<'static>> {
         Some(RowKind::Group { pkg_idx, item_idx }
              | RowKind::Symbol { pkg_idx, item_idx }
              | RowKind::Member { pkg_idx, item_idx }) => {
-            let item = &app.packages[pkg_idx].items[item_idx];
-            if app.show_source {
-                source_lines(item, &item.lang, width)
-            } else {
-                symbol_lines(item, &app.packages[pkg_idx].items, width)
-            }
+            symbol_lines(&app.packages[pkg_idx].items[item_idx], &app.packages[pkg_idx].items, width)
         }
         None => vec![Line::raw("")],
     }
