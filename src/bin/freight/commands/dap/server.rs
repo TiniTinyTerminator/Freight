@@ -273,7 +273,27 @@ impl DapServer {
         }
 
         // Forward launch/attach so GDB loads the binary.
+        let launch_cmd = first_request["command"].as_str().unwrap_or("launch").to_string();
         write_dap(&mut adapter_stdin, &first_request)?;
+
+        // Wait for GDB's launch/attach response before entering the relay loop.
+        // GDB loads the binary and its debug symbols synchronously while processing
+        // `launch`; only after the response arrives are source paths resolvable.
+        // Forwarding VS Code's setBreakpoints before this point produces "No source
+        // file named" pending-breakpoint warnings.
+        let launch_deadline = std::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            let remaining = launch_deadline.saturating_duration_since(std::time::Instant::now());
+            if remaining.is_zero() { break; }
+            match adapter_out_rx.recv_timeout(remaining.min(Duration::from_millis(200))) {
+                Ok(ref bytes) => {
+                    self.stdout.write_all(bytes)?;
+                    self.stdout.flush()?;
+                    if gdb_msg_is(bytes, "response", &launch_cmd) { break; }
+                }
+                Err(_) => break,
+            }
+        }
 
         // Relay loop: adapter → VS Code, VS Code → adapter.
         loop {
@@ -412,6 +432,7 @@ fn select_dap_adapter(
         match debugger.template.name.as_str() {
             "gdb" => {
                 let args = vec![
+                    "-q".to_string(),
                     "--interpreter=dap".to_string(),
                     "-iex".to_string(),
                     "set debuginfod enabled off".to_string(),
