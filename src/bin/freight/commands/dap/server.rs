@@ -60,6 +60,8 @@ pub struct DapServer {
     varobj_seq: u64,
     setvar_varobjs: HashMap<(u64, String), String>,
     top_varobjs: Vec<String>,
+    /// Suppresses GDB console (~) startup noise until the inferior starts running.
+    mi2_running: bool,
 }
 
 impl DapServer {
@@ -89,6 +91,7 @@ impl DapServer {
             varobj_seq: 1000,
             setvar_varobjs: HashMap::new(),
             top_varobjs: Vec::new(),
+            mi2_running: false,
         }
     }
 
@@ -241,17 +244,20 @@ impl DapServer {
                         "Debugging {} with {} {} (native DAP)\n",
                         binary.display(), debugger.template.name, debugger.version
                     ), "console")?;
-                    self.run_passthrough(&debugger.path, &["--interpreter=dap"], fwd)
+                    self.run_passthrough(
+                        &debugger.path,
+                        &["--interpreter=dap", "-iex", "set debuginfod enabled off"],
+                        fwd,
+                    )
                 } else {
                     self.output(&format!(
                         "Debugging {} with {} {} (GDB/MI2 bridge)\n",
                         binary.display(), debugger.template.name, debugger.version
                     ), "console")?;
-                    // --nx suppresses .gdbinit so it can't fire commands before
-                    // the binary is loaded (avoids spurious "No symbol table" output).
                     self.launch_gdb_mi2(
                         &debugger.path,
-                        &["--interpreter=mi2", "--nx", "--quiet"],
+                        &["--interpreter=mi2", "--nx", "--quiet",
+                          "-iex", "set debuginfod enabled off"],
                         Some(&binary), config,
                     )?;
                     Ok(false)
@@ -285,7 +291,8 @@ impl DapServer {
                 ), "console")?;
                 self.launch_gdb_mi2(
                     &debugger.path,
-                    &["replay", "--", "--interpreter=mi2", "--quiet"],
+                    &["replay", "--", "--interpreter=mi2", "--quiet",
+                      "-iex", "set debuginfod enabled off"],
                     None, config,
                 )?;
                 Ok(false)
@@ -357,7 +364,10 @@ impl DapServer {
                         "Attaching to pid {} with {} {} (GDB/MI2 bridge)\n",
                         pid, debugger.template.name, debugger.version
                     ), "console")?;
-                    self.launch_gdb_mi2(&debugger.path, &["--interpreter=mi2", "--nx", "--quiet"], None, config)?;
+                    self.launch_gdb_mi2(&debugger.path,
+                        &["--interpreter=mi2", "--nx", "--quiet",
+                          "-iex", "set debuginfod enabled off"],
+                        None, config)?;
                     if let Some(prog) = config["program"].as_str() {
                         let _ = self.gdb_command(&format!("-file-exec-and-symbols {}", mi_quote(prog)));
                     }
@@ -377,7 +387,10 @@ impl DapServer {
                         "Attaching to pid {} with lldb {} (LLDB/MI2 bridge)\n",
                         pid, debugger.version
                     ), "console")?;
-                    self.launch_gdb_mi2(&debugger.path, &["--interpreter=mi", "--nx", "--quiet"], None, config)?;
+                    self.launch_gdb_mi2(&debugger.path,
+                        &["--interpreter=mi", "--nx", "--quiet",
+                          "-iex", "set debuginfod enabled off"],
+                        None, config)?;
                     if let Some(prog) = config["program"].as_str() {
                         let _ = self.gdb_command(&format!("-file-exec-and-symbols {}", mi_quote(prog)));
                     }
@@ -488,6 +501,9 @@ impl DapServer {
         spawn_process_output(stderr, "stderr", self.output_tx.clone());
         self.gdb_stdin = Some(stdin);
         self.gdb = Some(child);
+        self.mi2_running = false;
+        // GDB ≥ 14 renamed target-async to mi-async; try both, ignore errors.
+        let _ = self.gdb_command("-gdb-set mi-async on");
         let _ = self.gdb_command("-gdb-set target-async on");
         let _ = self.gdb_command("-gdb-set breakpoint pending on");
         if let Some(bin) = binary {
@@ -637,6 +653,7 @@ impl DapServer {
 
     fn handle_exec(&mut self, request: &Value, command: &str, body: Value) -> anyhow::Result<()> {
         self.drop_varobjs();
+        self.mi2_running = true;
         if let Err(err) = self.gdb_command(command) {
             self.output(&format!("{err}\n"), "stderr")?;
         }
@@ -646,6 +663,7 @@ impl DapServer {
     fn start_debuggee(&mut self) -> anyhow::Result<()> {
         if self.gdb.is_none() || self.debug_started { return Ok(()); }
         self.debug_started = true;
+        self.mi2_running = true;
         let cmd = if self.attached { "-exec-continue" } else { "-exec-run" };
         if let Err(err) = self.gdb_command(cmd) {
             self.output(&format!("{err}\n"), "stderr")?;
@@ -929,7 +947,12 @@ impl DapServer {
 
     fn handle_gdb_line(&mut self, line: &str, waiting_for: Option<u64>) -> anyhow::Result<Option<String>> {
         if let Some(rest) = line.strip_prefix('~') {
-            self.output(&mi_c_string(rest), "console")?;
+            // Suppress GDB console output until the inferior is actually running.
+            // Before that point it's all startup noise (deprecation warnings,
+            // debuginfod prompts, library-loading messages, etc.).
+            if self.mi2_running {
+                self.output(&mi_c_string(rest), "console")?;
+            }
             return Ok(None);
         }
         if line.starts_with('&') {
@@ -1066,8 +1089,11 @@ fn step_cmd(kind: &str, request: &Value) -> String {
 /// supported), `false` if it exits immediately or times out without a response
 /// (e.g. GDB that doesn't support `--interpreter=dap`).
 fn probe_dap_support(bin: &Path, args: &[&str]) -> bool {
+    // Disable debuginfod so GDB doesn't block on an interactive prompt before
+    // processing our initialize request, which would cause the probe to time out.
     let Ok(mut child) = Command::new(bin)
         .args(args)
+        .args(["-iex", "set debuginfod enabled off"])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
