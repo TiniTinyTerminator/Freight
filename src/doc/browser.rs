@@ -1526,13 +1526,12 @@ fn styled_heading_line(level: u8, text: &str) -> Line<'static> {
         3 => (Color::Rgb(97,  175, 239), Color::Rgb(18, 33, 50)),
         _ => (Color::Rgb(198, 120, 221), Color::Rgb(34, 18, 44)),
     };
-    let style = Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD);
-    let prefix = "\u{E0B6} ".to_string();
-    let suffix = " \u{E0B4}".to_string();
+    let cap_style  = Style::default().fg(bg);
+    let body_style = Style::default().fg(fg).bg(bg).add_modifier(Modifier::BOLD);
     Line::from(vec![
-        Span::styled(prefix, style),
-        Span::styled(text.to_string(), style),
-        Span::styled(suffix, style),
+        Span::styled("\u{E0B6}", cap_style),
+        Span::styled(format!(" {text} "), body_style),
+        Span::styled("\u{E0B4}", cap_style),
     ])
 }
 
