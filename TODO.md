@@ -24,18 +24,14 @@ Floors set for GCC (g++/gcc/gfortran) and Clang (clang++/clang):
 
 ## Build pipeline
 
-### `has_lang` is duplicated
-`compile.rs` and `link.rs` each contain a private `has_lang` closure. Extract into a
-shared free function in `build/mod.rs`.
+### ~~`has_lang` is duplicated~~
+Done. Extracted `pub(super) fn has_lang` to `build/mod.rs`; both `compile.rs` and `link.rs` call `super::has_lang`.
 
-### Linker priority list is fragile
-`select_linker` in `link.rs` uses a hard-coded `&[&str]` priority slice. Adding a new
-language key requires updating two separate places with no compile-time enforcement.
-Define a single `LINK_PRIORITY` constant with tier comments.
+### ~~Linker priority list is fragile~~
+Done. `LINK_PRIORITY: &[&str]` constant defined in `link.rs`; `select_linker` references it.
 
-### Missing `BuildEvent` for whole-program mode
-When `gnatmake` runs (Ada whole-program mode) no compile-phase events are emitted.
-Add `BuildEvent::Compiling` before the whole-program linker invocation.
+### ~~Missing `BuildEvent` for whole-program mode~~
+Done. `BuildEvent::Compiling` emitted before `gnatmake` invocation in `compile.rs`.
 
 ---
 
@@ -77,8 +73,8 @@ See `AGENTS.md` for full detail. Summary of what's missing:
 | OpenCL          | ✓ Done — `examples/opencl-hello/`                    |
 | CUDA            | ✓ Done — `examples/cuda-hello/`                      |
 | D               | ✓ Done — `examples/d-hello/` (ldc2 + dmd)            |
-| ObjC / ObjC++   | GNUstep setup required; trivial on macOS              |
-| HIP             | Requires ROCm hardware                                |
+| ObjC / ObjC++   | ✓ Done — `examples/objc-hello/`, `examples/objcpp-hello/` |
+| HIP             | ✓ Done — `examples/hip-hello/` (requires ROCm hardware) |
 | ISPC            | ✓ Done — `examples/ispc-hello/`                       |
 | GDC             | ✓ Available (`gdc` 16.1.1); `d-hello` already works  |
 | MSVC            | Windows machine needed                                |
@@ -89,4 +85,4 @@ See `AGENTS.md` for full detail. Summary of what's missing:
 ## Documentation
 
 - `docs/manifest-reference.md`: add `[language.ada]` section.
-- `examples/README.md`: add rows for ObjC, HIP, ISPC once created.
+- `examples/README.md`: keep prerequisite notes current as new toolchain examples land.
