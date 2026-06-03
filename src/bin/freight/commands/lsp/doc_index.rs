@@ -111,12 +111,24 @@ fn extract_pkg_items(dir: &Path, manifest: Option<&Manifest>) -> Vec<DocItem> {
 // HeaderIndex
 // ---------------------------------------------------------------------------
 
+/// Where a package's headers came from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HeaderOrigin {
+    /// Workspace member (sibling crate in the same `freight.toml` workspace).
+    Workspace,
+    /// Path dependency declared in the current project's `[dependencies]`.
+    Project,
+    /// Installed by `freight fetch` into the project's `.pkgs/` cache.
+    Local,
+    /// System-installed (found on the compiler's default include path).
+    System,
+}
+
 pub struct HeaderEntry {
     pub package_name: String,
     pub package_version: Option<String>,
     pub full_path: PathBuf,
-    /// True when this header comes from a path dep or workspace member (not installed).
-    pub is_local: bool,
+    pub origin: HeaderOrigin,
 }
 
 /// Maps include-path variants → package origin.
@@ -127,17 +139,28 @@ pub struct HeaderIndex {
     by_path: HashMap<String, HeaderEntry>,
 }
 
+/// A package directory together with where it came from.
+pub struct HeaderDirSpec<'a> {
+    pub path: &'a Path,
+    pub origin: HeaderOrigin,
+}
+
 impl HeaderIndex {
-    pub fn build(package_dirs: &[&Path], pkgs_dir: Option<&Path>) -> Self {
+    /// Build the index from:
+    /// - `package_dirs`: workspace members and path deps, tagged with their origin
+    /// - `pkgs_dir`: the `.pkgs/` directory (freight-installed packages → `Local`)
+    pub fn build(package_dirs: &[HeaderDirSpec<'_>], pkgs_dir: Option<&Path>) -> Self {
         let mut by_path = HashMap::new();
 
-        // Workspace members and path dependencies (local, is_local = true)
-        for &dir in package_dirs {
+        for spec in package_dirs {
+            let dir = spec.path;
             let manifest = load_manifest(dir).ok();
             let pkg_name = manifest
                 .as_ref()
                 .map(|m| m.package.name.clone())
-                .unwrap_or_else(|| dir.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string());
+                .unwrap_or_else(|| {
+                    dir.file_name().and_then(|n| n.to_str()).unwrap_or("unknown").to_string()
+                });
             let pkg_version = manifest.as_ref().map(|m| m.package.version.clone());
 
             // Declared public headers
@@ -149,7 +172,7 @@ impl HeaderIndex {
                             package_name: pkg_name.clone(),
                             package_version: pkg_version.clone(),
                             full_path: full,
-                            is_local: true,
+                            origin: spec.origin.clone(),
                         };
                         insert_header(&mut by_path, hdr, entry);
                     }
@@ -159,7 +182,11 @@ impl HeaderIndex {
             // include/ directory
             let include_dir = dir.join("include");
             if include_dir.is_dir() {
-                walk_include_dir(&include_dir, &include_dir, &pkg_name, &pkg_version, true, &mut by_path);
+                walk_include_dir(
+                    &include_dir, &include_dir,
+                    &pkg_name, &pkg_version,
+                    spec.origin.clone(), &mut by_path,
+                );
             }
         }
 
@@ -175,12 +202,9 @@ impl HeaderIndex {
                 let include_dir = pkg_dir.join("include");
                 if include_dir.is_dir() {
                     walk_include_dir(
-                        &include_dir,
-                        &include_dir,
-                        pkg_name,
-                        &Some(pkg_version.to_string()),
-                        false,
-                        &mut by_path,
+                        &include_dir, &include_dir,
+                        pkg_name, &Some(pkg_version.to_string()),
+                        HeaderOrigin::Local, &mut by_path,
                     );
                 }
             }
@@ -216,22 +240,21 @@ fn walk_include_dir(
     dir: &Path,
     pkg_name: &str,
     pkg_version: &Option<String>,
-    is_local: bool,
+    origin: HeaderOrigin,
     out: &mut HashMap<String, HeaderEntry>,
 ) {
     let Ok(entries) = std::fs::read_dir(dir) else { return };
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            walk_include_dir(root, &path, pkg_name, pkg_version, is_local, out);
+            walk_include_dir(root, &path, pkg_name, pkg_version, origin.clone(), out);
         } else if is_header(&path) {
-            // Relative key from the include root
             let rel = path.strip_prefix(root).unwrap_or(&path);
             let entry = HeaderEntry {
                 package_name: pkg_name.to_string(),
                 package_version: pkg_version.clone(),
                 full_path: path.clone(),
-                is_local,
+                origin: origin.clone(),
             };
             insert_header(out, &rel.to_string_lossy(), entry);
         }
@@ -239,7 +262,6 @@ fn walk_include_dir(
 }
 
 fn insert_header(map: &mut HashMap<String, HeaderEntry>, rel_path: &str, entry: HeaderEntry) {
-    // Index by full relative path and also by bare filename.
     let normalized = rel_path.replace('\\', "/");
     let basename = Path::new(rel_path)
         .file_name()
@@ -250,7 +272,7 @@ fn insert_header(map: &mut HashMap<String, HeaderEntry>, rel_path: &str, entry: 
         package_name: entry.package_name.clone(),
         package_version: entry.package_version.clone(),
         full_path: entry.full_path.clone(),
-        is_local: entry.is_local,
+        origin: entry.origin.clone(),
     });
     if !basename.is_empty() {
         map.entry(basename).or_insert(entry);
@@ -280,19 +302,26 @@ fn split_name_version(s: &str) -> (&str, &str) {
 // ---------------------------------------------------------------------------
 
 pub fn include_hover_markdown(header: &str, entry: &HeaderEntry) -> String {
-    let mut out = String::new();
-    out.push_str(&format!("**`{header}`**"));
-    out.push_str(" · ");
-    out.push_str(&format!("**{}**", entry.package_name));
-    if let Some(ref ver) = entry.package_version {
-        if !ver.is_empty() {
-            out.push_str(&format!(" `v{ver}`"));
+    // Build the "$origin/name-version" label
+    let name_ver = if let Some(ref ver) = entry.package_version {
+        if ver.is_empty() {
+            entry.package_name.clone()
+        } else {
+            format!("{}-{ver}", entry.package_name)
         }
-    }
-    if entry.is_local {
-        out.push_str("  *(local)*");
-    }
-    out.push_str("\n\n");
+    } else {
+        entry.package_name.clone()
+    };
+
+    let origin_label = match entry.origin {
+        HeaderOrigin::Workspace => format!("$workspace/{name_ver}"),
+        HeaderOrigin::Project   => format!("$project/{name_ver}"),
+        HeaderOrigin::Local     => format!("$local/{name_ver}"),
+        HeaderOrigin::System    => "$system".to_string(),
+    };
+
+    let mut out = String::new();
+    out.push_str(&format!("**`{header}`**  `{origin_label}`\n\n"));
     let path_str = entry.full_path.to_string_lossy();
     out.push_str(&format!("`{path_str}`"));
     out
@@ -832,9 +861,11 @@ hdrs = ["include/core.h"]
         .unwrap();
         std::fs::write(tmp.path().join("include/mylib/api.h"), "// header").unwrap();
 
-        let index = HeaderIndex::build(&[tmp.path()], None);
+        let specs = [HeaderDirSpec { path: tmp.path(), origin: HeaderOrigin::Project }];
+        let index = HeaderIndex::build(&specs, None);
         assert!(index.lookup("api.h").is_some());
         assert!(index.lookup("mylib/api.h").is_some());
         assert_eq!(index.lookup("api.h").unwrap().package_name, "mylib");
+        assert_eq!(index.lookup("api.h").unwrap().origin, HeaderOrigin::Project);
     }
 }

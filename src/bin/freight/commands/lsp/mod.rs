@@ -21,7 +21,7 @@ use serde_json::{json, Value};
 
 use doc_index::{
     enrich_hover_response, include_hover_markdown, item_to_markdown, parse_include_header, word_at,
-    DocIndex, HeaderIndex,
+    DocIndex, HeaderDirSpec, HeaderIndex, HeaderOrigin,
 };
 use manifest::{
     completion_result, hover_result, manifest_diagnostics, signature_help_result,
@@ -607,10 +607,24 @@ impl Server {
         let new_index = DocIndex::build_freight_packages(package_refs.iter().copied());
         *self.state.doc_index.lock().unwrap() = Some(new_index);
 
-        // HeaderIndex — built from same package dirs plus the .pkgs/ cache.
+        // HeaderIndex — tag each dir with its origin.
+        let is_workspace = self.root_is_workspace();
+        let header_specs: Vec<HeaderDirSpec<'_>> = package_dirs
+            .iter()
+            .map(|dir| {
+                // Workspace members live directly under base; path deps are elsewhere.
+                let origin = if is_workspace && dir.parent() == Some(base.as_path()) {
+                    HeaderOrigin::Workspace
+                } else {
+                    HeaderOrigin::Project
+                };
+                HeaderDirSpec { path: dir.as_path(), origin }
+            })
+            .collect();
+
         let pkgs_dir = base.join(".pkgs");
         let pkgs_opt = if pkgs_dir.is_dir() { Some(pkgs_dir.as_path()) } else { None };
-        self.state.header_index = HeaderIndex::build(&package_refs, pkgs_opt);
+        self.state.header_index = HeaderIndex::build(&header_specs, pkgs_opt);
     }
 
     fn doc_index_package_dirs(&self, base: &Path) -> Vec<PathBuf> {
