@@ -3,7 +3,7 @@ use crate::toolchain::template::{CompilerTemplate, LinkDef, TemplateDef, EMPTY};
 const BASE_GNU: TemplateDef = TemplateDef {
     family: "gnu",
     version_regex: r"\b(\d+\.\d+\.\d+)\b",
-    debug: "-g",
+    debug: "-g -fno-omit-frame-pointer -fasynchronous-unwind-tables",
     lto: "-flto",
     sanitize: "-fsanitize={values}",
     sanitizer_options: &["address", "undefined", "thread", "leak"],
@@ -218,7 +218,7 @@ pub fn gas() -> CompilerTemplate {
         version_regex: r"GNU assembler (?:\([^)]+\) )?(\d+\.\d+(?:\.\d+)?)",
         extensions: &[".s", ".S"],
         requires_toolchain: &["c"],
-        debug: "--gdwarf-2",
+        debug: "--gdwarf-4",
         lto: "",
         opt_flags: &[
             ("0", ""),

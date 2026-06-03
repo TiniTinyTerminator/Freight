@@ -16,7 +16,7 @@ use std::thread;
 use freight_core::build::generate_lsp_compile_commands_at;
 use freight_core::manifest::types::{Dependency, Manifest};
 use freight_core::manifest::{find_manifest_dir, load_manifest, load_workspace_manifest};
-use freight_core::toolchain::load_all_templates;
+use freight_core::toolchain::{detect_all_cached, load_all_templates};
 use serde_json::{json, Value};
 
 use doc_index::{
@@ -178,6 +178,7 @@ impl Server {
                 "textDocument/signatureHelp" => self.handle_signature_help_or_forward(msg)?,
                 "textDocument/codeAction" => self.handle_code_action_or_forward(msg)?,
                 "freight/workspaceInfo" => self.handle_workspace_info(msg)?,
+                "freight/setConfig"     => self.handle_set_config(msg)?,
                 _ => self.forward_or_null(msg)?,
             }
         }
@@ -448,25 +449,109 @@ impl Server {
             .workspace_inventory
             .packages
             .iter()
-            .map(|pkg| {
-                json!({
-                    "name": pkg.name,
-                    "path": pkg.path,
-                    "lib": pkg.lib,
-                    "bins": pkg.bins,
-                })
-            })
+            .map(|pkg| json!({ "name": pkg.name, "path": pkg.path, "lib": pkg.lib, "bins": pkg.bins }))
             .collect();
+
+        // Detected compiler families available on this machine.
+        let toolchains: Vec<Value> = {
+            use freight_core::toolchain::group_into_toolchains;
+            let detected = detect_all_cached(&self.state.templates);
+            let groups = group_into_toolchains(detected);
+            groups.toolchains.iter().map(|tc| {
+                let compiler = tc.compilers.first();
+                json!({
+                    "family":   tc.name,
+                    "path":     compiler.map(|c| c.path.to_string_lossy().into_owned()).unwrap_or_default(),
+                    "version":  compiler.map(|c| c.version.clone()).unwrap_or_default(),
+                    "languages": tc.languages,
+                })
+            }).collect()
+        };
+
+        // Current sysroot from the active manifest's [compiler] section.
+        let manifest_dir = self.active_manifest_dir().unwrap_or_else(|| self.state.root_dir.clone());
+        let current_sysroot: Option<String> = load_manifest(&manifest_dir)
+            .ok()
+            .and_then(|m| m.compiler.sysroot);
+
         self.respond(
             msg.get("id").cloned(),
             json!({
-                "schemaVersion": 1,
-                "root": self.active_manifest_dir().unwrap_or_else(|| self.state.root_dir.clone()),
+                "schemaVersion": 2,
+                "root": manifest_dir,
                 "packages": packages,
+                "toolchains": toolchains,
+                "sysroot": current_sysroot,
             }),
         )
     }
 
+    /// `freight/setConfig` — write a single config key to the project's `freight.toml`.
+    ///
+    /// Params: `{ "key": "compiler.sysroot", "value": "/path" | null }`
+    fn handle_set_config(&self, msg: Value) -> io::Result<()> {
+        let id = msg.get("id").cloned();
+        let params = msg.get("params").cloned().unwrap_or(Value::Null);
+        let key   = params.get("key").and_then(Value::as_str).unwrap_or("");
+        let value = params.get("value");
+
+        let manifest_dir = match self.active_manifest_dir() {
+            Some(d) => d,
+            None => {
+                return self.respond(id, json!({"error": "no freight.toml found"}));
+            }
+        };
+        let manifest_path = manifest_dir.join("freight.toml");
+
+        match set_manifest_config(&manifest_path, key, value) {
+            Ok(()) => self.respond(id, json!({"ok": true})),
+            Err(e) => self.respond(id, json!({"error": e.to_string()})),
+        }
+    }
+
+}
+
+// ---------------------------------------------------------------------------
+// Manifest config helper
+// ---------------------------------------------------------------------------
+
+/// Write or clear a single dotted key in `freight.toml` using `toml_edit` so
+/// that comments and formatting are preserved.
+///
+/// Supported keys:
+///   `compiler.sysroot` — `Option<String>` in `[compiler]`
+fn set_manifest_config(path: &Path, key: &str, value: Option<&Value>) -> anyhow::Result<()> {
+    use toml_edit::{value as tv, DocumentMut, Item, Table};
+
+    let src = std::fs::read_to_string(path)?;
+    let mut doc: DocumentMut = src.parse()?;
+
+    match key {
+        "compiler.sysroot" => {
+            match value.and_then(Value::as_str) {
+                Some(s) => {
+                    // Ensure [compiler] table exists.
+                    if doc.get("compiler").is_none() {
+                        doc["compiler"] = Item::Table(Table::new());
+                    }
+                    doc["compiler"]["sysroot"] = tv(s.to_owned());
+                }
+                None => {
+                    // Clear: remove the key if present.
+                    if let Some(Item::Table(t)) = doc.get_mut("compiler") {
+                        t.remove("sysroot");
+                    }
+                }
+            }
+        }
+        other => anyhow::bail!("unknown config key: {other}"),
+    }
+
+    std::fs::write(path, doc.to_string())?;
+    Ok(())
+}
+
+impl Server {
     fn forward_or_null(&mut self, msg: Value) -> io::Result<()> {
         if let Some(uri) = text_document_uri(&msg) {
             self.forward_by_uri(&uri, &msg)

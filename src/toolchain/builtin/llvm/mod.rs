@@ -3,7 +3,7 @@ use crate::toolchain::template::{CompilerTemplate, LinkDef, OptionHandlerFn, Tem
 const BASE_LLVM: TemplateDef = TemplateDef {
     family: "llvm",
     version_regex: r"\b(\d+\.\d+\.\d+)\b",
-    debug: "-g",
+    debug: "-g -fno-omit-frame-pointer -fasynchronous-unwind-tables",
     lto: "-flto",
     sanitize: "-fsanitize={values}",
     cpu_ext: "-m{name}",
