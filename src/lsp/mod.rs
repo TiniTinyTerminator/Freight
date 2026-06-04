@@ -762,7 +762,15 @@ impl Server {
         for dir in &package_dirs {
             tracing::debug!(path = %dir.display(), "doc index package dir");
         }
+        let item_count = new_index.len();
         *self.state.doc_index.lock().unwrap() = Some(new_index);
+
+        // Notify the client so it can update its status bar.
+        let _ = self.write_to_client(&json!({
+            "jsonrpc": "2.0",
+            "method": "freight/docIndexUpdated",
+            "params": { "items": item_count }
+        }));
 
         // HeaderIndex — tag each dir with its origin.
         let is_workspace = self.root_is_workspace();
