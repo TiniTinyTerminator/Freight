@@ -571,7 +571,7 @@ impl Server {
         let info = self.state.tu_cache.as_ref()?.hover(&path, line as u32, col as u32)?;
         let md = hover_info_to_markdown(&info);
         tracing::debug!(
-            symbol = info.spelling.as_str(),
+            symbol = info.display_name.as_str(),
             line,
             col,
             "libclang hover hit"

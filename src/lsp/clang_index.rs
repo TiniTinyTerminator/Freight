@@ -16,12 +16,19 @@ use serde_json::Value;
 // ---------------------------------------------------------------------------
 
 pub struct HoverInfo {
-    /// Cursor spelling (function name, variable name, type name, …).
-    pub spelling: String,
-    /// Type string, e.g. `"std::vector<int>"` or `"int (int, int)"`.
+    /// Display name — for functions includes the parameter type list.
+    pub display_name: String,
+    /// Return type for functions, declared type for variables, empty for types.
     pub type_str: Option<String>,
     /// Brief doc comment from the declaration site.
     pub doc: Option<String>,
+    /// Absolute path to the file where the symbol is declared.
+    pub source_file: Option<PathBuf>,
+    /// 1-based line of the declaration.
+    pub source_line: Option<u32>,
+    /// Cursor kind — reserved for future use (e.g. choose code-block language tag).
+    #[allow(dead_code)]
+    pub cursor_kind: u32,
 }
 
 pub struct DefinitionLocation {
@@ -198,26 +205,85 @@ impl TuCache {
                 cursor
             };
 
-            let spelling = cx_string(clang_getCursorSpelling(src));
-            if spelling.is_empty() {
+            let display_name = cx_string(clang_getCursorDisplayName(src));
+            if display_name.is_empty() {
                 return None;
             }
 
+            let src_kind = clang_getCursorKind(src);
+
+            // For functions/methods: extract just the return type to avoid
+            // showing "returnType (argTypes)" which hides param names.
             let type_cx = clang_getCursorType(src);
             let type_str = if type_cx.kind != CXType_Invalid {
-                let s = cx_string(clang_getTypeSpelling(type_cx));
-                if s.is_empty() { None } else { Some(s) }
+                #[allow(non_upper_case_globals)]
+                let is_func = matches!(
+                    src_kind,
+                    CXCursor_FunctionDecl
+                        | CXCursor_CXXMethod
+                        | CXCursor_Constructor
+                        | CXCursor_Destructor
+                        | CXCursor_FunctionTemplate
+                );
+                if is_func {
+                    let ret = clang_getResultType(type_cx);
+                    if ret.kind != CXType_Invalid && ret.kind != CXType_Void {
+                        let s = cx_string(clang_getTypeSpelling(ret));
+                        if s.is_empty() { None } else { Some(s) }
+                    } else {
+                        None
+                    }
+                } else {
+                    let s = cx_string(clang_getTypeSpelling(type_cx));
+                    if s.is_empty() { None } else { Some(s) }
+                }
             } else {
                 None
             };
 
-            let doc_raw = cx_string(clang_Cursor_getBriefCommentText(src));
-            let doc = if doc_raw.is_empty() { None } else { Some(doc_raw) };
+            // Prefer brief comment; fall back to raw comment (strip leading //).
+            let doc = {
+                let brief = cx_string(clang_Cursor_getBriefCommentText(src));
+                if !brief.is_empty() {
+                    Some(brief)
+                } else {
+                    let raw = cx_string(clang_Cursor_getRawCommentText(src));
+                    if raw.is_empty() {
+                        None
+                    } else {
+                        Some(strip_comment_markers(&raw))
+                    }
+                }
+            };
+
+            // Location of the declaration.
+            let decl_loc = clang_getCursorLocation(src);
+            let mut decl_file: CXFile = std::ptr::null_mut();
+            let mut decl_line: u32 = 0;
+            let mut decl_col: u32 = 0;
+            let mut decl_off: u32 = 0;
+            clang_getSpellingLocation(
+                decl_loc,
+                &mut decl_file,
+                &mut decl_line,
+                &mut decl_col,
+                &mut decl_off,
+            );
+            let source_file = if decl_file.is_null() {
+                None
+            } else {
+                let p = cx_string(clang_getFileName(decl_file));
+                if p.is_empty() { None } else { Some(PathBuf::from(p)) }
+            };
+            let source_line = if decl_line > 0 { Some(decl_line) } else { None };
 
             Some(HoverInfo {
-                spelling,
+                display_name,
                 type_str,
                 doc,
+                source_file,
+                source_line,
+                cursor_kind: src_kind as u32,
             })
         }
     }
@@ -725,21 +791,61 @@ fn collect_auto_type_hint(var_decl: CXCursor, v: &mut HintVisitor) {
 
 pub fn hover_info_to_markdown(info: &HoverInfo) -> String {
     let mut out = String::new();
-    if let Some(type_str) = &info.type_str {
-        out.push_str(&format!("```cpp\n{}: {}\n```", info.spelling, type_str));
+
+    // Code block: "returnType displayName" or just "displayName".
+    let decl_line = if let Some(ret) = &info.type_str {
+        format!("{ret} {}", info.display_name)
     } else {
-        out.push_str(&format!("```cpp\n{}\n```", info.spelling));
-    }
+        info.display_name.clone()
+    };
+    out.push_str(&format!("```cpp\n{decl_line}\n```"));
+
+    // Doc comment.
     if let Some(doc) = &info.doc {
         out.push_str("\n\n");
         out.push_str(doc);
     }
+
+    // Declaration origin.
+    if let Some(file) = &info.source_file {
+        let label = if let Some(line) = info.source_line {
+            format!("*{}:{line}*", file.display())
+        } else {
+            format!("*{}*", file.display())
+        };
+        out.push_str("\n\n");
+        out.push_str(&label);
+    }
+
     out
 }
 
 // ---------------------------------------------------------------------------
 // compile_commands.json flag extraction
 // ---------------------------------------------------------------------------
+
+/// Strip `///`, `//!`, `//`, `/**`, `*/`, and leading `*` from raw comment text.
+fn strip_comment_markers(raw: &str) -> String {
+    raw.lines()
+        .map(|l| {
+            let t = l.trim();
+            // Block comment delimiters
+            if t.starts_with("/**") { return t[3..].trim_start_matches('*').trim().to_string(); }
+            if t.starts_with("*/") || t == "*" { return String::new(); }
+            if let Some(rest) = t.strip_prefix("* ").or_else(|| t.strip_prefix('*')) {
+                return rest.to_string();
+            }
+            // Line comment markers
+            for marker in &["///< ", "///<", "/// ", "///", "//! ", "//!", "// ", "//"] {
+                if let Some(rest) = t.strip_prefix(marker) { return rest.to_string(); }
+            }
+            t.to_string()
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string()
+}
 
 fn extract_compile_flags(entry: &Value) -> Vec<String> {
     // Prefer "arguments" array; fall back to shell-split "command" string.
