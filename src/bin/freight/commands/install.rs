@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use freight_core::install::{install_project, package_project, InstallOptions, InstalledKind};
+use freight_core::install::{install_project, installer_project, package_project, InstallOptions, InstalledKind};
 use freight_core::manifest::{find_manifest_dir, load_workspace_manifest};
 
 use crate::output::{print_error, print_status, print_success, print_warning};
@@ -48,6 +48,12 @@ pub struct PackageArgs {
     /// Omit for a native build. Unsupported combinations are skipped with a warning.
     #[arg(long, value_name = "TRIPLES", value_delimiter = ',')]
     pub target: Vec<String>,
+    /// Bundle transitive shared-library dependencies alongside the binary so
+    /// the archive runs on machines that don't have those libraries installed.
+    /// Uses ldd (Linux), otool -L (macOS), or dumpbin (Windows) to discover
+    /// dependencies; excludes system libs (libc, libm, kernel DLLs, etc.).
+    #[arg(long)]
+    pub installer: bool,
     #[command(flatten)]
     pub build: super::common::BuildFlags,
 }
@@ -55,7 +61,7 @@ pub struct PackageArgs {
 impl PackageArgs {
     pub fn run(self) {
         self.build.apply();
-        cmd_package(self.release, &self.target);
+        cmd_package(self.release, &self.target, self.installer);
     }
 }
 
@@ -148,14 +154,23 @@ pub fn cmd_install(
     }
 }
 
-pub fn cmd_package(release: bool, targets: &[String]) {
+pub fn cmd_package(release: bool, targets: &[String], installer: bool) {
     let cwd = std::env::current_dir().expect("cannot read cwd");
     let project_dir = find_manifest_dir(&cwd).unwrap_or(cwd);
 
+    let pack = |target: Option<&str>| {
+        if installer {
+            installer_project(&project_dir, release, target)
+        } else {
+            package_project(&project_dir, release, target)
+        }
+    };
+
     // No explicit targets → native build.
     if targets.is_empty() {
-        print_status("Packaging", &project_dir.display().to_string());
-        match package_project(&project_dir, release, None) {
+        let label = if installer { "Installer" } else { "Packaging" };
+        print_status(label, &project_dir.display().to_string());
+        match pack(None) {
             Ok(archive) => print_success(&format!("→ {}", archive.display())),
             Err(e) => print_error(&e.to_string()),
         }
@@ -164,11 +179,9 @@ pub fn cmd_package(release: bool, targets: &[String]) {
 
     let mut succeeded = 0usize;
     for target in targets {
-        print_status(
-            "Packaging",
-            &format!("{} [{}]", project_dir.display(), target),
-        );
-        match package_project(&project_dir, release, Some(target)) {
+        let label = if installer { "Installer" } else { "Packaging" };
+        print_status(label, &format!("{} [{}]", project_dir.display(), target));
+        match pack(Some(target)) {
             Ok(archive) => {
                 print_success(&format!("→ {}", archive.display()));
                 succeeded += 1;

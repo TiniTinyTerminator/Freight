@@ -578,6 +578,360 @@ fn create_tarball(parent: &Path, stem: &str, archive: &Path) -> Result<(), Freig
     Ok(())
 }
 
+// ── Installer (self-contained bundle) ─────────────────────────────────────────
+
+/// Like [`package_project`], but also collects the binary's transitive shared-
+/// library dependencies and bundles them into `lib/` so the archive runs on a
+/// machine that doesn't have those libraries installed.
+///
+/// Layout inside the archive:
+/// ```text
+/// myapp-1.0-x86_64-linux-installer/
+/// ├── bin/myapp          ← the built binary (or .exe on Windows)
+/// ├── lib/               ← bundled .so / .dylib / .dll dependencies
+/// │   ├── libfoo.so.1
+/// │   └── …
+/// └── myapp              ← launcher script (Linux/macOS) that sets LD_LIBRARY_PATH
+/// ```
+///
+/// Windows targets: DLLs are copied into `bin/` next to the executable (the
+/// Windows DLL search order already checks the exe directory first), so no
+/// wrapper script is needed.
+pub fn installer_project(
+    project_dir: &Path,
+    release: bool,
+    target: Option<&str>,
+) -> Result<PathBuf, FreightError> {
+    let manifest = load_manifest(project_dir)?;
+    let profile = if release { "release" } else { "dev" };
+
+    build_project_at(project_dir, profile, &[], true, target, &[], &silent())?;
+
+    let global_target = GlobalConfig::load().target;
+    let (pkg_arch, pkg_os) = target
+        .or_else(|| global_target.as_deref())
+        .map(parse_triple)
+        .unwrap_or_else(|| {
+            (
+                std::env::consts::ARCH.to_string(),
+                std::env::consts::OS.to_string(),
+            )
+        });
+
+    let stem = format!(
+        "{}-{}-{}-{}-installer",
+        manifest.package.name, manifest.package.version, pkg_arch, pkg_os,
+    );
+
+    let pkg_dir = project_dir.join("target").join("package");
+    fs::create_dir_all(&pkg_dir)?;
+
+    let staging = pkg_dir.join(&stem);
+    if staging.exists() {
+        fs::remove_dir_all(&staging)?;
+    }
+
+    // 1. Install built outputs into staging (bin/, lib/, include/).
+    install_project(
+        project_dir,
+        &InstallOptions {
+            prefix: staging.clone(),
+            destdir: None,
+            release,
+            no_build: true,
+            target: target.map(str::to_string),
+        },
+    )?;
+
+    // 2. Collect transitive shared-lib deps for every installed binary and
+    //    copy them into staging/lib/.
+    let bundled_lib_dir = staging.join("lib");
+    fs::create_dir_all(&bundled_lib_dir)?;
+
+    let bin_dir = staging.join("bin");
+    if bin_dir.is_dir() {
+        for entry in fs::read_dir(&bin_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_file() {
+                let deps = collect_shared_deps(&path, &pkg_os)?;
+                for dep in deps {
+                    let fname = dep.file_name().unwrap_or_default();
+                    let dst = if pkg_os == "windows" {
+                        // DLLs go beside the exe so Windows search order finds them.
+                        bin_dir.join(fname)
+                    } else {
+                        bundled_lib_dir.join(fname)
+                    };
+                    if !dst.exists() {
+                        fs::copy(&dep, &dst).map_err(|e| {
+                            FreightError::InstallFailed(format!(
+                                "bundling {}: {e}",
+                                dep.display()
+                            ))
+                        })?;
+                    }
+                }
+
+                // 3. Write a launcher script (Linux/macOS) so the binary finds
+                //    its bundled libs without requiring LD_LIBRARY_PATH from the caller.
+                if pkg_os != "windows" {
+                    if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                        write_launcher_script(&staging, name, &pkg_os)?;
+                    }
+                }
+
+                // 4. macOS: rewrite dylib install names to @executable_path/../lib/.
+                if pkg_os == "macos" {
+                    rewrite_macos_rpaths(&path, &bundled_lib_dir)?;
+                }
+            }
+        }
+    }
+
+    // 5. Archive and clean up staging dir.
+    let archive = if pkg_os == "windows" {
+        let archive = pkg_dir.join(format!("{stem}.zip"));
+        create_zip_archive(&pkg_dir, &stem, &archive)?;
+        archive
+    } else {
+        let archive = pkg_dir.join(format!("{stem}.tar.gz"));
+        create_tarball(&pkg_dir, &stem, &archive)?;
+        archive
+    };
+    fs::remove_dir_all(&staging)?;
+
+    Ok(archive)
+}
+
+// ── Shared-lib dependency collection ─────────────────────────────────────────
+
+/// Paths to system-provided libraries that we never bundle.
+/// Bundling libc, libm, or ld-linux would break on glibc version mismatches.
+fn is_system_lib(path: &Path, target_os: &str) -> bool {
+    let name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_lowercase();
+
+    match target_os {
+        "linux" => {
+            // glibc and kernel-interface libs must come from the host.
+            let skip = [
+                "libc.so", "libm.so", "libdl.so", "libpthread.so", "librt.so",
+                "libresolv.so", "libutil.so", "libnss_", "libnsl.so",
+                "libgcc_s.so",  // ABI-compatible on all modern distros
+                "ld-linux", "linux-vdso", "linux-gate",
+            ];
+            skip.iter().any(|s| name.starts_with(s))
+        }
+        "macos" => {
+            // Apple system frameworks and /usr/lib dylibs.
+            path.starts_with("/usr/lib")
+                || path.starts_with("/System/")
+                || path.starts_with("/Library/Apple/")
+        }
+        "windows" => {
+            // Windows system DLLs (system32 and friends).
+            let skip = [
+                "kernel32.dll", "user32.dll", "gdi32.dll", "ole32.dll",
+                "oleaut32.dll", "ntdll.dll", "advapi32.dll", "shell32.dll",
+                "shlwapi.dll", "ws2_32.dll", "msvcp", "vcruntime", "ucrtbase",
+                "api-ms-win", "ext-ms-win",
+            ];
+            skip.iter().any(|s| name.starts_with(s))
+        }
+        _ => false,
+    }
+}
+
+/// Run the appropriate tool to collect the binary's shared-lib dependencies.
+///
+/// Returns absolute paths to library files that should be bundled.
+fn collect_shared_deps(binary: &Path, target_os: &str) -> Result<Vec<PathBuf>, FreightError> {
+    match target_os {
+        "linux" => collect_shared_deps_ldd(binary, target_os),
+        "macos" => collect_shared_deps_otool(binary, target_os),
+        "windows" => collect_shared_deps_dumpbin(binary, target_os),
+        other => {
+            eprintln!("warning: shared-lib collection not supported on {other}; bundling no deps");
+            Ok(vec![])
+        }
+    }
+}
+
+fn collect_shared_deps_ldd(binary: &Path, target_os: &str) -> Result<Vec<PathBuf>, FreightError> {
+    let out = std::process::Command::new("ldd")
+        .arg(binary)
+        .output()
+        .map_err(|e| FreightError::InstallFailed(format!("ldd not found: {e}")))?;
+
+    if !out.status.success() {
+        // Static binaries or non-ELF files cause ldd to exit non-zero; treat as no deps.
+        return Ok(vec![]);
+    }
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let mut deps = Vec::new();
+
+    // ldd output lines are one of:
+    //   linux-vdso.so.1 (0x…)
+    //   libfoo.so.1 => /lib/x86_64-linux-gnu/libfoo.so.1 (0x…)
+    //   /lib64/ld-linux-x86-64.so.2 (0x…)
+    for line in stdout.lines() {
+        let line = line.trim();
+        let path = if let Some(idx) = line.find("=>") {
+            // "name => /path (0x…)"
+            let after = line[idx + 2..].trim();
+            after.split_whitespace().next().filter(|&p| p != "not")
+        } else {
+            // bare "/lib64/ld-linux…" line
+            let p = match line.split_whitespace().next() {
+                Some(p) => p,
+                None => continue,
+            };
+            if p.starts_with('/') { Some(p) } else { None }
+        };
+
+        if let Some(p) = path {
+            let pb = PathBuf::from(p);
+            if pb.exists() && !is_system_lib(&pb, target_os) {
+                deps.push(pb);
+            }
+        }
+    }
+    Ok(deps)
+}
+
+fn collect_shared_deps_otool(binary: &Path, target_os: &str) -> Result<Vec<PathBuf>, FreightError> {
+    let out = std::process::Command::new("otool")
+        .args(["-L", &binary.to_string_lossy()])
+        .output()
+        .map_err(|e| FreightError::InstallFailed(format!("otool not found: {e}")))?;
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let mut deps = Vec::new();
+
+    // otool -L output:
+    //   binary:
+    //     /usr/lib/libSystem.B.dylib (compatibility version …)
+    //     /usr/local/lib/libfoo.1.dylib (…)
+    for line in stdout.lines().skip(1) {
+        let line = line.trim();
+        if let Some(path_str) = line.split(' ').next() {
+            let pb = PathBuf::from(path_str);
+            if pb.is_absolute() && pb.exists() && !is_system_lib(&pb, target_os) {
+                deps.push(pb);
+            }
+        }
+    }
+    Ok(deps)
+}
+
+fn collect_shared_deps_dumpbin(binary: &Path, target_os: &str) -> Result<Vec<PathBuf>, FreightError> {
+    // dumpbin is part of MSVC; may not be present in all CI environments.
+    let out = match std::process::Command::new("dumpbin")
+        .args(["/DEPENDENTS", &binary.to_string_lossy()])
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => {
+            eprintln!("warning: dumpbin not found; falling back to ldd for DLL detection");
+            return collect_shared_deps_ldd(binary, target_os);
+        }
+    };
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let mut deps = Vec::new();
+
+    // Parse the "Image has the following dependencies:" section.
+    let mut in_section = false;
+    for line in stdout.lines() {
+        let line = line.trim();
+        if line.contains("has the following dependencies") {
+            in_section = true;
+            continue;
+        }
+        if in_section {
+            if line.is_empty() {
+                break;
+            }
+            if line.ends_with(".dll") || line.ends_with(".DLL") {
+                // Resolve the DLL via PATH (same search order Windows uses).
+                if let Some(resolved) = resolve_dll_on_path(line) {
+                    if !is_system_lib(&resolved, target_os) {
+                        deps.push(resolved);
+                    }
+                }
+            }
+        }
+    }
+    Ok(deps)
+}
+
+fn resolve_dll_on_path(dll_name: &str) -> Option<PathBuf> {
+    let path_var = std::env::var("PATH").ok()?;
+    for dir in std::env::split_paths(&path_var) {
+        let candidate = dir.join(dll_name);
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+// ── Launcher script ───────────────────────────────────────────────────────────
+
+fn write_launcher_script(staging: &Path, bin_name: &str, target_os: &str) -> Result<(), FreightError> {
+    // Strip .exe suffix for the script name (shouldn't happen for Linux/macOS but be safe).
+    let script_name = bin_name.trim_end_matches(".exe");
+    let script_path = staging.join(script_name);
+
+    let lib_var = if target_os == "macos" { "DYLD_LIBRARY_PATH" } else { "LD_LIBRARY_PATH" };
+
+    let content = format!(
+        "#!/bin/sh\n\
+         DIR=\"$(cd \"$(dirname \"$0\")\" && pwd)\"\n\
+         export {lib_var}=\"$DIR/lib${{{}:+:${{{}}}}}\"\n\
+         exec \"$DIR/bin/{bin_name}\" \"$@\"\n",
+        lib_var, lib_var,
+    );
+
+    fs::write(&script_path, content)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&script_path, fs::Permissions::from_mode(0o755))?;
+    }
+
+    Ok(())
+}
+
+// ── macOS rpath rewriting ─────────────────────────────────────────────────────
+
+fn rewrite_macos_rpaths(binary: &Path, bundled_lib_dir: &Path) -> Result<(), FreightError> {
+    if !bundled_lib_dir.is_dir() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(bundled_lib_dir)? {
+        let entry = entry?;
+        let lib = entry.path();
+        if lib.extension().map_or(false, |e| e == "dylib") {
+            let old = lib.to_string_lossy();
+            let new = format!(
+                "@executable_path/../lib/{}",
+                lib.file_name().unwrap_or_default().to_string_lossy()
+            );
+            let _ = std::process::Command::new("install_name_tool")
+                .args(["-change", &old, &new, &binary.to_string_lossy()])
+                .status();
+        }
+    }
+    Ok(())
+}
+
 fn run_ldconfig(lib_dir: &Path) {
     // Only meaningful on a Linux host; no-op when cross-compiling from another OS.
     if cfg!(target_os = "linux") {
