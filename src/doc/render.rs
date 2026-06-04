@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use docify::extract::DocSet;
-use docify::render;
+use crate::doc::docify::extract::DocSet;
+use crate::doc::docify::render;
 
 /// Generate Markdown documentation for `set` into `out_dir`.
 pub fn generate(set: DocSet, out_dir: &Path) -> anyhow::Result<()> {

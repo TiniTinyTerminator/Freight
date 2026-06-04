@@ -1,29 +1,16 @@
-use docify::extract::DocLanguage;
+use crate::doc::docify::extract::DocLanguage;
 use ratatui::text::{Line, Span};
 
 fn lang_fence(lang: &DocLanguage) -> &'static str {
     match lang {
-        DocLanguage::C               => "c",
-        DocLanguage::Cpp             => "cpp",
-        DocLanguage::Rust            => "rust",
-        DocLanguage::Go              => "go",
-        DocLanguage::Python          => "python",
-        DocLanguage::Java            => "java",
-        DocLanguage::Kotlin          => "kotlin",
-        DocLanguage::Swift           => "swift",
-        DocLanguage::CSharp          => "csharp",
-        DocLanguage::TypeScript      => "typescript",
-        DocLanguage::JavaScript      => "javascript",
-        DocLanguage::D               => "d",
-        DocLanguage::Ada             => "ada",
-        DocLanguage::Fortran         => "fortran",
-        DocLanguage::Zig             => "zig",
-        DocLanguage::Php             => "php",
-        DocLanguage::Ruby            => "ruby",
-        DocLanguage::Lua             => "lua",
-        DocLanguage::R               => "r",
-        DocLanguage::Haskell         => "haskell",
-        DocLanguage::Unknown         => "",
+        DocLanguage::C       => "c",
+        DocLanguage::Cpp     => "cpp",
+        DocLanguage::Rust    => "rust",
+        DocLanguage::D       => "d",
+        DocLanguage::Ada     => "ada",
+        DocLanguage::Fortran => "fortran",
+        DocLanguage::Zig     => "zig",
+        DocLanguage::Unknown => "",
     }
 }
 

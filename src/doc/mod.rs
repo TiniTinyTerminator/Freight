@@ -1,5 +1,6 @@
 pub mod browser;
 pub mod discover;
+pub mod docify;
 pub mod latex;
 pub mod render;
 pub mod stdlib;

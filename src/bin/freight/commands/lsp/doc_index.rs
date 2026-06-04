@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use docify::extract::{extract_dir, extract_file, DocItem, DocLanguage, TagKind};
+use freight_core::doc::docify::extract::{extract_dir, extract_file, DocItem, DocLanguage, TagKind};
 use freight_core::manifest::load_manifest;
 use freight_core::manifest::types::Manifest;
 use serde_json::{json, Value};
@@ -775,7 +775,6 @@ fn lang_id(lang: DocLanguage) -> &'static str {
         DocLanguage::Cpp => "cpp",
         DocLanguage::Fortran => "fortran",
         DocLanguage::Rust => "rust",
-        DocLanguage::Python => "python",
         DocLanguage::Ada => "ada",
         DocLanguage::D => "d",
         _ => "text",

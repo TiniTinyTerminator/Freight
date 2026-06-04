@@ -18,7 +18,7 @@ use ratatui::{
     Frame, Terminal,
 };
 
-use docify::extract::{DocItem, DocKind, DocLanguage, TagKind};
+use crate::doc::docify::extract::{DocItem, DocKind, DocLanguage, TagKind};
 
 use crate::doc::latex::render_math_lines;
 use crate::doc::stdlib::StdlibMsg;
@@ -1474,20 +1474,7 @@ fn lang_fence(lang: &DocLanguage) -> &'static str {
         DocLanguage::C => "c",
         DocLanguage::Cpp => "cpp",
         DocLanguage::Rust => "rust",
-        DocLanguage::Go => "go",
-        DocLanguage::Python => "python",
-        DocLanguage::Java => "java",
-        DocLanguage::Kotlin => "kotlin",
-        DocLanguage::Swift => "swift",
-        DocLanguage::CSharp => "cs",
-        DocLanguage::TypeScript => "ts",
-        DocLanguage::JavaScript => "js",
         DocLanguage::D => "d",
-        DocLanguage::Php => "php",
-        DocLanguage::Ruby => "ruby",
-        DocLanguage::Lua => "lua",
-        DocLanguage::R => "r",
-        DocLanguage::Haskell => "haskell",
         // No bundled syntect syntax — use generic code block.
         DocLanguage::Fortran | DocLanguage::Ada | DocLanguage::Zig | DocLanguage::Unknown => "",
     }
@@ -1526,7 +1513,7 @@ fn push_highlighted_code(out: &mut Vec<Line<'static>>, code: &str, lang: &DocLan
 }
 
 fn render_member_table(out: &mut Vec<Line<'static>>, members: &[&DocItem], width: usize) {
-    use docify::extract::Access;
+    use crate::doc::docify::extract::Access;
 
     // Group by access specifier bucket.
     let buckets: &[(&str, Option<Access>)] = &[

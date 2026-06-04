@@ -237,9 +237,13 @@ fn build_outputs_for_dap(
     features: &[String],
 ) -> anyhow::Result<Vec<BuildOutput>> {
     let profile_buf = config_string(config, "profile");
-    let profile = profile_buf
-        .as_deref()
-        .unwrap_or_else(|| if config_bool(config, "release").unwrap_or(false) { "release" } else { "dev" });
+    let profile = profile_buf.as_deref().unwrap_or_else(|| {
+        if config_bool(config, "release").unwrap_or(false) {
+            "release"
+        } else {
+            "dev"
+        }
+    });
     let use_defaults = !config_bool(config, "noDefaultFeatures").unwrap_or(false);
     let package_buf = config_string(config, "package");
     let package = package_buf.as_deref();

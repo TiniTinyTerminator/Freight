@@ -51,8 +51,6 @@ reqwest       = { version = "0.12", features = ["json"] }
 keyring       = "4"
 keyring-core  = "1"
 toml          = "0.8"
-docify        = { git = "https://github.com/TiniTinyTerminator/docify.git" }
-
 # Optional rich-math rendering
 ratatui-image  = { version = "11", default-features = false, features = ["image-defaults"], optional = true }
 image          = { version = "0.25", optional = true }

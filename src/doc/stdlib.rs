@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::mpsc::Sender;
 
-use docify::extract::{extract_dir, DocItem};
+use crate::doc::docify::extract::{extract_dir, DocItem};
 
 use super::browser::PackageDoc;
 
