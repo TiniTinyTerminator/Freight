@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
-use crate::doc::{extract_dir, extract_file, DocItem, DocKind, DocLanguage, TagKind};
+use crate::doc::{extract_dir, extract_file, DocItem, DocLanguage, TagKind};
 use crate::manifest::load_manifest;
 use crate::manifest::types::Manifest;
 
@@ -478,20 +478,6 @@ pub fn include_inlay_label(entry: &HeaderEntry) -> String {
 /// Render a `DocItem` to a Markdown string suitable for an LSP hover response.
 pub fn item_to_markdown(item: &DocItem) -> String {
     let mut out = String::new();
-
-    // Symbol name heading with kind label and optional parent class.
-    let display_name = simple_name(&item.name);
-    if !display_name.is_empty() {
-        let kind_label = item.kind.label();
-        if let Some(parent) = item.meta.parent.as_deref().filter(|p| !p.is_empty()) {
-            let parent_simple = simple_name(parent);
-            out.push_str(&format!("### `{display_name}`  `{kind_label} in {parent_simple}`\n\n"));
-        } else if !matches!(item.kind, DocKind::Unknown) {
-            out.push_str(&format!("### `{display_name}`  `{kind_label}`\n\n"));
-        } else {
-            out.push_str(&format!("### `{display_name}`\n\n"));
-        }
-    }
 
     // Fenced code block for the signature.
     if !item.signature.is_empty() {
