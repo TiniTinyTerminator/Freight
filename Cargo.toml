@@ -11,7 +11,7 @@ path = "src/lib.rs"
 
 [[bin]]
 name = "freight"
-path = "src/bin/freight/main.rs"
+path = "src/cli/main.rs"
 
 [features]
 default   = []
