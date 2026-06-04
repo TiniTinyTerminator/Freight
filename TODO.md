@@ -24,6 +24,54 @@ This file covers items not tracked elsewhere.
 - [ ] Add fake-adapter unit tests and real smoke-test notes before exposing any
   new backend in VS Code or Neovim.
 
+### LSP: libclang integration
+
+Replace the current text-based DocIndex and clangd proxy for hover/definition/inlay
+hints with direct AST queries via `libclang` (`clang-sys` crate). clangd stays as
+the subprocess for diagnostics and completions where it adds the most value.
+
+**Phase 1 — TU lifecycle (prerequisite)**
+- [ ] Add `clang-sys` + `clang` crates to `Cargo.toml` (dynamic link, feature-gated
+  `libclang` so freight still builds without LLVM installed, falling back to the
+  existing proxy path).
+- [ ] Add `ClangIndex` (wraps `CXIndex`) and `TuCache` (`HashMap<PathBuf, CXTranslationUnit>`)
+  to `ServerState`.
+- [ ] On `textDocument/didOpen` + `textDocument/didChange` (debounced ~300 ms): reparse
+  the TU for C/C++ files using `compile_commands.json` flags. Store in `TuCache`.
+- [ ] On `textDocument/didClose`: drop the TU from `TuCache`.
+
+**Phase 2 — Hover via libclang**
+- [ ] On `textDocument/hover` for a C/C++ file: look up the TU, call
+  `clang_getCursor` at the position, query type + spelling + declaration.
+- [ ] Build a hover markdown card from the cursor: declaration spelling, type string,
+  brief doc comment (`clang_Cursor_getBriefCommentText`).
+- [ ] Fall back to DocIndex lookup (existing path) when no TU is available.
+- [ ] Remove the clangd hover forwarding for C/C++ (freight now owns it).
+
+**Phase 3 — Go-to-definition via libclang**
+- [ ] Replace the current clangd-forwarded definition with `clang_getCursorDefinition`
+  on the TU cursor at the requested position.
+- [ ] Keep the `#include` line intercept as-is (that's already freight-owned).
+
+**Phase 4 — Inlay hints via libclang**
+- [ ] Drop the `clangd_pending` ID-rewrite / merge pipeline for C/C++ inlay hints.
+- [ ] Compute parameter name hints and deduced type hints directly from the TU AST
+  (walk children, check `CXCursor_CallExpr` arg positions, `clang_getResultType`).
+- [ ] Keep include-origin hints exactly as they are (those never touched the AST).
+
+**Phase 5 — clang-tidy diagnostics**
+- [ ] On `textDocument/didSave` for C/C++ files: spawn `clang-tidy <file> -p <cc>`
+  in the background.
+- [ ] Parse structured output (or `--export-fixes` JSON); emit
+  `textDocument/publishDiagnostics` with `source = "clang-tidy"`.
+- [ ] Merge alongside clangd diagnostics (separate source tag so VS Code shows both).
+
+**What stays as clangd subprocess:**
+- Diagnostics (clangd's error recovery and incremental reparse is better)
+- Completions and signature help (clangd's ranking is better than libclang's)
+
+---
+
 ### LSP: workspace/package recognition
 
 - [x] Treat `[workspace]` manifests as first-class in `freight lsp` diagnostics instead of parsing

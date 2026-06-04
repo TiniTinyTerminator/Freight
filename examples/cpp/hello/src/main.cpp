@@ -13,6 +13,8 @@ int main() {
 
     auto [m,v] = tada;
 
+    throw std::runtime_error("yeet");
+
     std::cout << "data:     ";
     for (double x : data) std::cout << x << " ";
     std::cout << "\n";

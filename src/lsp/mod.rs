@@ -1,6 +1,7 @@
 //! `freight lsp` — Language Server Protocol multiplexer for freight.toml and
 //! source files (clangd, fortls, asm-lsp passthroughs).
 
+mod clang_index;
 mod doc_index;
 pub mod log;
 mod manifest;
@@ -19,6 +20,7 @@ use crate::manifest::{find_manifest_dir, load_manifest, load_workspace_manifest}
 use crate::toolchain::{detect_all_cached, load_all_templates};
 use serde_json::{json, Value};
 
+use clang_index::{hover_info_to_markdown, DefinitionLocation, TuCache};
 use doc_index::{
     include_hover_markdown, include_inlay_label, item_to_markdown, parse_include_header, word_at,
     DocIndex, HeaderDirSpec, HeaderEntry, HeaderIndex, HeaderOrigin,
@@ -142,6 +144,8 @@ struct ServerState {
     /// Pending inlay-hint intercepts: rewritten-id → (original-id, our-hints).
     /// Shared with the clangd reader thread so it can merge and forward.
     clangd_pending: Arc<Mutex<HashMap<String, (Value, Vec<Value>)>>>,
+    /// libclang TU cache — None when libclang is not available at runtime.
+    tu_cache: Option<TuCache>,
 }
 
 struct Passthrough {
@@ -181,6 +185,7 @@ impl Server {
                 header_index: HeaderIndex::default(),
                 workspace_inventory: WorkspaceInventory::default(),
                 clangd_pending: Arc::new(Mutex::new(HashMap::new())),
+                tu_cache: TuCache::try_new(None),
             },
         }
     }
@@ -294,6 +299,14 @@ impl Server {
                     }
                 }
             }
+            // Parse a TU for C/C++ files.
+            if matches!(source_server_for_uri(&uri), Some(SourceServer::Clangd)) {
+                if let Some(path) = path_from_uri(&uri) {
+                    if let Some(cache) = self.state.tu_cache.as_mut() {
+                        cache.open(&path);
+                    }
+                }
+            }
         }
         self.forward_by_text_document(&msg)
     }
@@ -303,6 +316,14 @@ impl Server {
             return self.forward_to_all_passthroughs(&msg);
         };
         if !is_freight_manifest_uri(&uri) {
+            // Reparse C/C++ TU on change (reads from disk — matches last save).
+            if matches!(source_server_for_uri(&uri), Some(SourceServer::Clangd)) {
+                if let Some(path) = path_from_uri(&uri) {
+                    if let Some(cache) = self.state.tu_cache.as_mut() {
+                        cache.open(&path);
+                    }
+                }
+            }
             return self.forward_by_uri(&uri, &msg);
         }
         if let Some(text) = changed_full_text(&msg) {
@@ -343,6 +364,13 @@ impl Server {
             self.state.docs.remove(&uri);
             self.publish_diagnostics(&uri, vec![])?;
             return Ok(());
+        }
+        if matches!(source_server_for_uri(&uri), Some(SourceServer::Clangd)) {
+            if let Some(path) = path_from_uri(&uri) {
+                if let Some(cache) = self.state.tu_cache.as_mut() {
+                    cache.close(&path);
+                }
+            }
         }
         self.forward_by_uri(&uri, &msg)
     }
@@ -418,14 +446,19 @@ impl Server {
             return self.respond(msg.get("id").cloned(), hover);
         }
 
-        // 2. DocIndex — position-based then name-based lookup.
+        // 2. libclang AST hover for C/C++ — type + doc comment from the TU.
+        if let Some(hover) = self.clang_hover(&uri, &msg) {
+            return self.respond(msg.get("id").cloned(), hover);
+        }
+
+        // 3. DocIndex — position-based then name-based lookup (all languages).
         if let Some(hover) = self.doc_hover(&uri, &msg) {
             return self.respond(msg.get("id").cloned(), hover);
         }
 
-        // 3. Fall back to the language-specific passthrough server on a DocIndex miss.
+        // 4. Forward to passthrough for anything not covered above.
         match source_server_for_uri(&uri) {
-            Some(SourceServer::Clangd) | Some(SourceServer::Fortls) | Some(SourceServer::AsmLsp) => {
+            Some(SourceServer::Fortls) | Some(SourceServer::AsmLsp) => {
                 self.forward_by_uri(&uri, &msg)
             }
             _ => self.respond(msg.get("id").cloned(), Value::Null),
@@ -460,6 +493,50 @@ impl Server {
         Some(json!({ "contents": { "kind": "markdown", "value": md } }))
     }
 
+    fn clang_hover(&self, uri: &str, msg: &Value) -> Option<Value> {
+        if !matches!(source_server_for_uri(uri), Some(SourceServer::Clangd)) {
+            return None;
+        }
+        let (line, col) = position(msg)?;
+        let path = path_from_uri(uri)?;
+        let info = self.state.tu_cache.as_ref()?.hover(&path, line as u32, col as u32)?;
+        let md = hover_info_to_markdown(&info);
+        tracing::debug!(
+            symbol = info.spelling.as_str(),
+            line,
+            col,
+            "libclang hover hit"
+        );
+        Some(json!({ "contents": { "kind": "markdown", "value": md } }))
+    }
+
+    fn clang_definition(&self, uri: &str, msg: &Value) -> Option<Value> {
+        if !matches!(source_server_for_uri(uri), Some(SourceServer::Clangd)) {
+            return None;
+        }
+        let (line, col) = position(msg)?;
+        let path = path_from_uri(uri)?;
+        let DefinitionLocation {
+            path: def_path,
+            line: def_line,
+            col: def_col,
+        } = self.state.tu_cache.as_ref()?.definition(&path, line as u32, col as u32)?;
+        let target_uri = uri_from_path(&def_path);
+        tracing::debug!(
+            target = %def_path.display(),
+            def_line,
+            def_col,
+            "libclang definition hit"
+        );
+        Some(json!({
+            "uri": target_uri,
+            "range": {
+                "start": { "line": def_line, "character": def_col },
+                "end":   { "line": def_line, "character": def_col }
+            }
+        }))
+    }
+
     /// Go-to-definition / go-to-declaration on an `#include` line:
     /// jump directly to the header file. Falls through to clangd for non-include lines.
     fn handle_definition_or_forward(&mut self, msg: Value) -> io::Result<()> {
@@ -470,6 +547,10 @@ impl Server {
             if let Some(location) = self.include_definition(&uri, line) {
                 return self.respond(msg.get("id").cloned(), location);
             }
+        }
+        // libclang AST definition for C/C++ — falls back to clangd if TU unavailable.
+        if let Some(location) = self.clang_definition(&uri, &msg) {
+            return self.respond(msg.get("id").cloned(), location);
         }
         self.forward_by_uri(&uri, &msg)
     }
@@ -968,6 +1049,9 @@ impl Server {
         };
         if let Ok(dir) = generate_lsp_compile_commands_at(&dir, &self.args.profile) {
             tracing::info!(path = %dir.display(), "compile_commands.json refreshed");
+            if let Some(cache) = self.state.tu_cache.as_mut() {
+                cache.set_cc_dir(Some(dir.clone()));
+            }
             self.state.compile_commands_dir = Some(dir);
         }
         self.refresh_doc_index();
