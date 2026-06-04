@@ -32,6 +32,25 @@ pub struct DefinitionLocation {
     pub col: u32,
 }
 
+/// Resolved `#include` / `#import` directive from `clang_getInclusions`.
+pub struct InclusionInfo {
+    /// Absolute path to the included file.
+    pub full_path: PathBuf,
+    /// `true` when the file is in a system include directory.
+    pub is_system: bool,
+}
+
+/// A named symbol extracted from the TU top-level declarations,
+/// used to replace the docify-based `DocIndex` for C/C++ files.
+pub struct TuSymbol {
+    pub name: String,
+    pub type_str: Option<String>,
+    pub brief_doc: Option<String>,
+    /// 0-based line of the declaration (reserved for document-symbol outline).
+    #[allow(dead_code)]
+    pub line: u32,
+}
+
 /// A single inlay hint produced from the AST (parameter name or deduced type).
 pub struct AstInlayHint {
     /// 0-based line.
@@ -52,6 +71,10 @@ pub struct AstInlayHint {
 pub struct TuCache {
     index: CXIndex,
     tus: HashMap<PathBuf, CXTranslationUnit>,
+    /// line (0-based) → inclusion, rebuilt on every open/reparse.
+    inclusions: HashMap<PathBuf, HashMap<u32, InclusionInfo>>,
+    /// top-level symbols, rebuilt on every open/reparse.
+    symbols: HashMap<PathBuf, Vec<TuSymbol>>,
     cc_dir: Option<PathBuf>,
 }
 
@@ -76,6 +99,8 @@ impl TuCache {
         Some(Self {
             index,
             tus: HashMap::new(),
+            inclusions: HashMap::new(),
+            symbols: HashMap::new(),
             cc_dir,
         })
     }
@@ -111,10 +136,14 @@ impl TuCache {
                 )
             };
             if result != 0 {
-                // Reparse failed; dispose and start fresh.
                 unsafe { clang_disposeTranslationUnit(tu) };
                 self.tus.remove(path);
+                self.inclusions.remove(path);
+                self.symbols.remove(path);
                 self.parse_fresh(&c_path, &c_flag_ptrs, path);
+            } else {
+                // Reparse succeeded — refresh derived caches.
+                self.refresh_derived(path, tu);
             }
         } else {
             self.parse_fresh(&c_path, &c_flag_ptrs, path);
@@ -125,6 +154,8 @@ impl TuCache {
         if let Some(tu) = self.tus.remove(path) {
             unsafe { clang_disposeTranslationUnit(tu) };
         }
+        self.inclusions.remove(path);
+        self.symbols.remove(path);
     }
 
     // -----------------------------------------------------------------------
@@ -241,6 +272,25 @@ impl TuCache {
     }
 
     // -----------------------------------------------------------------------
+    // Inclusions and symbols
+    // -----------------------------------------------------------------------
+
+    /// Return the inclusion at `line` (0-based) in `path`, if the TU is loaded.
+    pub fn inclusion_at(&self, path: &Path, line: u32) -> Option<&InclusionInfo> {
+        self.inclusions.get(path)?.get(&line)
+    }
+
+    /// Return all inclusions in `path` (line → info), if the TU is loaded.
+    pub fn inclusions_for(&self, path: &Path) -> Option<&HashMap<u32, InclusionInfo>> {
+        self.inclusions.get(path)
+    }
+
+    /// Return all top-level symbols extracted from the TU for `path`.
+    pub fn symbols_for(&self, path: &Path) -> Option<&[TuSymbol]> {
+        self.symbols.get(path).map(Vec::as_slice)
+    }
+
+    // -----------------------------------------------------------------------
     // AST inlay hints (Phase 4)
     // -----------------------------------------------------------------------
 
@@ -290,10 +340,16 @@ impl TuCache {
         };
         if !tu.is_null() {
             self.tus.insert(path.to_path_buf(), tu);
+            self.refresh_derived(path, tu);
             tracing::debug!(path = %path.display(), "libclang: TU parsed");
         } else {
             tracing::warn!(path = %path.display(), "libclang: clang_parseTranslationUnit returned null");
         }
+    }
+
+    fn refresh_derived(&mut self, path: &Path, tu: CXTranslationUnit) {
+        self.inclusions.insert(path.to_path_buf(), build_inclusions(path, tu));
+        self.symbols.insert(path.to_path_buf(), build_symbols(tu));
     }
 
     fn compile_flags_for(&self, path: &Path) -> Vec<String> {
@@ -325,6 +381,169 @@ impl Drop for TuCache {
         }
         unsafe { clang_disposeIndex(self.index) };
     }
+}
+
+// ---------------------------------------------------------------------------
+// Inclusions builder (clang_getInclusions)
+// ---------------------------------------------------------------------------
+
+struct InclusionCollector {
+    map: HashMap<u32, InclusionInfo>,
+    source_file: CXFile,
+    tu: CXTranslationUnit,
+}
+
+extern "C" fn on_inclusion(
+    included_file: CXFile,
+    inclusion_stack: *mut CXSourceLocation,
+    include_len: u32,
+    data: CXClientData,
+) {
+    if include_len == 0 || included_file.is_null() {
+        return;
+    }
+    let col = unsafe { &mut *(data as *mut InclusionCollector) };
+
+    // Only care about direct includes from our source file.
+    let directive_loc = unsafe { *inclusion_stack };
+    let mut inc_file: CXFile = std::ptr::null_mut();
+    let mut line: u32 = 0;
+    let mut dummy_col: u32 = 0;
+    let mut dummy_off: u32 = 0;
+    unsafe {
+        clang_getSpellingLocation(
+            directive_loc,
+            &mut inc_file,
+            &mut line,
+            &mut dummy_col,
+            &mut dummy_off,
+        )
+    };
+    if inc_file != col.source_file || line == 0 {
+        return;
+    }
+
+    let full_path_str = unsafe { cx_string(clang_getFileName(included_file)) };
+    if full_path_str.is_empty() {
+        return;
+    }
+
+    // Determine system status by asking libclang about a location inside the
+    // included file itself (line 1, col 1).
+    let inner_loc = unsafe { clang_getLocation(col.tu, included_file, 1, 1) };
+    let is_system = unsafe { clang_Location_isInSystemHeader(inner_loc) } != 0;
+
+    col.map.insert(
+        line - 1,
+        InclusionInfo {
+            full_path: PathBuf::from(full_path_str),
+            is_system,
+        },
+    );
+}
+
+fn build_inclusions(path: &Path, tu: CXTranslationUnit) -> HashMap<u32, InclusionInfo> {
+    let c_path = match CString::new(path.to_string_lossy().as_bytes()) {
+        Ok(s) => s,
+        Err(_) => return HashMap::new(),
+    };
+    let source_file = unsafe { clang_getFile(tu, c_path.as_ptr()) };
+    if source_file.is_null() {
+        return HashMap::new();
+    }
+    let mut collector = InclusionCollector {
+        map: HashMap::new(),
+        source_file,
+        tu,
+    };
+    unsafe {
+        clang_getInclusions(tu, on_inclusion, &mut collector as *mut _ as CXClientData);
+    }
+    collector.map
+}
+
+// ---------------------------------------------------------------------------
+// Symbol builder (top-level declaration walk)
+// ---------------------------------------------------------------------------
+
+struct SymbolCollector {
+    symbols: Vec<TuSymbol>,
+    source_file: CXFile,
+}
+
+extern "C" fn on_symbol(
+    cursor: CXCursor,
+    _parent: CXCursor,
+    data: CXClientData,
+) -> CXChildVisitResult {
+    let col = unsafe { &mut *(data as *mut SymbolCollector) };
+    let kind = unsafe { clang_getCursorKind(cursor) };
+
+    // Only visit top-level declarations — don't recurse into bodies.
+    if unsafe { clang_isDeclaration(kind) } == 0 {
+        return CXChildVisit_Continue;
+    }
+    // Skip cursors from other files (headers etc.).
+    let loc = unsafe { clang_getCursorLocation(cursor) };
+    let mut file: CXFile = std::ptr::null_mut();
+    let mut line: u32 = 0;
+    let mut col_num: u32 = 0;
+    let mut offset: u32 = 0;
+    unsafe { clang_getSpellingLocation(loc, &mut file, &mut line, &mut col_num, &mut offset) };
+    if file != col.source_file || line == 0 {
+        return CXChildVisit_Continue;
+    }
+
+    let name = unsafe { cx_string(clang_getCursorSpelling(cursor)) };
+    if name.is_empty() {
+        return CXChildVisit_Continue;
+    }
+
+    let type_cx = unsafe { clang_getCursorType(cursor) };
+    let type_str = if type_cx.kind != CXType_Invalid {
+        let s = unsafe { cx_string(clang_getTypeSpelling(type_cx)) };
+        if s.is_empty() { None } else { Some(s) }
+    } else {
+        None
+    };
+
+    let brief = unsafe { cx_string(clang_Cursor_getBriefCommentText(cursor)) };
+    let brief_doc = if brief.is_empty() { None } else { Some(brief) };
+
+    col.symbols.push(TuSymbol {
+        name,
+        type_str,
+        brief_doc,
+        line: line - 1,
+    });
+
+    // Don't recurse into struct/class bodies — their members are separate decls.
+    CXChildVisit_Continue
+}
+
+fn build_symbols(tu: CXTranslationUnit) -> Vec<TuSymbol> {
+    let c_path_str = unsafe { cx_string(clang_getTranslationUnitSpelling(tu)) };
+    if c_path_str.is_empty() {
+        return vec![];
+    }
+    let c_path = match CString::new(c_path_str.as_bytes()) {
+        Ok(s) => s,
+        Err(_) => return vec![],
+    };
+    let source_file = unsafe { clang_getFile(tu, c_path.as_ptr()) };
+    if source_file.is_null() {
+        return vec![];
+    }
+
+    let mut col = SymbolCollector {
+        symbols: Vec::new(),
+        source_file,
+    };
+    let root = unsafe { clang_getTranslationUnitCursor(tu) };
+    unsafe {
+        clang_visitChildren(root, on_symbol, &mut col as *mut _ as CXClientData);
+    }
+    col.symbols
 }
 
 // ---------------------------------------------------------------------------

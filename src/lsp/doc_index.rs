@@ -157,6 +157,7 @@ pub enum HeaderOrigin {
     System,
 }
 
+#[derive(Clone)]
 pub struct HeaderEntry {
     pub package_name: String,
     pub package_version: Option<String>,

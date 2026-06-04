@@ -20,7 +20,7 @@ use crate::manifest::{find_manifest_dir, load_manifest, load_workspace_manifest}
 use crate::toolchain::{detect_all_cached, load_all_templates};
 use serde_json::{json, Value};
 
-use clang_index::{hover_info_to_markdown, AstInlayHint, DefinitionLocation, TuCache};
+use clang_index::{hover_info_to_markdown, AstInlayHint, DefinitionLocation, InclusionInfo, TuCache, TuSymbol};
 use doc_index::{
     include_hover_markdown, include_inlay_label, item_to_markdown, parse_include_header, word_at,
     DocIndex, HeaderDirSpec, HeaderEntry, HeaderIndex, HeaderOrigin,
@@ -461,17 +461,24 @@ impl Server {
             return self.respond(msg.get("id").cloned(), hover);
         }
 
-        // 2. libclang AST hover for C/C++ — type + doc comment from the TU.
+        // 2. libclang AST hover for C/C++ — cursor-accurate type + doc comment.
         if let Some(hover) = self.clang_hover(&uri, &msg) {
             return self.respond(msg.get("id").cloned(), hover);
         }
 
-        // 3. DocIndex — position-based then name-based lookup (all languages).
+        // 3. TU symbol table lookup (for name hover when cursor is not on a decl).
+        if matches!(source_server_for_uri(&uri), Some(SourceServer::Clangd)) {
+            if let Some(hover) = self.tu_symbol_hover(&uri, &msg) {
+                return self.respond(msg.get("id").cloned(), hover);
+            }
+        }
+
+        // 4. DocIndex — position-based then name-based lookup (Fortran, asm, …).
         if let Some(hover) = self.doc_hover(&uri, &msg) {
             return self.respond(msg.get("id").cloned(), hover);
         }
 
-        // 4. Forward to passthrough for anything not covered above.
+        // 5. Forward to passthrough for anything not covered above.
         match source_server_for_uri(&uri) {
             Some(SourceServer::Fortls) | Some(SourceServer::AsmLsp) => {
                 self.forward_by_uri(&uri, &msg)
@@ -483,11 +490,18 @@ impl Server {
     fn include_hover(&self, uri: &str, msg: &Value) -> Option<Value> {
         let (line, _) = position(msg)?;
         let path = path_from_uri(uri)?;
+
+        // If a TU is loaded, use libclang's exact resolution — no line parsing.
+        if let Some(info) = self.state.tu_cache.as_ref()
+            .and_then(|c| c.inclusion_at(&path, line as u32))
+        {
+            return self.hover_from_inclusion_info(info, line);
+        }
+
+        // Fallback: text-based parsing + HeaderIndex lookup.
         let text = std::fs::read_to_string(&path).ok()?;
         let line_text = text.lines().nth(line)?;
         let (header, is_system) = parse_include_header(line_text)?;
-
-        // Try package index first, then system dirs for angle-bracket includes.
         let owned;
         let entry: &HeaderEntry = if let Some(e) = self.state.header_index.lookup(&header) {
             e
@@ -497,14 +511,54 @@ impl Server {
         } else {
             return None;
         };
+        tracing::debug!(header, line, "include hover (text fallback)");
+        Some(json!({ "contents": { "kind": "markdown", "value": include_hover_markdown(&header, entry) } }))
+    }
 
-        let md = include_hover_markdown(&header, entry);
-        tracing::debug!(
-            header = header.as_str(),
-            package = entry.package_name.as_str(),
-            line,
-            "include hover"
-        );
+    fn hover_from_inclusion_info(&self, info: &InclusionInfo, line: usize) -> Option<Value> {
+        let filename = info.full_path.file_name()?.to_string_lossy().into_owned();
+        let owned;
+        let entry: &HeaderEntry = if let Some(e) = self.state.header_index.lookup(&filename) {
+            e
+        } else if info.is_system {
+            owned = self.state.header_index.lookup_system(&filename).unwrap_or_else(|| {
+                HeaderEntry {
+                    package_name: "stdlib".to_string(),
+                    package_version: None,
+                    full_path: info.full_path.clone(),
+                    origin: HeaderOrigin::System,
+                }
+            });
+            &owned
+        } else {
+            return None;
+        };
+        tracing::debug!(header = filename.as_str(), line, "include hover (libclang)");
+        Some(json!({ "contents": { "kind": "markdown", "value": include_hover_markdown(&filename, entry) } }))
+    }
+
+    /// Name-based hover from the TU symbol table — fires when `clang_hover`
+    /// returns nothing (cursor position doesn't resolve to a declaration).
+    fn tu_symbol_hover(&self, uri: &str, msg: &Value) -> Option<Value> {
+        let (line, character) = position(msg)?;
+        let path = path_from_uri(uri)?;
+        let text = std::fs::read_to_string(&path).ok()?;
+        let word = word_at(&text, line, character)?;
+        let symbols = self.state.tu_cache.as_ref()?.symbols_for(&path)?;
+        let sym: &TuSymbol = symbols.iter().find(|s| {
+            s.name.to_ascii_lowercase() == word.to_ascii_lowercase()
+        })?;
+        let mut md = String::new();
+        if let Some(t) = &sym.type_str {
+            md.push_str(&format!("```cpp\n{}: {}\n```", sym.name, t));
+        } else {
+            md.push_str(&format!("```cpp\n{}\n```", sym.name));
+        }
+        if let Some(doc) = &sym.brief_doc {
+            md.push_str("\n\n");
+            md.push_str(doc);
+        }
+        tracing::debug!(symbol = sym.name.as_str(), "TU symbol hover");
         Some(json!({ "contents": { "kind": "markdown", "value": md } }))
     }
 
@@ -572,10 +626,26 @@ impl Server {
 
     fn include_definition(&self, uri: &str, line: usize) -> Option<Value> {
         let path = path_from_uri(uri)?;
+
+        // libclang exact resolution.
+        if let Some(info) = self.state.tu_cache.as_ref()
+            .and_then(|c| c.inclusion_at(&path, line as u32))
+        {
+            let fp = &info.full_path;
+            if fp.as_os_str().is_empty() || !fp.exists() {
+                return None;
+            }
+            tracing::debug!(target = %fp.display(), line, "include definition (libclang)");
+            return Some(json!({
+                "uri": uri_from_path(fp),
+                "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 0 } }
+            }));
+        }
+
+        // Fallback: text parse + HeaderIndex.
         let text = std::fs::read_to_string(&path).ok()?;
         let line_text = text.lines().nth(line)?;
         let (header, is_system) = parse_include_header(line_text)?;
-
         let full_path = if let Some(e) = self.state.header_index.lookup(&header) {
             e.full_path.clone()
         } else if is_system {
@@ -583,14 +653,12 @@ impl Server {
         } else {
             return None;
         };
-
         if full_path.as_os_str().is_empty() || !full_path.exists() {
             return None;
         }
-        let target_uri = uri_from_path(&full_path);
-        tracing::debug!(header, target = %full_path.display(), "include definition");
+        tracing::debug!(header, target = %full_path.display(), "include definition (text fallback)");
         Some(json!({
-            "uri": target_uri,
+            "uri": uri_from_path(&full_path),
             "range": { "start": { "line": 0, "character": 0 }, "end": { "line": 0, "character": 0 } }
         }))
     }
@@ -608,38 +676,51 @@ impl Server {
         let path = path_from_uri(&uri)?;
         let text = std::fs::read_to_string(&path).ok()?;
 
+        // Use libclang inclusions map when available — exact, no regex parsing.
+        let tu_inclusions = self.state.tu_cache.as_ref()
+            .and_then(|c| c.inclusions_for(&path));
+
         let mut links = Vec::new();
         for (idx, line_text) in text.lines().enumerate() {
-            let Some((header, is_system)) = parse_include_header(line_text) else {
-                continue;
-            };
-
-            let full_path = if let Some(e) = self.state.header_index.lookup(&header) {
-                e.full_path.clone()
-            } else if is_system {
-                match self.state.header_index.lookup_system(&header) {
-                    Some(e) => e.full_path,
+            let full_path: PathBuf = if let Some(inc_map) = tu_inclusions {
+                match inc_map.get(&(idx as u32)) {
+                    Some(info) => info.full_path.clone(),
                     None => continue,
                 }
             } else {
-                continue;
+                // Text fallback.
+                let Some((header, is_system)) = parse_include_header(line_text) else {
+                    continue;
+                };
+                if let Some(e) = self.state.header_index.lookup(&header) {
+                    e.full_path.clone()
+                } else if is_system {
+                    match self.state.header_index.lookup_system(&header) {
+                        Some(e) => e.full_path,
+                        None => continue,
+                    }
+                } else {
+                    continue
+                }
             };
 
             if full_path.as_os_str().is_empty() || !full_path.exists() {
                 continue;
             }
 
-            // Range covers just the header name inside the delimiters.
-            let trimmed = line_text.trim();
-            let name_start = line_text.find(&header).unwrap_or(0);
-            let name_end = name_start + header.len();
+            // Range covers the header name inside its delimiters.
+            let filename = full_path.file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            let name_start = line_text.find(filename.as_str()).unwrap_or(0);
+            let name_end = name_start + filename.len();
             links.push(json!({
                 "range": {
                     "start": { "line": idx, "character": name_start },
                     "end":   { "line": idx, "character": name_end }
                 },
                 "target": uri_from_path(&full_path),
-                "tooltip": trimmed
+                "tooltip": line_text.trim()
             }));
         }
         Some(links)
@@ -719,45 +800,66 @@ impl Server {
         let start_line = range.get("start")?.get("line")?.as_u64()? as usize;
         let end_line = range.get("end")?.get("line")?.as_u64()? as usize;
 
+        let tu_inclusions = self.state.tu_cache.as_ref()
+            .and_then(|c| c.inclusions_for(&path));
+
         let mut hints = Vec::new();
         for (idx, line_text) in text.lines().enumerate() {
             if idx < start_line || idx > end_line {
                 continue;
             }
-            let Some((header, is_system)) = parse_include_header(line_text) else {
-                continue;
-            };
 
-            let owned;
-            let entry: &HeaderEntry = if let Some(e) = self.state.header_index.lookup(&header) {
-                e
-            } else if is_system {
-                // File-based system lookup (e.g. <vector> → /usr/include/c++/.../vector).
-                // Named C++20 modules (e.g. `import std.core`) won't be found this way;
-                // synthesise a System entry so we still show "← stdlib".
-                owned = self.state.header_index.lookup_system(&header)
-                    .unwrap_or_else(|| HeaderEntry {
-                        package_name: "stdlib".to_string(),
-                        package_version: None,
-                        full_path: std::path::PathBuf::new(),
-                        origin: HeaderOrigin::System,
-                    });
-                &owned
-            } else {
-                continue;
-            };
+            // Resolve via libclang or text fallback.
+            let (entry_owned, header_name): (Option<HeaderEntry>, String) =
+                if let Some(inc_map) = tu_inclusions {
+                    let Some(info) = inc_map.get(&(idx as u32)) else { continue };
+                    let fname = info.full_path.file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_default();
+                    if let Some(e) = self.state.header_index.lookup(&fname) {
+                        (Some(e.clone()), fname)
+                    } else if info.is_system {
+                        let e = self.state.header_index.lookup_system(&fname)
+                            .unwrap_or_else(|| HeaderEntry {
+                                package_name: "stdlib".to_string(),
+                                package_version: None,
+                                full_path: info.full_path.clone(),
+                                origin: HeaderOrigin::System,
+                            });
+                        (Some(e), fname)
+                    } else {
+                        continue;
+                    }
+                } else {
+                    let Some((header, is_system)) = parse_include_header(line_text) else {
+                        continue;
+                    };
+                    if let Some(e) = self.state.header_index.lookup(&header) {
+                        (Some(e.clone()), header)
+                    } else if is_system {
+                        let e = self.state.header_index.lookup_system(&header)
+                            .unwrap_or_else(|| HeaderEntry {
+                                package_name: "stdlib".to_string(),
+                                package_version: None,
+                                full_path: PathBuf::new(),
+                                origin: HeaderOrigin::System,
+                            });
+                        (Some(e), header)
+                    } else {
+                        continue;
+                    }
+                };
 
-            let label = include_inlay_label(entry);
-            // Position at end of line.
-            let col = line_text.len();
+            let Some(entry) = entry_owned else { continue };
+            let label = include_inlay_label(&entry);
             hints.push(json!({
-                "position": { "line": idx, "character": col },
+                "position": { "line": idx, "character": line_text.len() },
                 "label": label,
-                "kind": 2,       // Parameter kind — renders as dimmed text
+                "kind": 2,
                 "paddingLeft": true,
                 "tooltip": {
                     "kind": "markdown",
-                    "value": include_hover_markdown(&header, entry)
+                    "value": include_hover_markdown(&header_name, &entry)
                 }
             }));
         }
