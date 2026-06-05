@@ -103,6 +103,150 @@ pub enum PipelineOutput {
     Bench(BenchSummary),
 }
 
+// ── Project ───────────────────────────────────────────────────────────────────
+
+/// Handle to a freight project on disk.
+///
+/// Provides high-level methods (`build`, `test`, `bench`, `run`, `clean`, …)
+/// that all funnel through the unified ten-stage pipeline (`run_pipeline_at`).
+/// Construct with [`Project::open`] or [`Project::from_cwd`].
+pub struct Project {
+    /// Absolute path to the directory containing `freight.toml`.
+    pub dir: PathBuf,
+    /// Parsed and validated project manifest.
+    pub manifest: crate::manifest::types::Manifest,
+    /// When building a dep from source, the root project's graph anchors the
+    /// flat `.pkgs/` pool.  `None` for top-level builds.
+    pub parent_graph: Option<pipeline::PackageGraph>,
+}
+
+impl Project {
+    /// Load the project at `dir` (must contain a `freight.toml`).
+    pub fn open(dir: impl Into<PathBuf>) -> Result<Self, FreightError> {
+        let dir = dir.into();
+        let manifest = load_manifest(&dir)?;
+        Ok(Self {
+            dir,
+            manifest,
+            parent_graph: None,
+        })
+    }
+
+    /// Open the project whose `freight.toml` is an ancestor of the current
+    /// working directory.
+    pub fn from_cwd() -> Result<Self, FreightError> {
+        let cwd = std::env::current_dir()?;
+        let dir = find_manifest_dir(&cwd)
+            .ok_or_else(|| FreightError::ManifestNotFound(cwd.to_string_lossy().into_owned()))?;
+        Self::open(dir)
+    }
+
+    /// Attach a parent graph so dep source-builds anchor to the root `.pkgs/` pool.
+    pub fn with_parent(mut self, parent_graph: pipeline::PackageGraph) -> Self {
+        self.parent_graph = Some(parent_graph);
+        self
+    }
+
+    /// Compile and link the project.
+    pub fn build(
+        &self,
+        config: &pipeline::PipelineConfig,
+        progress: &Progress,
+    ) -> Result<BuildOutput, FreightError> {
+        let cfg = pipeline::PipelineConfig {
+            goal: pipeline::PipelineGoal::Build,
+            ..config.clone()
+        };
+        match run_pipeline_at(&self.dir, &cfg, self.parent_graph.as_ref(), progress)? {
+            PipelineOutput::Build(out) => Ok(out),
+            _ => unreachable!(),
+        }
+    }
+
+    /// Compile and run test binaries found in `tests/`.
+    pub fn test(
+        &self,
+        config: &pipeline::PipelineConfig,
+        filter: Option<&str>,
+        progress: &Progress,
+    ) -> Result<TestSummary, FreightError> {
+        let cfg = pipeline::PipelineConfig {
+            goal: pipeline::PipelineGoal::Test {
+                filter: filter.map(str::to_string),
+            },
+            ..config.clone()
+        };
+        match run_pipeline_at(&self.dir, &cfg, self.parent_graph.as_ref(), progress)? {
+            PipelineOutput::Test(out) => Ok(out),
+            _ => unreachable!(),
+        }
+    }
+
+    /// Compile and run benchmark binaries found in `benches/`.
+    pub fn bench(
+        &self,
+        config: &pipeline::PipelineConfig,
+        filter: Option<&str>,
+        progress: &Progress,
+    ) -> Result<BenchSummary, FreightError> {
+        let cfg = pipeline::PipelineConfig {
+            goal: pipeline::PipelineGoal::Bench {
+                filter: filter.map(str::to_string),
+            },
+            ..config.clone()
+        };
+        match run_pipeline_at(&self.dir, &cfg, self.parent_graph.as_ref(), progress)? {
+            PipelineOutput::Bench(out) => Ok(out),
+            _ => unreachable!(),
+        }
+    }
+
+    /// Build then execute a binary target, passing `args` to it.
+    ///
+    /// `bin` selects which binary to run when the project has multiple
+    /// `[[bin]]` targets.  When `None` the project must have exactly one.
+    pub fn run(
+        &self,
+        config: &pipeline::PipelineConfig,
+        bin: Option<&str>,
+        args: &[String],
+        progress: &Progress,
+    ) -> Result<std::process::ExitStatus, FreightError> {
+        let built = self.build(config, progress)?;
+
+        let binary = match bin {
+            Some(name) => built
+                .binaries
+                .iter()
+                .find(|p| p.file_name().and_then(|n| n.to_str()) == Some(name))
+                .cloned()
+                .ok_or_else(|| FreightError::ManifestParse(format!("no binary named `{name}`")))?,
+            None => match built.binaries.as_slice() {
+                [] => return Err(FreightError::ManifestParse(
+                    "no binary target produced — add a [[bin]] to freight.toml".into(),
+                )),
+                [b] => b.clone(),
+                _ => built.binaries[0].clone(),
+            },
+        };
+
+        std::process::Command::new(&binary)
+            .args(args)
+            .status()
+            .map_err(|e| FreightError::Io(e))
+    }
+
+    /// Remove build artifacts (`target/`).
+    pub fn clean(&self) -> Result<(), FreightError> {
+        clean_project_at(&self.dir)
+    }
+
+    /// Regenerate `compile_commands.json` for this project without building.
+    pub fn generate_compile_commands(&self, profile: &str) -> Result<usize, FreightError> {
+        generate_compile_commands_at(&self.dir, profile)
+    }
+}
+
 struct ProjectContext {
     project_dir: PathBuf,
     manifest: Manifest,
@@ -431,8 +575,7 @@ pub fn run_pipeline_at(
                     .join(safe_lsp_profile_dir(profile));
                 if let Ok(entries) = std::fs::read_dir(&pkgs_dir) {
                     for entry in entries.flatten() {
-                        let dep_cc =
-                            entry.path().join(&lsp_sub).join("compile_commands.json");
+                        let dep_cc = entry.path().join(&lsp_sub).join("compile_commands.json");
                         if dep_cc.exists() {
                             merged = compile_commands::merge(
                                 merged,
@@ -444,23 +587,21 @@ pub fn run_pipeline_at(
                 merged
             };
             let lsp_dir = lsp_compile_commands_dir(project_dir, profile);
-            if let Err(e) = compile_commands::write_to(
-                &lsp_dir.join("compile_commands.json"),
-                &cc,
-            )
-            .and_then(|_| {
-                compile_commands::write_incremental_cache(
-                    project_dir,
-                    manifest,
-                    effective_backend,
-                    detected,
-                    profile,
-                    &all_sources,
-                    &include_dirs,
-                    &feature_defines,
-                    &pch_clangd_flags,
-                )
-            }) {
+            if let Err(e) = compile_commands::write_to(&lsp_dir.join("compile_commands.json"), &cc)
+                .and_then(|_| {
+                    compile_commands::write_incremental_cache(
+                        project_dir,
+                        manifest,
+                        effective_backend,
+                        detected,
+                        profile,
+                        &all_sources,
+                        &include_dirs,
+                        &feature_defines,
+                        &pch_clangd_flags,
+                    )
+                })
+            {
                 progress(BuildEvent::Warning(format!(
                     "could not write compile_commands.json: {e}"
                 )));
@@ -522,11 +663,9 @@ pub fn run_pipeline_at(
                     None => continue,
                 };
                 if let Some(lang_key) = ext_map.get(ext.as_str()) {
-                    let stem =
-                        path.file_stem().and_then(|s| s.to_str()).unwrap_or("test");
+                    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("test");
                     if filter.map_or(true, |f| f == stem) {
-                        let rel =
-                            path.strip_prefix(project_dir).unwrap_or(path).to_path_buf();
+                        let rel = path.strip_prefix(project_dir).unwrap_or(path).to_path_buf();
                         test_srcs.push(SourceFile {
                             path: rel,
                             lang_key: lang_key.clone(),
@@ -645,11 +784,9 @@ pub fn run_pipeline_at(
                     None => continue,
                 };
                 if let Some(lang_key) = ext_map.get(ext.as_str()) {
-                    let stem =
-                        path.file_stem().and_then(|s| s.to_str()).unwrap_or("bench");
+                    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("bench");
                     if filter.map_or(true, |f| f == stem) {
-                        let rel =
-                            path.strip_prefix(project_dir).unwrap_or(path).to_path_buf();
+                        let rel = path.strip_prefix(project_dir).unwrap_or(path).to_path_buf();
                         bench_srcs.push(SourceFile {
                             path: rel,
                             lang_key: lang_key.clone(),
@@ -859,200 +996,6 @@ pub fn clean_workspace() -> Result<(), FreightError> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{
-        collect_dep_include_dirs_and_roots, is_standard_c_family_include_dir,
-        lsp_compile_commands_dir, lsp_visible_include_dirs, safe_lsp_profile_dir,
-    };
-    use crate::manifest::load_manifest;
-    use std::path::PathBuf;
-
-    #[test]
-    fn lsp_include_filter_keeps_project_paths() {
-        let dir = tempfile::tempdir().unwrap();
-        let include = dir.path().join("include");
-        std::fs::create_dir_all(&include).unwrap();
-
-        let filtered = lsp_visible_include_dirs(dir.path(), &[], vec![include.clone()]);
-        assert_eq!(filtered, vec![include]);
-    }
-
-    #[test]
-    fn lsp_include_filter_keeps_explicit_dep_paths() {
-        let dir = tempfile::tempdir().unwrap();
-        let dep = tempfile::tempdir().unwrap();
-        let include = dep.path().join("include");
-        std::fs::create_dir_all(&include).unwrap();
-
-        let filtered = lsp_visible_include_dirs(
-            dir.path(),
-            &[dep.path().to_path_buf()],
-            vec![include.clone()],
-        );
-        assert_eq!(filtered, vec![include]);
-    }
-
-    #[test]
-    fn lsp_include_filter_drops_broad_system_paths() {
-        let dir = tempfile::tempdir().unwrap();
-        let filtered = lsp_visible_include_dirs(
-            dir.path(),
-            &[],
-            vec![
-                PathBuf::from("/usr/include"),
-                PathBuf::from("/opt/local/include"),
-            ],
-        );
-        assert!(
-            filtered.is_empty(),
-            "hidden LSP compile DB should not expose broad system include directories"
-        );
-    }
-
-    #[test]
-    fn lsp_include_filter_allows_c_family_standard_dirs() {
-        assert!(is_standard_c_family_include_dir(&PathBuf::from(
-            "/usr/include/c++/13"
-        )));
-        assert!(is_standard_c_family_include_dir(&PathBuf::from(
-            "/usr/lib/llvm-18/lib/clang/18/include"
-        )));
-    }
-
-    #[test]
-    fn lsp_compile_commands_live_under_freight_dir() {
-        let project = PathBuf::from("project");
-        let dir = lsp_compile_commands_dir(&project, "dev/debug");
-
-        assert_eq!(dir, project.join(".freight/lsp/dev_debug"));
-    }
-
-    #[test]
-    fn lsp_profile_dir_is_path_safe() {
-        assert_eq!(safe_lsp_profile_dir("../release"), "___release");
-        assert_eq!(safe_lsp_profile_dir(""), "dev");
-    }
-
-    #[test]
-    fn lsp_compile_commands_include_cached_version_dep_headers() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir_all(dir.path().join("src")).unwrap();
-        std::fs::write(
-            dir.path().join("src/main.cpp"),
-            "#include \"vecmath/vec2.h\"\n",
-        )
-        .unwrap();
-        std::fs::write(
-            dir.path().join("freight.toml"),
-            r#"
-[package]
-name = "app"
-version = "0.1.0"
-
-[[bin]]
-name = "app"
-src = "src/main.cpp"
-
-[dependencies]
-vecmath = "0.1.1"
-"#,
-        )
-        .unwrap();
-
-        let vecmath = dir.path().join(".pkgs/vecmath");
-        std::fs::create_dir_all(vecmath.join("include/vecmath")).unwrap();
-        std::fs::write(vecmath.join("include/vecmath/vec2.h"), "#pragma once\n").unwrap();
-        std::fs::write(
-            vecmath.join("freight.toml"),
-            r#"
-[package]
-name = "vecmath"
-version = "0.1.1"
-
-[compiler]
-includes = ["include"]
-
-[lib]
-type = "static"
-srcs = []
-hdrs = ["include/vecmath/vec2.h"]
-"#,
-        )
-        .unwrap();
-
-        let manifest = load_manifest(dir.path()).unwrap();
-        let (includes, roots) = collect_dep_include_dirs_and_roots(dir.path(), &manifest);
-
-        assert!(roots.iter().any(|root| root.ends_with(".pkgs/vecmath")));
-        assert!(includes
-            .iter()
-            .any(|include| include.ends_with(".pkgs/vecmath/include")));
-
-        let filtered = lsp_visible_include_dirs(dir.path(), &roots, includes);
-        assert!(filtered
-            .iter()
-            .any(|include| include.ends_with(".pkgs/vecmath/include")));
-    }
-
-    #[test]
-    fn lsp_compile_commands_include_transitive_cached_version_dep_headers() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("freight.toml"),
-            r#"
-[package]
-name = "app"
-version = "0.1.0"
-
-[dependencies]
-vecmath = "0.1.1"
-"#,
-        )
-        .unwrap();
-
-        let vecmath = dir.path().join(".pkgs/vecmath");
-        std::fs::create_dir_all(vecmath.join("include/vecmath")).unwrap();
-        std::fs::write(vecmath.join("include/vecmath/vec2.h"), "#pragma once\n").unwrap();
-        std::fs::write(
-            vecmath.join("freight.toml"),
-            r#"
-[package]
-name = "vecmath"
-version = "0.1.1"
-
-[dependencies]
-mathlib = "0.1.0"
-"#,
-        )
-        .unwrap();
-
-        let mathlib = dir.path().join(".pkgs/mathlib");
-        std::fs::create_dir_all(mathlib.join("include/mathlib")).unwrap();
-        std::fs::write(mathlib.join("include/mathlib/mathlib.h"), "#pragma once\n").unwrap();
-        std::fs::write(
-            mathlib.join("freight.toml"),
-            r#"
-[package]
-name = "mathlib"
-version = "0.1.0"
-"#,
-        )
-        .unwrap();
-
-        let manifest = load_manifest(dir.path()).unwrap();
-        let (includes, roots) = collect_dep_include_dirs_and_roots(dir.path(), &manifest);
-
-        assert!(roots.iter().any(|root| root.ends_with(".pkgs/vecmath")));
-        assert!(roots.iter().any(|root| root.ends_with(".pkgs/mathlib")));
-        assert!(includes
-            .iter()
-            .any(|include| include.ends_with(".pkgs/vecmath/include")));
-        assert!(includes
-            .iter()
-            .any(|include| include.ends_with(".pkgs/mathlib/include")));
-    }
-}
 
 /// Test every member of a workspace rooted at the current working directory.
 pub fn test_workspace(profile: &str, filter: Option<&str>) -> Result<TestSummary, FreightError> {
@@ -2326,4 +2269,198 @@ fn inject_option_handler_flags(ctx: &mut ProjectContext) -> Result<(), FreightEr
     }
 
     Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::{
+        collect_dep_include_dirs_and_roots, is_standard_c_family_include_dir,
+        lsp_compile_commands_dir, lsp_visible_include_dirs, safe_lsp_profile_dir,
+    };
+    use crate::manifest::load_manifest;
+    use std::path::PathBuf;
+
+    #[test]
+    fn lsp_include_filter_keeps_project_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let include = dir.path().join("include");
+        std::fs::create_dir_all(&include).unwrap();
+
+        let filtered = lsp_visible_include_dirs(dir.path(), &[], vec![include.clone()]);
+        assert_eq!(filtered, vec![include]);
+    }
+
+    #[test]
+    fn lsp_include_filter_keeps_explicit_dep_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let dep = tempfile::tempdir().unwrap();
+        let include = dep.path().join("include");
+        std::fs::create_dir_all(&include).unwrap();
+
+        let filtered = lsp_visible_include_dirs(
+            dir.path(),
+            &[dep.path().to_path_buf()],
+            vec![include.clone()],
+        );
+        assert_eq!(filtered, vec![include]);
+    }
+
+    #[test]
+    fn lsp_include_filter_drops_broad_system_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        let filtered = lsp_visible_include_dirs(
+            dir.path(),
+            &[],
+            vec![
+                PathBuf::from("/usr/include"),
+                PathBuf::from("/opt/local/include"),
+            ],
+        );
+        assert!(
+            filtered.is_empty(),
+            "hidden LSP compile DB should not expose broad system include directories"
+        );
+    }
+
+    #[test]
+    fn lsp_include_filter_allows_c_family_standard_dirs() {
+        assert!(is_standard_c_family_include_dir(&PathBuf::from(
+            "/usr/include/c++/13"
+        )));
+        assert!(is_standard_c_family_include_dir(&PathBuf::from(
+            "/usr/lib/llvm-18/lib/clang/18/include"
+        )));
+    }
+
+    #[test]
+    fn lsp_compile_commands_live_under_freight_dir() {
+        let project = PathBuf::from("project");
+        let dir = lsp_compile_commands_dir(&project, "dev/debug");
+
+        assert_eq!(dir, project.join(".freight/lsp/dev_debug"));
+    }
+
+    #[test]
+    fn lsp_profile_dir_is_path_safe() {
+        assert_eq!(safe_lsp_profile_dir("../release"), "___release");
+        assert_eq!(safe_lsp_profile_dir(""), "dev");
+    }
+
+    #[test]
+    fn lsp_compile_commands_include_cached_version_dep_headers() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        std::fs::write(
+            dir.path().join("src/main.cpp"),
+            "#include \"vecmath/vec2.h\"\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("freight.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+
+[[bin]]
+name = "app"
+src = "src/main.cpp"
+
+[dependencies]
+vecmath = "0.1.1"
+"#,
+        )
+        .unwrap();
+
+        let vecmath = dir.path().join(".pkgs/vecmath");
+        std::fs::create_dir_all(vecmath.join("include/vecmath")).unwrap();
+        std::fs::write(vecmath.join("include/vecmath/vec2.h"), "#pragma once\n").unwrap();
+        std::fs::write(
+            vecmath.join("freight.toml"),
+            r#"
+[package]
+name = "vecmath"
+version = "0.1.1"
+
+[compiler]
+includes = ["include"]
+
+[lib]
+type = "static"
+srcs = []
+hdrs = ["include/vecmath/vec2.h"]
+"#,
+        )
+        .unwrap();
+
+        let manifest = load_manifest(dir.path()).unwrap();
+        let (includes, roots) = collect_dep_include_dirs_and_roots(dir.path(), &manifest);
+
+        assert!(roots.iter().any(|root| root.ends_with(".pkgs/vecmath")));
+        assert!(includes
+            .iter()
+            .any(|include| include.ends_with(".pkgs/vecmath/include")));
+
+        let filtered = lsp_visible_include_dirs(dir.path(), &roots, includes);
+        assert!(filtered
+            .iter()
+            .any(|include| include.ends_with(".pkgs/vecmath/include")));
+    }
+
+    #[test]
+    fn lsp_compile_commands_include_transitive_cached_version_dep_headers() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("freight.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+
+[dependencies]
+vecmath = "0.1.1"
+"#,
+        )
+        .unwrap();
+
+        let vecmath = dir.path().join(".pkgs/vecmath");
+        std::fs::create_dir_all(vecmath.join("include/vecmath")).unwrap();
+        std::fs::write(vecmath.join("include/vecmath/vec2.h"), "#pragma once\n").unwrap();
+        std::fs::write(
+            vecmath.join("freight.toml"),
+            r#"
+[package]
+name = "vecmath"
+version = "0.1.1"
+
+[dependencies]
+mathlib = "0.1.0"
+"#,
+        )
+        .unwrap();
+
+        let mathlib = dir.path().join(".pkgs/mathlib");
+        std::fs::create_dir_all(mathlib.join("include/mathlib")).unwrap();
+        std::fs::write(mathlib.join("include/mathlib/mathlib.h"), "#pragma once\n").unwrap();
+        std::fs::write(
+            mathlib.join("freight.toml"),
+            r#"
+[package]
+name = "mathlib"
+version = "0.1.0"
+"#,
+        )
+        .unwrap();
+
+        let manifest = load_manifest(dir.path()).unwrap();
+        let (includes, roots) = collect_dep_include_dirs_and_roots(dir.path(), &manifest);
+
+        assert!(roots.iter().any(|root| root.ends_with(".pkgs/vecmath")));
+        assert!(roots.iter().any(|root| root.ends_with(".pkgs/mathlib")));
+        assert!(includes
+            .iter()
+            .any(|include| include.ends_with(".pkgs/vecmath/include")));
+        assert!(includes
+            .iter()
+            .any(|include| include.ends_with(".pkgs/mathlib/include")));
+    }
 }
