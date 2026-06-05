@@ -125,6 +125,20 @@ impl PackageNode {
     pub fn pkgs_root_dir(self: &Arc<Self>) -> PathBuf {
         self.root().dir.clone()
     }
+
+    /// Where build artifacts (objects, archives) for this node are written.
+    ///
+    /// Root project: `<dir>/target`.
+    /// Dep node: `<root>/target/deps/<name>` — keeps all dep artifacts inside
+    /// the root project's `target/` tree instead of scattering them through
+    /// `.pkgs/<name>/target/`.
+    pub fn target_dir(self: &Arc<Self>) -> PathBuf {
+        if self.is_root() {
+            self.dir.join("target")
+        } else {
+            self.root().dir.join("target").join("deps").join(&self.name)
+        }
+    }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

@@ -19,6 +19,7 @@ pub struct CompiledPch {
 /// Skips recompilation if the PCH output is already newer than the header.
 pub fn compile_pch(
     project_dir: &Path,
+    target_dir: &Path,
     header_rel: &str,
     profile: &str,
     compiler: &DetectedCompiler,
@@ -44,7 +45,7 @@ pub fn compile_pch(
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("pch");
-    let pch_dir = project_dir.join("target").join(profile).join("pch");
+    let pch_dir = target_dir.join(profile).join("pch");
     std::fs::create_dir_all(&pch_dir)?;
     let pch_out = pch_dir.join(format!("{}{}", stem, pch_cfg.extension));
 

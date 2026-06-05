@@ -674,7 +674,7 @@ fn resolve_version_dep(
                         false,
                     );
                     node.push_child(std::sync::Arc::clone(&dep_node));
-                    let _ = crate::build::build_project_at(
+                    if let Err(e) = crate::build::build_project_at(
                         &dep_dir,
                         &root_node.profile,
                         &[],
@@ -683,10 +683,11 @@ fn resolve_version_dep(
                         &[],
                         &inner_progress,
                         Some(&root_node),
-                    );
+                    ) {
+                        progress(BuildEvent::Warning(format!("source-build of {name} failed: {e}")));
+                    }
                     progress(BuildEvent::DepBuildDone);
-                    let built_lib = dep_dir
-                        .join("target")
+                    let built_lib = dep_node.target_dir()
                         .join(&root_node.profile)
                         .join(format!("lib{name}.a"));
                     if built_lib.exists() {

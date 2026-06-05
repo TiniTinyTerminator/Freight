@@ -1,7 +1,7 @@
 //! `freight lsp` — Language Server Protocol multiplexer for freight.toml and
 //! source files (clangd, fortls, asm-lsp passthroughs).
 
-mod doc_index;
+mod index;
 pub mod log;
 mod manifest;
 mod protocol;
@@ -19,7 +19,7 @@ use crate::manifest::{find_manifest_dir, load_manifest, load_workspace_manifest}
 use crate::toolchain::{detect_all_cached, load_all_templates};
 use serde_json::{json, Value};
 
-use doc_index::{
+use index::{
     include_hover_markdown, include_inlay_label, item_to_markdown, parse_include_header, word_at,
     DocIndex, HeaderDirSpec, HeaderEntry, HeaderIndex, HeaderOrigin,
 };
@@ -448,7 +448,6 @@ impl Server {
             owned = self.state.header_index.lookup_system(&header)?;
             &owned
         } else {
-            
             return None;
         };
 
@@ -1374,7 +1373,13 @@ fn build_header_specs(base: &Path, is_workspace: bool) -> Vec<HeaderDirSpec<'_>>
         if let Some(ws) = load_workspace_manifest(base) {
             for member_path in &ws.members {
                 let member_dir = base.join(member_path);
-                push(&mut specs, &mut seen, member_dir.clone(), HeaderOrigin::Own, None);
+                push(
+                    &mut specs,
+                    &mut seen,
+                    member_dir.clone(),
+                    HeaderOrigin::Own,
+                    None,
+                );
                 // Path deps of this workspace member
                 if let Ok(manifest) = load_manifest(&member_dir) {
                     collect_path_dep_specs(&member_dir, &manifest, &mut specs, &mut seen);
@@ -1382,7 +1387,13 @@ fn build_header_specs(base: &Path, is_workspace: bool) -> Vec<HeaderDirSpec<'_>>
             }
         }
     } else {
-        push(&mut specs, &mut seen, base.to_path_buf(), HeaderOrigin::Own, None);
+        push(
+            &mut specs,
+            &mut seen,
+            base.to_path_buf(),
+            HeaderOrigin::Own,
+            None,
+        );
         if let Ok(manifest) = load_manifest(base) {
             collect_path_dep_specs(base, &manifest, &mut specs, &mut seen);
         }
@@ -1398,7 +1409,11 @@ fn build_header_specs(base: &Path, is_workspace: bool) -> Vec<HeaderDirSpec<'_>>
             // the Vec. Box it and leak — this is an LSP process, memory is fine.
             let boxed: Box<Path> = dir.into_boxed_path();
             let path: &'static Path = Box::leak(boxed);
-            HeaderDirSpec { path, origin, dep_key }
+            HeaderDirSpec {
+                path,
+                origin,
+                dep_key,
+            }
         })
         .collect()
 }
@@ -1409,13 +1424,18 @@ fn collect_path_dep_specs(
     specs: &mut Vec<(PathBuf, HeaderOrigin, Option<String>)>,
     seen: &mut std::collections::HashSet<PathBuf>,
 ) {
-    for (dep_key, dep) in manifest
-        .effective_dependencies()
-        .into_iter()
-        .chain(manifest.dev_dependencies.iter().map(|(k, v)| (k.clone(), v.clone())))
-    {
-        let Dependency::Detailed(detail) = dep else { continue };
-        let Some(rel_path) = detail.path else { continue };
+    for (dep_key, dep) in manifest.effective_dependencies().into_iter().chain(
+        manifest
+            .dev_dependencies
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone())),
+    ) {
+        let Dependency::Detailed(detail) = dep else {
+            continue;
+        };
+        let Some(rel_path) = detail.path else {
+            continue;
+        };
         let dep_dir = project_dir.join(&rel_path);
         if !dep_dir.is_dir() {
             continue;

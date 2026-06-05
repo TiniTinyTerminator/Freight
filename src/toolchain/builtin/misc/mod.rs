@@ -44,7 +44,7 @@ pub fn tcc() -> CompilerTemplate {
             ("output", "-o {path}"),
             ("compile_only", "-c"),
         ],
-        toolset: &[("cc", "tcc"), ("ld", "tcc"), ("ar", "tcc")],
+        toolset: &[("cc", "tcc"), ("ld", "tcc"), ("ar", "ar")],
         linking: &[LinkDef {
             lang: "c",
             abi: "c",

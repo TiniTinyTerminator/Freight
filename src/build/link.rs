@@ -37,7 +37,8 @@ pub struct LinkResult {
 /// `dep_libs` are pre-built `.a` archives from `target/deps/` that are linked in
 /// before any system libraries.
 pub fn link_targets(
-    project_dir: &Path,
+    _project_dir: &Path,
+    target_dir: &Path,
     manifest: &Manifest,
     backend: &Backend,
     profile: &str,
@@ -52,8 +53,7 @@ pub fn link_targets(
     let target_os = link_target_os(manifest);
 
     for bin in &manifest.bins {
-        let out = project_dir
-            .join("target")
+        let out = target_dir
             .join(profile)
             .join(executable_name(&bin.name, &target_os));
         let linker = select_linker(manifest, backend, detected, templates)
@@ -64,7 +64,7 @@ pub fn link_targets(
             .bins
             .iter()
             .filter(|b| b.src != bin.src)
-            .map(|b| object_path(project_dir, profile, Path::new(&b.src)))
+            .map(|b| object_path(target_dir, profile, Path::new(&b.src)))
             .collect();
         let bin_objects: Vec<PathBuf> = objects
             .iter()
@@ -107,8 +107,7 @@ pub fn link_targets(
         if lib.link.is_none() {
             match lib.lib_type {
                 LibType::Static => {
-                    let out = project_dir
-                        .join("target")
+                    let out = target_dir
                         .join(profile)
                         .join(format!("lib{}.a", manifest.package.name));
                     let linker =
@@ -123,7 +122,7 @@ pub fn link_targets(
                 }
                 LibType::Shared => {
                     let lib_name = shared_lib_name(&manifest.package.name, &target_os);
-                    let out = project_dir.join("target").join(profile).join(&lib_name);
+                    let out = target_dir.join(profile).join(&lib_name);
                     let linker =
                         select_linker(manifest, backend, detected, templates).ok_or_else(|| {
                             FreightError::CompilerNotFound("no suitable linker found".into())

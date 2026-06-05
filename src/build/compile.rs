@@ -78,6 +78,7 @@ pub struct CompileResult {
 /// `.d` dependency file are skipped. Compilation runs in parallel via rayon.
 pub fn compile_sources(
     project_dir: &Path,
+    target_dir: &Path,
     manifest: &Manifest,
     backend: &Backend,
     profile: &str,
@@ -96,8 +97,8 @@ pub fn compile_sources(
         .par_iter()
         .map(|src| -> Result<(PathBuf, bool), FreightError> {
             let src_abs = project_dir.join(&src.path);
-            let obj = object_path(project_dir, profile, &src.path);
-            let dep = dep_file_path(project_dir, profile, &src.path);
+            let obj = object_path(target_dir, profile, &src.path);
+            let dep = dep_file_path(target_dir, profile, &src.path);
 
             if is_up_to_date(&src_abs, &obj, &dep) {
                 progress(BuildEvent::Fresh {
@@ -195,6 +196,7 @@ pub fn compile_sources(
 /// C++20 modules should not use this path — the caller must skip unity when modules are present.
 pub fn compile_sources_unity(
     project_dir: &Path,
+    target_dir: &Path,
     manifest: &Manifest,
     backend: &Backend,
     profile: &str,
@@ -220,6 +222,7 @@ pub fn compile_sources_unity(
     let reg_result = if !regular_srcs.is_empty() {
         compile_sources(
             project_dir,
+            target_dir,
             manifest,
             backend,
             profile,
@@ -243,7 +246,7 @@ pub fn compile_sources_unity(
         return Ok(reg_result);
     }
 
-    let unity_dir = project_dir.join("target").join(profile).join("unity");
+    let unity_dir = target_dir.join(profile).join("unity");
     fs::create_dir_all(&unity_dir)?;
 
     let mut all_objects = reg_result.objects;
@@ -514,10 +517,12 @@ pub fn settings_for_lang(
     s
 }
 
-/// `src/core/engine.cpp` → `{project}/target/{profile}/objs/src/core/engine.o`
-pub fn object_path(project_dir: &Path, profile: &str, source_rel: &Path) -> PathBuf {
-    let mut p = project_dir
-        .join("target")
+/// `src/core/engine.cpp` → `{target_dir}/{profile}/objs/src/core/engine.o`
+///
+/// `target_dir` is the root of the target tree (e.g. `project/target` or
+/// `root/target/deps/name` for pool deps).
+pub fn object_path(target_dir: &Path, profile: &str, source_rel: &Path) -> PathBuf {
+    let mut p = target_dir
         .join(profile)
         .join("objs")
         .join(source_rel);
@@ -526,9 +531,8 @@ pub fn object_path(project_dir: &Path, profile: &str, source_rel: &Path) -> Path
 }
 
 /// Same as `object_path` but with `.d` extension for the Makefile dependency file.
-pub fn dep_file_path(project_dir: &Path, profile: &str, source_rel: &Path) -> PathBuf {
-    let mut p = project_dir
-        .join("target")
+pub fn dep_file_path(target_dir: &Path, profile: &str, source_rel: &Path) -> PathBuf {
+    let mut p = target_dir
         .join(profile)
         .join("objs")
         .join(source_rel);
@@ -766,6 +770,7 @@ const ASM_EMIT_SKIP_LANGS: &[&str] = &["gas", "nasm", "yasm", "ispc"];
 /// [`BuildEvent::Warning`] rather than aborting the build.
 pub fn emit_asm_sources(
     project_dir: &Path,
+    target_dir: &Path,
     manifest: &Manifest,
     backend: &Backend,
     profile: &str,
@@ -776,7 +781,7 @@ pub fn emit_asm_sources(
     progress: &Progress,
 ) -> Result<(), FreightError> {
     let pf = primary_family(backend, detected);
-    let asm_dir = project_dir.join("target").join(profile).join("asm");
+    let asm_dir = target_dir.join(profile).join("asm");
     fs::create_dir_all(&asm_dir)?;
 
     let eligible: Vec<&SourceFile> = sources
@@ -1039,7 +1044,7 @@ mod tests {
     #[test]
     fn object_path_maps_source_to_objs() {
         let obj = object_path(
-            Path::new("/project"),
+            Path::new("/project/target"),
             "debug",
             Path::new("src/core/engine.cpp"),
         );
@@ -1051,7 +1056,7 @@ mod tests {
 
     #[test]
     fn dep_file_path_has_d_extension() {
-        let dep = dep_file_path(Path::new("/project"), "dev", Path::new("src/main.cpp"));
+        let dep = dep_file_path(Path::new("/project/target"), "dev", Path::new("src/main.cpp"));
         assert_eq!(dep, PathBuf::from("/project/target/dev/objs/src/main.d"));
     }
 

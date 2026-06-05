@@ -583,6 +583,7 @@ pub fn build_project_at(
             project_dir.to_path_buf(),
         ),
     };
+    let target_dir = node.target_dir();
 
     progress(BuildEvent::BuildStarted {
         name: manifest.package.name.clone(),
@@ -731,6 +732,7 @@ pub fn build_project_at(
         if let Some(compiler) = primary {
             match pch::compile_pch(
                 project_dir,
+                &target_dir,
                 pch_header,
                 profile,
                 compiler,
@@ -760,6 +762,7 @@ pub fn build_project_at(
     extra_flags.extend(pch_compile_flags);
     let compile_result = build_sources(
         project_dir,
+        &target_dir,
         manifest,
         effective_backend,
         profile,
@@ -773,6 +776,7 @@ pub fn build_project_at(
 
     let link_result = link_targets(
         project_dir,
+        &target_dir,
         manifest,
         effective_backend,
         profile,
@@ -795,6 +799,7 @@ pub fn build_project_at(
 
     let cc = compile_commands::generate_incremental(
         project_dir,
+        &target_dir,
         manifest,
         effective_backend,
         detected,
@@ -803,38 +808,47 @@ pub fn build_project_at(
         &include_dirs,
         &feature_defines,
         &pch_clangd_flags,
-        Some(&compile_result.compiled_sources),
+        Some(compile_result.compiled_sources.as_slice()),
     );
-    // Merge compile_commands.json from source-built deps (.pkgs/*/) so that
-    // clangd gets full coverage of dep headers and sources without requiring
-    // a separate compile_commands path configuration.
+    // Merge compile_commands from source-built deps (.pkgs/*/) — look in each
+    // dep's .freight/lsp/<profile>/ where they now write their own database.
     let cc = {
         let mut merged = cc;
-        let pkgs_dir = project_dir.join(".pkgs");
+        let pkgs_dir = node.pkgs_dir();
+        let lsp_sub = std::path::Path::new(".freight")
+            .join("lsp")
+            .join(safe_lsp_profile_dir(profile));
         if let Ok(entries) = std::fs::read_dir(&pkgs_dir) {
             for entry in entries.flatten() {
-                let dep_cc_path = entry.path().join("compile_commands.json");
+                let dep_cc_path = entry.path().join(&lsp_sub).join("compile_commands.json");
                 if dep_cc_path.exists() {
-                    merged = compile_commands::merge(merged, compile_commands::load(&entry.path()));
+                    merged = compile_commands::merge(
+                        merged,
+                        compile_commands::load_from(&dep_cc_path),
+                    );
                 }
             }
         }
         merged
     };
 
-    if let Err(e) = compile_commands::write(project_dir, &cc).and_then(|_| {
-        compile_commands::write_incremental_cache(
-            project_dir,
-            manifest,
-            effective_backend,
-            detected,
-            profile,
-            &all_sources,
-            &include_dirs,
-            &feature_defines,
-            &pch_clangd_flags,
-        )
-    }) {
+    // Write compile_commands only to .freight/lsp/<profile>/ — never to project root.
+    let lsp_dir = lsp_compile_commands_dir(project_dir, profile);
+    if let Err(e) = compile_commands::write_to(&lsp_dir.join("compile_commands.json"), &cc)
+        .and_then(|_| {
+            compile_commands::write_incremental_cache(
+                project_dir,
+                manifest,
+                effective_backend,
+                detected,
+                profile,
+                &all_sources,
+                &include_dirs,
+                &feature_defines,
+                &pch_clangd_flags,
+            )
+        })
+    {
         progress(BuildEvent::Warning(format!(
             "could not write compile_commands.json: {e}"
         )));
@@ -886,8 +900,10 @@ pub fn generate_compile_commands_at(
     let mut include_dirs = found.include_dirs.clone();
     include_dirs.extend(dep_includes);
 
+    let target_dir = project_dir.join("target");
     let commands = compile_commands::generate_incremental(
         project_dir,
+        &target_dir,
         manifest,
         effective_backend,
         detected,
@@ -898,14 +914,21 @@ pub fn generate_compile_commands_at(
         &[],
         None,
     );
-    // Merge in compile_commands from source-built deps.
+    // Merge compile_commands from source-built deps.
     let commands = {
         let mut merged = commands;
         let pkgs_dir = project_dir.join(".pkgs");
+        let lsp_sub = std::path::Path::new(".freight")
+            .join("lsp")
+            .join(safe_lsp_profile_dir(profile));
         if let Ok(entries) = std::fs::read_dir(&pkgs_dir) {
             for entry in entries.flatten() {
-                if entry.path().join("compile_commands.json").exists() {
-                    merged = compile_commands::merge(merged, compile_commands::load(&entry.path()));
+                let dep_cc = entry.path().join(&lsp_sub).join("compile_commands.json");
+                if dep_cc.exists() {
+                    merged = compile_commands::merge(
+                        merged,
+                        compile_commands::load_from(&dep_cc),
+                    );
                 }
             }
         }
@@ -913,7 +936,8 @@ pub fn generate_compile_commands_at(
     };
 
     let count = commands.len();
-    compile_commands::write(project_dir, &commands).and_then(|_| {
+    let lsp_dir = lsp_compile_commands_dir(project_dir, profile);
+    compile_commands::write_to(&lsp_dir.join("compile_commands.json"), &commands).and_then(|_| {
         compile_commands::write_incremental_cache(
             project_dir,
             manifest,
@@ -992,6 +1016,7 @@ fn generate_lsp_compile_commands_for_project(
 
     Ok(compile_commands::generate(
         project_dir,
+        &project_dir.join("target"),
         manifest,
         effective_backend,
         detected,
@@ -1213,6 +1238,7 @@ pub fn emit_asm_project_with(profile: &str, progress: &Progress) -> Result<(), F
 
     compile::emit_asm_sources(
         project_dir,
+        &project_dir.join("target"),
         manifest,
         effective_backend,
         profile,
@@ -1400,6 +1426,7 @@ pub fn test_project_at(
         if let Some(compiler) = primary {
             match pch::compile_pch(
                 project_dir,
+                &project_dir.join("target"),
                 pch_header,
                 profile,
                 compiler,
@@ -1425,8 +1452,10 @@ pub fn test_project_at(
         vec![]
     };
 
+    let target_dir = project_dir.join("target");
     let compile_result = build_sources(
         project_dir,
+        &target_dir,
         manifest,
         effective_backend,
         profile,
@@ -1442,7 +1471,7 @@ pub fn test_project_at(
     let bin_obj_paths: std::collections::HashSet<PathBuf> = manifest
         .bins
         .iter()
-        .map(|b| object_path(project_dir, profile, Path::new(&b.src)))
+        .map(|b| object_path(&target_dir, profile, Path::new(&b.src)))
         .collect();
     let lib_objects: Vec<PathBuf> = compile_result
         .objects
@@ -1495,8 +1524,10 @@ pub fn test_project_at(
         });
     }
 
+    let test_target_dir = project_dir.join("target");
     let test_compile = compile_sources(
         project_dir,
+        &test_target_dir,
         manifest,
         effective_backend,
         profile,
@@ -1508,7 +1539,7 @@ pub fn test_project_at(
         progress,
     )?;
 
-    let out_dir = project_dir.join("target").join(profile).join("tests");
+    let out_dir = test_target_dir.join(profile).join("tests");
     std::fs::create_dir_all(&out_dir)?;
 
     let mut passed = 0usize;
@@ -1748,8 +1779,10 @@ pub fn bench_project_at(
         found.sources.clone()
     };
 
+    let bench_target_dir = project_dir.join("target");
     let compile_result = build_sources(
         project_dir,
+        &bench_target_dir,
         manifest,
         effective_backend,
         profile,
@@ -1765,7 +1798,7 @@ pub fn bench_project_at(
     let bin_obj_paths: std::collections::HashSet<PathBuf> = manifest
         .bins
         .iter()
-        .map(|b| object_path(project_dir, profile, Path::new(&b.src)))
+        .map(|b| object_path(&bench_target_dir, profile, Path::new(&b.src)))
         .collect();
     let lib_objects: Vec<PathBuf> = compile_result
         .objects
@@ -1812,6 +1845,7 @@ pub fn bench_project_at(
 
     let bench_compile = compile_sources(
         project_dir,
+        &bench_target_dir,
         manifest,
         effective_backend,
         profile,
@@ -1823,7 +1857,7 @@ pub fn bench_project_at(
         progress,
     )?;
 
-    let out_dir = project_dir.join("target").join(profile).join("benches");
+    let out_dir = bench_target_dir.join(profile).join("benches");
     std::fs::create_dir_all(&out_dir)?;
 
     const BENCH_RUNS: usize = 5;
@@ -2007,6 +2041,7 @@ fn verify_git_dep_shas(
 /// if any C++ source file contains an `export module` declaration.
 fn build_sources(
     project_dir: &Path,
+    target_dir: &Path,
     manifest: &Manifest,
     backend: &Backend,
     profile: &str,
@@ -2019,10 +2054,10 @@ fn build_sources(
 ) -> Result<CompileResult, FreightError> {
     let scanned = scan_sources(project_dir, sources);
     if has_modules(&scanned) {
-        // C++20 modules have their own dependency ordering — unity doesn't apply.
-        let mut plan = plan_module_build(project_dir, profile, scanned)?;
+        let mut plan = plan_module_build(project_dir, target_dir, profile, scanned)?;
         compile_module_sources(
             project_dir,
+            target_dir,
             manifest,
             backend,
             profile,
@@ -2036,6 +2071,7 @@ fn build_sources(
     } else if manifest.compiler.unity {
         compile::compile_sources_unity(
             project_dir,
+            target_dir,
             manifest,
             backend,
             profile,
@@ -2049,6 +2085,7 @@ fn build_sources(
     } else {
         compile_sources(
             project_dir,
+            target_dir,
             manifest,
             backend,
             profile,
@@ -2145,9 +2182,11 @@ fn build_resolved_deps(
             })
             .unwrap_or(dep.manifest.compiler.unity);
 
+        let dep_target_dir = dep.dir.join("target");
         let compile_result = if effective_unity {
             compile::compile_sources_unity(
                 &dep.dir,
+                &dep_target_dir,
                 &dep.manifest,
                 backend,
                 profile,
@@ -2161,6 +2200,7 @@ fn build_resolved_deps(
         } else {
             compile_sources(
                 &dep.dir,
+                &dep_target_dir,
                 &dep.manifest,
                 backend,
                 profile,
@@ -2173,9 +2213,7 @@ fn build_resolved_deps(
             )?
         };
 
-        let lib_out = dep
-            .dir
-            .join("target")
+        let lib_out = dep_target_dir
             .join(profile)
             .join(format!("lib{}.a", dep.name));
         std::fs::create_dir_all(lib_out.parent().expect("lib_out has parent"))?;

@@ -38,8 +38,12 @@ struct SourceStamp {
 /// Load an existing `compile_commands.json`.  Returns an empty vec on any error
 /// (missing file, parse error) so callers can treat it as an optional cache.
 pub fn load(project_dir: &Path) -> Vec<CompileCommand> {
-    let path = project_dir.join("compile_commands.json");
-    let Ok(bytes) = std::fs::read(&path) else {
+    load_from(&project_dir.join("compile_commands.json"))
+}
+
+/// Load a compile database from an explicit file path.
+pub fn load_from(path: &Path) -> Vec<CompileCommand> {
+    let Ok(bytes) = std::fs::read(path) else {
         return vec![];
     };
     serde_json::from_slice(&bytes).unwrap_or_default()
@@ -73,6 +77,7 @@ pub fn merge(
 /// Entries are sorted by file path for stable, diff-friendly output.
 pub fn generate(
     project_dir: &Path,
+    target_dir: &Path,
     manifest: &Manifest,
     backend: &Backend,
     detected: &[DetectedCompiler],
@@ -120,7 +125,7 @@ pub fn generate(
             feature_defines,
         );
         let compile_bin = resolve_compile_binary(compiler, &source.lang_key);
-        let obj = object_path(project_dir, profile, &source.path);
+        let obj = object_path(target_dir, profile, &source.path);
 
         let mut args = vec![compile_bin.to_string_lossy().into_owned()];
         args.extend(compiler.template.assemble_flags(&settings));
@@ -163,6 +168,7 @@ fn clangd_only_flags(lang_key: &str) -> Vec<String> {
 /// unchanged sources and regenerating only missing, dirty, or invalidated ones.
 pub fn generate_incremental(
     project_dir: &Path,
+    target_dir: &Path,
     manifest: &Manifest,
     backend: &Backend,
     detected: &[DetectedCompiler],
@@ -191,6 +197,7 @@ pub fn generate_incremental(
     if existing.is_empty() || signature_changed {
         return generate(
             project_dir,
+            target_dir,
             manifest,
             backend,
             detected,
@@ -232,6 +239,7 @@ pub fn generate_incremental(
         retained,
         generate(
             project_dir,
+            target_dir,
             manifest,
             backend,
             detected,
