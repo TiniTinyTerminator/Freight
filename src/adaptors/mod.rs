@@ -661,16 +661,18 @@ fn resolve_version_dep(
                 // tarball downloaded from the registry), build it in-place and point
                 // at the resulting static lib in target/{profile}/.
                 if link_flags.is_empty() && dep_dir.join("freight.toml").exists() {
-                    progress(BuildEvent::Warning(format!(
-                        "no prebuilt found for `{name}` — building from source"
-                    )));
+                    progress(BuildEvent::BuildStarted {
+                        name: format!("{name}@{version}"),
+                        profile: "source".to_string(),
+                    });
                     // Build the dep as a lib. Reuse the parent profile ("dev"/"release").
                     // Errors here are non-fatal: we let the link step fail with a clear message.
-                    // Suppress ResolvingDep from the inner build — those deps are transitive and
-                    // would appear as duplicates alongside the outer project's own resolutions.
+                    // Suppress ResolvingDep and BuildStarted from the inner build — ResolvingDep
+                    // would duplicate the outer project's resolutions; BuildStarted is replaced
+                    // by our own emit above.
                     let outer = std::sync::Arc::clone(progress);
                     let inner_progress: Progress = std::sync::Arc::new(move |ev| match ev {
-                        BuildEvent::ResolvingDep { .. } => {}
+                        BuildEvent::ResolvingDep { .. } | BuildEvent::BuildStarted { .. } => {}
                         other => outer(other),
                     });
                     let _ = crate::build::build_project_at(
