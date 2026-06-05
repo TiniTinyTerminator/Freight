@@ -11,7 +11,7 @@ pub mod pch;
 pub mod pipeline;
 pub mod proto;
 
-pub use pipeline::PackageNode;
+pub use pipeline::{DepKind, DepRef, PackageGraph, PackageNode};
 pub use compile::{
     compile_sources, compile_sources_unity, dep_file_path, emit_asm_sources, object_path,
     primary_family, select_compiler, settings_for_lang, CompileResult, UNITY_SUPPORTED_LANGS,
@@ -546,7 +546,7 @@ pub fn build_project_at(
     target_override: Option<&str>,
     sanitize_override: &[String],
     progress: &Progress,
-    parent_node: Option<&std::sync::Arc<pipeline::PackageNode>>,
+    parent_graph: Option<&pipeline::PackageGraph>,
 ) -> Result<BuildOutput, FreightError> {
     let mut ctx = load_project_at(project_dir, profile)?;
     if let Some(t) = target_override {
@@ -565,25 +565,31 @@ pub fn build_project_at(
         found,
     } = &ctx;
 
-    // Build the PackageNode for this project.  If a parent node was supplied
-    // this is a dep source-build and we anchor all .pkgs/ lookups to the root.
-    let node: std::sync::Arc<pipeline::PackageNode> = match parent_node {
-        Some(parent) => pipeline::PackageNode::new_dep(
+    // When a parent_graph is supplied this is a dep source-build; anchor all
+    // .pkgs/ lookups to the root by reusing that graph's root_dir.  Otherwise
+    // create a new root-only graph for this project.
+    let graph: pipeline::PackageGraph = match parent_graph {
+        Some(pg) => pipeline::PackageGraph::for_dep(
             &manifest.package.name,
             &manifest.package.version,
             profile,
             project_dir.to_path_buf(),
-            parent,
-            false,
+            pg.root_dir.clone(),
         ),
-        None => pipeline::PackageNode::new_root(
+        None => pipeline::PackageGraph::root_only(
             &manifest.package.name,
             &manifest.package.version,
             profile,
             project_dir.to_path_buf(),
         ),
     };
-    let target_dir = node.target_dir();
+    // Dep builds output artifacts into <root>/target/deps/<name>/; root builds
+    // use <project>/target/.  Computed directly rather than through graph so it
+    // doesn't depend on whether this package is root_name in its mini-graph.
+    let target_dir: PathBuf = match parent_graph {
+        Some(pg) => pg.root_dir.join("target").join("deps").join(&manifest.package.name),
+        None => project_dir.join("target"),
+    };
 
     progress(BuildEvent::BuildStarted {
         name: manifest.package.name.clone(),
@@ -627,7 +633,7 @@ pub fn build_project_at(
         if let Some(local) = GlobalConfig::load_local(project_dir) {
             cfg.apply_local(local);
         }
-        if let Ok(outcomes) = crate::dep_cmds::fetch_registry_deps(&node.pkgs_root_dir(), &cfg) {
+        if let Ok(outcomes) = crate::dep_cmds::fetch_registry_deps(&graph.root_dir, &cfg) {
             for o in outcomes {
                 if matches!(o.action, crate::dep_cmds::RegistryDepAction::Downloaded) {
                     progress(BuildEvent::FetchingDep {
@@ -661,7 +667,7 @@ pub fn build_project_at(
         progress,
     )?;
     let (foreign_built, _pkg_configs, tool_paths) =
-        crate::adaptors::build_foreign_deps(&node, manifest, profile, progress)?;
+        crate::adaptors::build_foreign_deps(&graph, manifest, profile, progress)?;
 
     let mut all_libs = built.libs.clone();
     let mut all_dep_includes = built.include_dirs.clone();
@@ -814,7 +820,7 @@ pub fn build_project_at(
     // dep's .freight/lsp/<profile>/ where they now write their own database.
     let cc = {
         let mut merged = cc;
-        let pkgs_dir = node.pkgs_dir();
+        let pkgs_dir = graph.pkgs_dir();
         let lsp_sub = std::path::Path::new(".freight")
             .join("lsp")
             .join(safe_lsp_profile_dir(profile));
@@ -1388,7 +1394,7 @@ pub fn test_project_at(
         progress,
     )?;
     let (foreign_built, _pkg_configs, tool_paths) =
-        crate::adaptors::build_foreign_deps(&pipeline::PackageNode::new_root(&manifest.package.name, &manifest.package.version, profile, project_dir.to_path_buf()), manifest, profile, progress)?;
+        crate::adaptors::build_foreign_deps(&pipeline::PackageGraph::root_only(&manifest.package.name, &manifest.package.version, profile, project_dir.to_path_buf()), manifest, profile, progress)?;
 
     let mut all_libs = built.libs.clone();
     let mut all_dep_includes = built.include_dirs.clone();
@@ -1750,7 +1756,7 @@ pub fn bench_project_at(
         progress,
     )?;
     let (foreign_built, _pkg_configs, tool_paths) =
-        crate::adaptors::build_foreign_deps(&pipeline::PackageNode::new_root(&manifest.package.name, &manifest.package.version, profile, project_dir.to_path_buf()), manifest, profile, progress)?;
+        crate::adaptors::build_foreign_deps(&pipeline::PackageGraph::root_only(&manifest.package.name, &manifest.package.version, profile, project_dir.to_path_buf()), manifest, profile, progress)?;
 
     let mut all_libs = built.libs.clone();
     let mut all_dep_includes = built.include_dirs.clone();

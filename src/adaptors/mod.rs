@@ -107,13 +107,14 @@ struct BuildJob {
 }
 
 pub fn build_foreign_deps(
-    node: &std::sync::Arc<crate::build::pipeline::PackageNode>,
+    graph: &crate::build::pipeline::PackageGraph,
     manifest: &Manifest,
     profile: &str,
     progress: &Progress,
 ) -> Result<(Vec<ForeignBuilt>, Vec<ResolvedPkgConfig>, Vec<PathBuf>), FreightError> {
-    let project_dir = &node.dir;
-    let pkgs_root = node.pkgs_root_dir();
+    let root_node = graph.packages.get(&graph.root_name).expect("root package missing from graph");
+    let project_dir = &root_node.dir;
+    let pkgs_root = graph.root_dir.clone();
     let pkgs_root = pkgs_root.as_path();
     let mut results: Vec<ForeignBuilt> = Vec::new();
     let mut pkg_results: Vec<ResolvedPkgConfig> = Vec::new();
@@ -259,7 +260,7 @@ pub fn build_foreign_deps(
                     repo,
                     optional,
                     project_dir,
-                    node,
+                    graph,
                     progress,
                     &mut pc_cache,
                 )? {
@@ -517,11 +518,11 @@ fn resolve_version_dep(
     repo: Option<&str>,
     optional: bool,
     project_dir: &Path,
-    node: &std::sync::Arc<crate::build::pipeline::PackageNode>,
+    graph: &crate::build::pipeline::PackageGraph,
     progress: &Progress,
     pc_cache: &mut PkgConfigCache,
 ) -> Result<Option<(ForeignBuilt, Option<ResolvedPkgConfig>)>, FreightError> {
-    let pkgs_root = node.pkgs_root_dir();
+    let pkgs_root = graph.root_dir.clone();
     let pkgs_root = pkgs_root.as_path();
     // Suppress unused warning; version may be used by future resolvers.
     let _ = version;
@@ -555,7 +556,7 @@ fn resolve_version_dep(
                 None,
                 optional,
                 project_dir,
-                node,
+                graph,
                 progress,
                 pc_cache,
             )
@@ -662,33 +663,21 @@ fn resolve_version_dep(
                         BuildEvent::DepCompiling => outer(BuildEvent::DepCompiling),
                         other => outer(other),
                     });
-                    let root_node = node.root();
-                    // Create a dep node and register it as a child of the current node
-                    // so the pipeline tree reflects what was built and in what order.
-                    let dep_node = crate::build::pipeline::PackageNode::new_dep(
-                        name,
-                        version,
-                        &root_node.profile,
-                        dep_dir.clone(),
-                        node,
-                        false,
-                    );
-                    node.push_child(std::sync::Arc::clone(&dep_node));
                     if let Err(e) = crate::build::build_project_at(
                         &dep_dir,
-                        &root_node.profile,
+                        &graph.profile,
                         &[],
                         true,
                         None,
                         &[],
                         &inner_progress,
-                        Some(&root_node),
+                        Some(graph),
                     ) {
                         progress(BuildEvent::Warning(format!("source-build of {name} failed: {e}")));
                     }
                     progress(BuildEvent::DepBuildDone);
-                    let built_lib = dep_node.target_dir()
-                        .join(&root_node.profile)
+                    let built_lib = graph.target_dir(name)
+                        .join(&graph.profile)
                         .join(format!("lib{name}.a"));
                     if built_lib.exists() {
                         let out_dir = built_lib.parent().unwrap().to_path_buf();
