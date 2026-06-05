@@ -236,13 +236,17 @@ impl HeaderIndex {
                 for hdr in lib_hdrs {
                     let full = dir.join(hdr);
                     if full.is_file() {
-                        insert_header(&mut by_path, hdr, HeaderEntry {
-                            package_name: pkg_name.clone(),
-                            package_version: pkg_version.clone(),
-                            full_path: full,
-                            origin: spec.origin.clone(),
-                            dep_key: dep_key.clone(),
-                        });
+                        insert_header(
+                            &mut by_path,
+                            hdr,
+                            HeaderEntry {
+                                package_name: pkg_name.clone(),
+                                package_version: pkg_version.clone(),
+                                full_path: full,
+                                origin: spec.origin.clone(),
+                                dep_key: dep_key.clone(),
+                            },
+                        );
                     }
                 }
             } else if spec.origin != HeaderOrigin::Own {
@@ -440,7 +444,15 @@ fn walk_headers(
     for entry in entries.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            walk_headers(root, &path, pkg_name, pkg_version, origin.clone(), dep_key, out);
+            walk_headers(
+                root,
+                &path,
+                pkg_name,
+                pkg_version,
+                origin.clone(),
+                dep_key,
+                out,
+            );
         } else if is_header(&path) {
             let rel = path.strip_prefix(root).unwrap_or(&path);
             let entry = HeaderEntry {
