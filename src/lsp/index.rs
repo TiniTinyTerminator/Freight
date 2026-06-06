@@ -39,6 +39,11 @@ pub trait LanguageIndexer: Send {
 
     /// Serve `textDocument/completion`. Returns an LSP `CompletionList` or `None`.
     fn completion(&mut self, uri: &str, msg: &Value) -> Option<Value>;
+
+    /// Reparse the file with `content` as the unsaved buffer so subsequent
+    /// hover/goto/completion calls reflect the live editor state.
+    /// A no-op for indexers that do not cache ASTs.
+    fn reparse(&mut self, _uri: &str, _content: &str) {}
 }
 
 use crate::doc::{extract_dir, extract_file, DocItem, DocKind, DocLanguage, TagKind};

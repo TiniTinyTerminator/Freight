@@ -327,6 +327,7 @@ impl Server {
             return self.forward_by_uri(&uri, &msg);
         }
         if let Some(text) = changed_full_text(&msg) {
+            for ix in &mut self.state.indexers { ix.reparse(&uri, &text); }
             self.state.docs.insert(uri.clone(), text);
             self.publish_manifest_diagnostics(&uri)?;
         }

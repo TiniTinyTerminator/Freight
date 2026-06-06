@@ -96,6 +96,16 @@ impl LanguageIndexer for ClangIndexer {
         }))
     }
 
+    fn reparse(&mut self, uri: &str, content: &str) {
+        let Some(path) = path_from_uri(uri) else { return };
+        if !Self::is_c_family(&path) { return; }
+        // Ensure the TU exists (parses from disk on first call).
+        self.ensure_tu(&path);
+        if let Some(tu) = self.tus.get(&path) {
+            clang_bridge::hover::reparse(tu, Some(content));
+        }
+    }
+
     fn completion(&mut self, uri: &str, msg: &Value) -> Option<Value> {
         let (line, col) = position(msg)?;
         let path = path_from_uri(uri)?;
