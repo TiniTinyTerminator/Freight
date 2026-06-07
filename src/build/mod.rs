@@ -520,7 +520,14 @@ pub fn lsp_source_flags(
             .flatten()
             .filter(|f| f != &file_str)
             .collect();
-        map.insert(cmd.file, (compiler, dir, flags));
+        // cmd.file is relative to cmd.directory (e.g. "src/main.cpp").
+        // ClangIndexer looks up by absolute URI path, so canonicalize the key.
+        let abs_file = if cmd.file.is_absolute() {
+            cmd.file
+        } else {
+            cmd.directory.join(&cmd.file)
+        };
+        map.insert(abs_file, (compiler, dir, flags));
     }
     Ok(map)
 }
