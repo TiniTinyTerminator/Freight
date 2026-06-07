@@ -439,6 +439,31 @@ pub(crate) fn probe_system_include_dirs() -> Vec<PathBuf> {
     Vec::new()
 }
 
+/// Find the Clang resource directory by running `clang -print-resource-dir`.
+/// Returns `None` if clang is not found or returns a nonexistent path.
+///
+/// Used to pass an explicit `-resource-dir` to libclang (via clang-bridge)
+/// so that built-in headers like `stddef.h` are found regardless of where the
+/// freight binary lives on disk.
+pub(crate) fn probe_clang_resource_dir() -> Option<PathBuf> {
+    for compiler in ["clang++", "clang"] {
+        if let Ok(out) = std::process::Command::new(compiler)
+            .arg("-print-resource-dir")
+            .output()
+        {
+            let s = String::from_utf8_lossy(&out.stdout);
+            let s = s.trim();
+            if !s.is_empty() {
+                let p = PathBuf::from(s);
+                if p.is_dir() {
+                    return Some(p);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Probe `compiler` with `env_flags` (e.g. `-stdlib=libc++`, `--sysroot=...`,
 /// `--target=...`) to find the system C++ include dirs that match the actual
 /// build configuration for a specific source file.

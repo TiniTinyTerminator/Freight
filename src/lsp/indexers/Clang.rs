@@ -130,6 +130,11 @@ impl LanguageIndexer for ClangIndexer {
     fn refresh_flags(&mut self, manifest_dir: &Path, profile: &str) {
         let Ok(per_file) = lsp_source_flags(manifest_dir, profile) else { return };
 
+        // Pass an explicit -resource-dir so ClangTool (running inside the
+        // freight binary, not an installed clang binary) finds builtins like
+        // stddef.h regardless of where freight lives on disk.
+        let resource_dir = crate::lsp::index::probe_clang_resource_dir();
+
         // Probe system C++ include dirs using the actual compiler and the
         // env-relevant subset of flags for each file (stdlib, sysroot, target).
         // Cache by (compiler, env_fingerprint) so we run at most one subprocess
@@ -147,6 +152,10 @@ impl LanguageIndexer for ClangIndexer {
                     crate::lsp::index::probe_for_file(&compiler, &env_refs)
                 });
                 let mut combined = file_flags;
+                if let Some(ref rd) = resource_dir {
+                    combined.push("-resource-dir".to_string());
+                    combined.push(rd.to_string_lossy().into_owned());
+                }
                 for d in sys_dirs.iter() {
                     combined.push("-isystem".to_string());
                     combined.push(d.to_string_lossy().into_owned());
