@@ -71,6 +71,23 @@ pub trait LanguageIndexer: Send {
     /// Serve `textDocument/documentHighlight`. Returns `DocumentHighlight[]` or
     /// `None` if this indexer does not handle the file.
     fn document_highlight(&mut self, _uri: &str, _msg: &Value) -> Option<Vec<Value>> { None }
+
+    /// Serve `textDocument/semanticTokens/full`. Returns the LSP-encoded token
+    /// data array (5 u32s per token: deltaLine, deltaStart, length, type,
+    /// modifiers) for the legend in [`semantic_tokens_legend`], or `None`.
+    fn semantic_tokens(&mut self, _uri: &str) -> Option<Vec<u32>> { None }
+}
+
+/// The semantic-token legend advertised in server capabilities. The order must
+/// match the `token_type` indices clang-bridge emits (0 = namespace … 8 = macro).
+pub fn semantic_tokens_legend() -> Value {
+    serde_json::json!({
+        "tokenTypes": [
+            "namespace", "type", "function", "method", "property",
+            "variable", "parameter", "enumMember", "macro"
+        ],
+        "tokenModifiers": []
+    })
 }
 
 use crate::manifest::load_manifest;

@@ -347,6 +347,28 @@ impl LanguageIndexer for ClangIndexer {
         Some(out)
     }
 
+    fn semantic_tokens(&mut self, uri: &str) -> Option<Vec<u32>> {
+        let path = path_from_uri(uri)?;
+        if !Self::is_c_family(&path) { return None; }
+        let tu = self.ensure_tu(&path)?;
+        let toks = clang_bridge::semtok::semantic_tokens(tu);
+        // Encode as the LSP relative-delta format. clang-bridge already sorts by
+        // (line, col); token_type is the legend index directly.
+        let mut data: Vec<u32> = Vec::with_capacity(toks.len() * 5);
+        let mut prev_line = 0u32;
+        let mut prev_col = 0u32;
+        for t in toks.iter() {
+            let line = t.line.saturating_sub(1);
+            let col = t.col.saturating_sub(1);
+            let delta_line = line.saturating_sub(prev_line);
+            let delta_col = if delta_line == 0 { col.saturating_sub(prev_col) } else { col };
+            data.extend_from_slice(&[delta_line, delta_col, t.length, t.token_type as u32, 0]);
+            prev_line = line;
+            prev_col = col;
+        }
+        Some(data)
+    }
+
     fn folding_ranges(&mut self, uri: &str) -> Option<Vec<Value>> {
         let path = path_from_uri(uri)?;
         if !Self::is_c_family(&path) { return None; }

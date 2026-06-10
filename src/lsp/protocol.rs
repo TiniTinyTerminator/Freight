@@ -109,6 +109,13 @@ pub fn merge_capability_object(into: &mut Value, from: &Value) {
             || key == "declarationProvider"
             || key == "documentLinkProvider"
             || key == "inlayHintProvider"
+            // freight owns these via clang-bridge; its provider (and, for
+            // semantic tokens, its legend) must win over a forwarded server's.
+            || key == "documentSymbolProvider"
+            || key == "foldingRangeProvider"
+            || key == "referencesProvider"
+            || key == "documentHighlightProvider"
+            || key == "semanticTokensProvider"
         {
             into_obj.insert(key.clone(), value.clone());
         } else if key == "textDocumentSync" {
@@ -208,6 +215,10 @@ pub fn freight_capabilities() -> Value {
         "foldingRangeProvider": true,
         "referencesProvider": true,
         "documentHighlightProvider": true,
+        "semanticTokensProvider": {
+            "legend": super::index::semantic_tokens_legend(),
+            "full": true
+        },
         "documentLinkProvider": { "resolveProvider": false }
     })
 }

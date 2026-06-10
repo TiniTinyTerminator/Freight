@@ -262,6 +262,7 @@ impl Server {
                 "textDocument/foldingRange" => self.handle_folding_range(msg)?,
                 "textDocument/references" => self.handle_references(msg)?,
                 "textDocument/documentHighlight" => self.handle_document_highlight(msg)?,
+                "textDocument/semanticTokens/full" => self.handle_semantic_tokens(msg)?,
                 "freight/workspaceInfo" => self.handle_workspace_info(msg)?,
                 "freight/setConfig" => self.handle_set_config(msg)?,
                 _ => self.forward_or_null(msg)?,
@@ -623,6 +624,20 @@ impl Server {
         });
         if let Some(hls) = result {
             return self.respond(Some(id), Value::Array(hls));
+        }
+        self.forward_or_null(msg)
+    }
+
+    /// `textDocument/semanticTokens/full` — prefer a language indexer, else
+    /// forward.  The indexer returns the LSP-encoded `data` array directly.
+    fn handle_semantic_tokens(&mut self, msg: Value) -> io::Result<()> {
+        let id = msg.get("id").cloned().unwrap_or(Value::Null);
+        let uri = text_document_uri(&msg);
+        let result = uri.as_deref().and_then(|u| {
+            self.state.indexers.iter_mut().find_map(|ix| ix.semantic_tokens(u))
+        });
+        if let Some(data) = result {
+            return self.respond(Some(id), json!({ "data": data }));
         }
         self.forward_or_null(msg)
     }
