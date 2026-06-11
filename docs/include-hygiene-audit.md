@@ -12,6 +12,32 @@ out commit-by-commit. Newest entries at the top.
 
 ## Log
 
+### Step 8 — `#include`/`import` completion scoped to declared libraries (freight 1303ae8)
+
+- `textDocument/completion` inside an `#include` / `#import` / `import`
+  directive is answered by freight instead of clangd (which lists every header
+  on the include path — all of `/usr/include` — contradicting the policy):
+  - angled `<…>` → stdlib tables (detail `C standard library` /
+    `C++ standard library`) + declared-package headers,
+  - quoted `"…"` → declared-package/project headers only,
+  - named module `import st…` → `std` / `std.compat`.
+- Each item's `detail` names the source library (`<pkg> <version>` /
+  `this project`); textEdit appends the closing `>`/`"`/`;` if missing.
+- New: `include_completion_context` + `include_completion` +
+  `HeaderIndex::completion_entries` in `lsp/index.rs`;
+  `c_std_headers`/`cxx_std_headers` accessors in `include_policy.rs`.
+- 5 new unit tests; full lib suite 676 green. Non-directive completions still
+  forward to clangd unchanged.
+
+### Step 7 — per-keystroke hygiene cost (freight ba9c131)
+
+- Hints lagged while typing: every `didChange` re-loaded + canonicalized
+  `compile_commands.json`.
+- Memoized the parsed directive list per document (skip the whole pass when
+  includes are unchanged) and cached declared dirs + compiler per file.
+- Both caches invalidated in `refresh_compile_commands`; per-doc entries
+  dropped on `didClose`.
+
 ### Step 6 — also cover `import` / `#import` (header-bringing forms)
 
 - `parse_includes` now recognises, in addition to `#include`:
