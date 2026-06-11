@@ -493,41 +493,48 @@ fn split_name_version(s: &str) -> (&str, &str) {
 // Include hover rendering
 // ---------------------------------------------------------------------------
 
+/// Hover/tooltip markdown for a resolved `#include`. A clean two-line form:
+/// a bold source (the package + version, or "C++ standard library"), then the
+/// `<package>/<file>` location.
 pub fn include_hover_markdown(header: &str, entry: &HeaderEntry) -> String {
-    // Build the "$origin/name-version" label
-    let name_ver = if let Some(ref ver) = entry.package_version {
-        if ver.is_empty() {
-            entry.package_name.clone()
-        } else {
-            format!("{}-{ver}", entry.package_name)
-        }
-    } else {
-        entry.package_name.clone()
-    };
-
-    let origin_label = match &entry.origin {
-        HeaderOrigin::Own => format!("[this project]/{name_ver}"),
-        HeaderOrigin::Workspace => format!("[workspace]/{name_ver}"),
-        HeaderOrigin::PathDep => {
-            if let Some(key) = &entry.dep_key {
-                format!("[dep: {key}]/{name_ver}")
-            } else {
-                format!("[path dep]/{name_ver}")
+    let title = match &entry.origin {
+        HeaderOrigin::System => "C++ standard library".to_string(),
+        HeaderOrigin::Own => "this project".to_string(),
+        HeaderOrigin::Workspace | HeaderOrigin::PathDep | HeaderOrigin::Fetched => {
+            match entry.package_version.as_deref().filter(|v| !v.is_empty()) {
+                Some(ver) => format!("{} {ver}", entry.package_name),
+                None => entry.package_name.clone(),
             }
         }
-        HeaderOrigin::Fetched => format!("[fetched]/{name_ver}"),
-        HeaderOrigin::System => "[system]".to_string(),
     };
-
-    let mut out = String::new();
-    out.push_str(&format!("**`{origin_label}::{header}`**\n\n"));
-    out.push_str(&format!("`{}`", package_qualified_name(header, entry)));
-    out
+    // System headers read cleaner as `<vector>`; package headers as `pkg/file`.
+    let location = match entry.origin {
+        HeaderOrigin::System => format!("<{header}>"),
+        _ => package_qualified_name(header, entry),
+    };
+    format!("**{title}**\n\n`{location}`")
 }
 
-/// `"<package>/<filename>"` for the header — e.g. `vecmath/vec2.h`, `stdlib/vector`
-/// — rather than the resolved (often absolute) path. Falls back to the header
-/// spelling when no package name is known.
+/// Tooltip for a C++20 named module import (`import std;`, `import foo;`).
+pub fn module_hover_markdown(name: &str) -> String {
+    if name == "std" || name == "std.compat" || name.starts_with("std.") {
+        format!("**C++ standard-library module** `{name}`")
+    } else {
+        format!("**C++20 module** `{name}`")
+    }
+}
+
+/// Inlay label for a named module import.
+pub fn module_inlay_label(name: &str) -> String {
+    if name == "std" || name == "std.compat" || name.starts_with("std.") {
+        "← stdlib".to_string()
+    } else {
+        "← module".to_string()
+    }
+}
+
+/// `"<package>/<filename>"` for the header — e.g. `vecmath/vec2.h`, `stdlib/vector`.
+/// Falls back to the header spelling when no package name / resolved file is known.
 fn package_qualified_name(header: &str, entry: &HeaderEntry) -> String {
     let filename = entry
         .full_path
@@ -542,14 +549,16 @@ fn package_qualified_name(header: &str, entry: &HeaderEntry) -> String {
 }
 
 /// Parse a header or module import directive from a line.
-/// Returns `(header_path, is_system)` where `is_system` is true for `<…>` forms.
+/// Returns `(name, is_system, is_module)`: `is_system` is true for `<…>` forms,
+/// `is_module` is true for a C++20 named-module import (`import std;`) which has
+/// no header file.
 ///
 /// Handles:
 /// - `#include <header>` / `#include "header"` — C/C++ includes
 /// - `#import <header>` / `#import "header"` — ObjC / Clang module imports
 /// - `import <header>;` / `import "header";` — C++20 header units
-/// - `import module.name;` — C++20 named module imports (treated as system)
-pub fn parse_include_header(line: &str) -> Option<(String, bool)> {
+/// - `import module.name;` — C++20 named module imports
+pub fn parse_include_header(line: &str) -> Option<(String, bool, bool)> {
     let line = line.trim();
 
     // #include / #import — preprocessor directives
@@ -564,12 +573,12 @@ pub fn parse_include_header(line: &str) -> Option<(String, bool)> {
         if r.starts_with('<') || r.starts_with('"') {
             r
         } else {
-            // Named module: `import std.core` → treat as system, no file path
+            // Named module: `import std.core` → no file path.
             let name = r.split_whitespace().next()?.trim_end_matches(';');
             if name.is_empty() || name.contains('{') {
                 return None;
             }
-            return Some((name.to_string(), true));
+            return Some((name.to_string(), true, true));
         }
     } else {
         return None;
@@ -577,10 +586,10 @@ pub fn parse_include_header(line: &str) -> Option<(String, bool)> {
 
     if rest.starts_with('<') {
         let header = rest.strip_prefix('<')?.split('>').next()?.to_string();
-        Some((header, true))
+        Some((header, true, false))
     } else if rest.starts_with('"') {
         let header = rest.strip_prefix('"')?.split('"').next()?.to_string();
-        Some((header, false))
+        Some((header, false, false))
     } else {
         None
     }
@@ -589,23 +598,13 @@ pub fn parse_include_header(line: &str) -> Option<(String, bool)> {
 // Markdown rendering
 // ---------------------------------------------------------------------------
 
-/// Short label for an inlay hint: `← pkg-version` or `← stdlib`.
+/// Short label for an inlay hint: `← stdlib` or `← <package>`. The version is
+/// kept for the tooltip; the inline label stays terse.
 pub fn include_inlay_label(entry: &HeaderEntry) -> String {
-    let label = match entry.origin {
-        HeaderOrigin::System => "stdlib".to_string(),
-        _ => {
-            if let Some(ref ver) = entry.package_version {
-                if ver.is_empty() {
-                    entry.package_name.clone()
-                } else {
-                    format!("{}-{ver}", entry.package_name)
-                }
-            } else {
-                entry.package_name.clone()
-            }
-        }
-    };
-    format!("← {label}")
+    match entry.origin {
+        HeaderOrigin::System => "← stdlib".to_string(),
+        _ => format!("← {}", entry.package_name),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -620,11 +619,11 @@ mod tests {
     fn parse_include_header_angle_brackets() {
         assert_eq!(
             parse_include_header("#include <zlib.h>"),
-            Some(("zlib.h".into(), true))
+            Some(("zlib.h".into(), true, false))
         );
         assert_eq!(
             parse_include_header("  #include  <foo/bar.h>"),
-            Some(("foo/bar.h".into(), true))
+            Some(("foo/bar.h".into(), true, false))
         );
     }
 
@@ -632,7 +631,7 @@ mod tests {
     fn parse_include_header_quotes() {
         assert_eq!(
             parse_include_header(r#"#include "myheader.h""#),
-            Some(("myheader.h".into(), false))
+            Some(("myheader.h".into(), false, false))
         );
     }
 
@@ -640,11 +639,11 @@ mod tests {
     fn parse_include_header_cpp20_header_unit() {
         assert_eq!(
             parse_include_header("import <vector>;"),
-            Some(("vector".into(), true))
+            Some(("vector".into(), true, false))
         );
         assert_eq!(
             parse_include_header(r#"import "mymodule.hpp";"#),
-            Some(("mymodule.hpp".into(), false))
+            Some(("mymodule.hpp".into(), false, false))
         );
     }
 
@@ -652,11 +651,11 @@ mod tests {
     fn parse_include_header_cpp20_named_module() {
         assert_eq!(
             parse_include_header("import std.core;"),
-            Some(("std.core".into(), true))
+            Some(("std.core".into(), true, true))
         );
         assert_eq!(
             parse_include_header("import mylib;"),
-            Some(("mylib".into(), true))
+            Some(("mylib".into(), true, true))
         );
         // export module declaration — not an import, should not match
         assert_eq!(parse_include_header("export module mylib;"), None);

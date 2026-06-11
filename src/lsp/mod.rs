@@ -24,8 +24,8 @@ use crate::toolchain::{detect_all_cached, load_all_templates};
 use serde_json::{json, Value};
 
 use index::{
-    include_hover_markdown, include_inlay_label, parse_include_header,
-    HeaderDirSpec, HeaderEntry, HeaderIndex, HeaderOrigin,
+    include_hover_markdown, include_inlay_label, module_hover_markdown, module_inlay_label,
+    parse_include_header, HeaderDirSpec, HeaderEntry, HeaderIndex, HeaderOrigin,
 };
 use manifest::{
     completion_result, hover_result, manifest_diagnostics, signature_help_result,
@@ -112,6 +112,17 @@ fn clangd_supports_flag(clangd_bin: &str, flag: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Build an end-of-line inlay hint (dimmed text + markdown tooltip).
+fn inlay_hint_json(line: usize, col: usize, label: &str, tooltip_md: &str) -> Value {
+    json!({
+        "position": { "line": line, "character": col },
+        "label": label,
+        "kind": 2,            // Parameter kind — renders as dimmed text
+        "paddingLeft": true,
+        "tooltip": { "kind": "markdown", "value": tooltip_md }
+    })
+}
+
 fn wait_for_debugger() {
     let pid = std::process::id();
     let pid_file = "/tmp/freight-lsp-debug.pid";
@@ -194,6 +205,10 @@ struct ServerState {
     /// Cached compiler built-in include dirs, probed once (used by the
     /// include-hygiene check to confirm an undeclared header exists).
     system_include_dirs: Option<Vec<PathBuf>>,
+
+    /// Per-URI undeclared `#include`/`import` findings (0-based line → spelling),
+    /// recomputed with the diagnostics and reused for the inlay-hint markers.
+    undeclared_includes: HashMap<String, Vec<(u32, String)>>,
 }
 
 struct Passthrough {
@@ -251,6 +266,7 @@ impl Server {
                 diag_cache: Arc::new(Mutex::new(HashMap::new())),
                 indexers,
                 system_include_dirs: None,
+                undeclared_includes: HashMap::new(),
             },
         }
     }
@@ -445,6 +461,7 @@ impl Server {
             return Ok(());
         }
         self.state.docs.remove(&uri);
+        self.state.undeclared_includes.remove(&uri);
         if let Some(path) = path_from_uri(&uri) {
             for ix in &mut self.state.indexers { ix.evict(&path); }
         }
@@ -548,7 +565,10 @@ impl Server {
         let path = path_from_uri(uri)?;
         let text = self.doc_text(uri, &path)?;
         let line_text = text.lines().nth(line)?;
-        let (header, is_system) = parse_include_header(line_text)?;
+        let (header, is_system, is_module) = parse_include_header(line_text)?;
+        if is_module {
+            return None; // a named module has no header file to open
+        }
 
         let full_path = if let Some(e) = self.state.header_index.lookup(&header) {
             e.full_path.clone()
@@ -594,9 +614,12 @@ impl Server {
 
         let mut links = Vec::new();
         for (idx, line_text) in text.lines().enumerate() {
-            let Some((header, is_system)) = parse_include_header(line_text) else {
+            let Some((header, is_system, is_module)) = parse_include_header(line_text) else {
                 continue;
             };
+            if is_module {
+                continue; // no file to link to
+            }
 
             let full_path = if let Some(e) = self.state.header_index.lookup(&header) {
                 e.full_path.clone()
@@ -757,22 +780,54 @@ impl Server {
         let start_line = range.get("start")?.get("line")?.as_u64()? as usize;
         let end_line = range.get("end")?.get("line")?.as_u64()? as usize;
 
+        // Lines flagged as undeclared by the include-hygiene check (if any).
+        let undeclared = self.state.undeclared_includes.get(&uri);
+
         let mut hints = Vec::new();
         for (idx, line_text) in text.lines().enumerate() {
             if idx < start_line || idx > end_line {
                 continue;
             }
-            let Some((header, is_system)) = parse_include_header(line_text) else {
+            let Some((header, is_system, is_module)) = parse_include_header(line_text) else {
                 continue;
             };
+            let col = line_text.len();
+
+            // C++20 named module import (`import std;`, `import foo;`).
+            if is_module {
+                hints.push(inlay_hint_json(
+                    idx,
+                    col,
+                    &module_inlay_label(&header),
+                    &module_hover_markdown(&header),
+                ));
+                continue;
+            }
+
+            // Undeclared include → a warning marker (takes precedence over the
+            // package annotation, which would otherwise mislabel e.g. <pthread.h>
+            // as "← stdlib"). Mirrors the `undeclared-include` diagnostic.
+            if let Some(spelling) = undeclared
+                .and_then(|v| v.iter().find(|(l, _)| *l as usize == idx))
+                .map(|(_, s)| s.as_str())
+            {
+                hints.push(inlay_hint_json(
+                    idx,
+                    col,
+                    "⚠ undeclared",
+                    &format!(
+                        "`{spelling}` is not provided by any declared dependency.\n\n\
+                         Add it to `[dependencies]` in `freight.toml`.",
+                    ),
+                ));
+                continue;
+            }
 
             let owned;
             let entry: &HeaderEntry = if let Some(e) = self.state.header_index.lookup(&header) {
                 e
             } else if is_system {
                 // File-based system lookup (e.g. <vector> → /usr/include/c++/.../vector).
-                // Named C++20 modules (e.g. `import std.core`) won't be found this way;
-                // synthesise a System entry so we still show "← stdlib".
                 owned = self
                     .state
                     .header_index
@@ -789,19 +844,12 @@ impl Server {
                 continue;
             };
 
-            let label = include_inlay_label(entry);
-            // Position at end of line.
-            let col = line_text.len();
-            hints.push(json!({
-                "position": { "line": idx, "character": col },
-                "label": label,
-                "kind": 2,       // Parameter kind — renders as dimmed text
-                "paddingLeft": true,
-                "tooltip": {
-                    "kind": "markdown",
-                    "value": include_hover_markdown(&header, entry)
-                }
-            }));
+            hints.push(inlay_hint_json(
+                idx,
+                col,
+                &include_inlay_label(entry),
+                &include_hover_markdown(&header, entry),
+            ));
         }
         Some(hints)
     }
@@ -1112,6 +1160,7 @@ impl Server {
 
         let severity = match self.undeclared_include_level() {
             crate::manifest::LintLevel::Allow => {
+                self.state.undeclared_includes.remove(uri);
                 self.set_freight_diags(uri, Vec::new());
                 return;
             }
@@ -1124,7 +1173,13 @@ impl Server {
         let lang = ip::Language::from_path(&path);
         let system = self.cached_system_dirs(compiler.as_deref(), lang);
 
-        let diags: Vec<Value> = ip::check_includes(text, &file_dir, &declared, &system, lang)
+        let findings = ip::check_includes(text, &file_dir, &declared, &system, lang);
+        // Remember the undeclared lines so the inlay-hint path can mark them.
+        self.state.undeclared_includes.insert(
+            uri.to_string(),
+            findings.iter().map(|f| (f.line, f.spelling.clone())).collect(),
+        );
+        let diags: Vec<Value> = findings
             .iter()
             .map(|f| {
                 json!({
