@@ -12,6 +12,7 @@ pub mod pch;
 pub mod pipeline;
 pub mod project;
 pub mod proto;
+pub mod std_module;
 
 pub use compile::{
     compile_sources, compile_sources_unity, dep_file_path, emit_sources, object_path,
@@ -555,7 +556,7 @@ fn generate_lsp_compile_commands_for_project(
     include_dirs.extend(dep_includes);
     let include_dirs = lsp_visible_include_dirs(project_dir, &dep_roots, include_dirs);
 
-    Ok(compile_commands::generate(
+    let mut commands = compile_commands::generate(
         project_dir,
         &project_dir.join("target"),
         manifest,
@@ -566,7 +567,60 @@ fn generate_lsp_compile_commands_for_project(
         &include_dirs,
         &feature_defines,
         &[],
-    ))
+    );
+    inject_std_module_flags(project_dir, profile, &found.sources, &mut commands);
+    Ok(commands)
+}
+
+/// When sources `import std;` / `import std.compat;`, build the toolchain's
+/// standard-library module BMI and append `-fmodule-file=std=<bmi>` to every C++
+/// compile command so clangd (and a future build path) can resolve the import.
+fn inject_std_module_flags(
+    project_dir: &Path,
+    profile: &str,
+    sources: &[discover::SourceFile],
+    commands: &mut [compile_commands::CompileCommand],
+) {
+    let scanned = modules::scan_sources(project_dir, sources);
+    let mut wanted: Vec<&str> = Vec::new();
+    for s in &scanned {
+        for imp in &s.imports {
+            match imp.as_str() {
+                "std" if !wanted.contains(&"std") => wanted.push("std"),
+                "std.compat" if !wanted.contains(&"std.compat") => wanted.push("std.compat"),
+                _ => {}
+            }
+        }
+    }
+    if wanted.is_empty() {
+        return;
+    }
+
+    // Compiler + `-std=` from an existing C++ compile command.
+    let Some(cmd) = commands
+        .iter()
+        .find(|c| c.arguments.iter().any(|a| a.starts_with("-std=c++")))
+    else {
+        return;
+    };
+    let compiler = PathBuf::from(&cmd.arguments[0]);
+    let std_flag = cmd
+        .arguments
+        .iter()
+        .find_map(|a| a.strip_prefix("-std="))
+        .unwrap_or("c++23")
+        .to_string();
+
+    let cache = lsp_compile_commands_dir(project_dir, profile).join("std-modules");
+    let flags = std_module::module_file_flags(&compiler, &std_flag, &cache, &wanted);
+    if flags.is_empty() {
+        return;
+    }
+    for c in commands.iter_mut() {
+        if c.arguments.iter().any(|a| a.starts_with("-std=c++")) {
+            c.arguments.extend(flags.iter().cloned());
+        }
+    }
 }
 
 fn lsp_compile_commands_dir(project_dir: &Path, profile: &str) -> PathBuf {
