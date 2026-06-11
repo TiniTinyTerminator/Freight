@@ -260,6 +260,12 @@ the same treatment.
 
 ## Edge cases & decisions to confirm
 
+- **`import` / `#import`**: header-bringing forms — `#import <h>` (Objective-C)
+  and `import <h>;` / `export import "h";` (C++20 header units) — resolve to a
+  header and are checked exactly like `#include` (done in Phase 1). A
+  named-module import (`import foo;`, `import std;`) has no header path; flagging
+  an undeclared *module* needs a module→package map (build/modules.rs knows
+  `export module` decls) — a later step.
 - **Generated headers** (proto codegen, `[language.proto]`, header units): their
   output dirs must be in the allowlist. Wire from the existing generated-include
   paths in the pipeline.

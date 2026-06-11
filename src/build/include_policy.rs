@@ -134,12 +134,23 @@ pub fn parse_includes(source: &str) -> Vec<IncludeDirective> {
         // Strip block comments, tracking state across lines.
         let line = strip_comments(raw, &mut in_block_comment);
         let trimmed = line.trim_start();
-        if !trimmed.starts_with('#') {
-            continue;
-        }
-        // Allow whitespace between '#' and 'include'.
-        let after_hash = trimmed[1..].trim_start();
-        let Some(rest) = after_hash.strip_prefix("include") else { continue };
+        // Header-bringing directives, all resolving to a header file:
+        //   #include <h> / #include "h"
+        //   #import  <h> / #import  "h"      (Objective-C)
+        //   import <h>; / import "h";        (C++20 header unit; optional `export`)
+        // A named-module import (`import foo;`) has no header to resolve and is
+        // skipped — it carries no `<...>`/`"..."` token.
+        let after_keyword = if let Some(after_hash) = trimmed.strip_prefix('#') {
+            let h = after_hash.trim_start();
+            h.strip_prefix("include").or_else(|| h.strip_prefix("import"))
+        } else {
+            let e = trimmed
+                .strip_prefix("export")
+                .map(str::trim_start)
+                .unwrap_or(trimmed);
+            e.strip_prefix("import")
+        };
+        let Some(rest) = after_keyword else { continue };
         let rest = rest.trim_start();
         let (open, close, angled) = match rest.chars().next() {
             Some('<') => ('<', '>', true),
@@ -456,6 +467,31 @@ int x;
         // The <stdio.h> token spans columns 9..18 (0-based, end exclusive).
         assert_eq!(incs[0].start_col, 9);
         assert_eq!(incs[0].end_col, 18);
+    }
+
+    #[test]
+    fn parse_includes_handles_import_and_objc_forms() {
+        let src = "\
+#import <Foundation/Foundation.h>
+import <pthread.h>;
+export import \"mylib.h\";
+import std;
+int importance = 5;
+";
+        let got: Vec<_> = parse_includes(src)
+            .iter()
+            .map(|d| (d.name.clone(), d.angled, d.line))
+            .collect();
+        assert_eq!(
+            got,
+            vec![
+                ("Foundation/Foundation.h".to_string(), true, 0),
+                ("pthread.h".to_string(), true, 1),
+                ("mylib.h".to_string(), false, 2),
+            ]
+        );
+        // `import std;` (named module) and `int importance = 5;` are not header
+        // imports and must be ignored.
     }
 
     #[test]

@@ -12,6 +12,18 @@ out commit-by-commit. Newest entries at the top.
 
 ## Log
 
+### Step 6 — also cover `import` / `#import` (header-bringing forms)
+
+- `parse_includes` now recognises, in addition to `#include`:
+  - `#import <h>` / `#import "h"` (Objective-C),
+  - `import <h>;` / `import "h";` and `export import …;` (C++20 header units).
+- Named-module imports (`import foo;`, `import std;`) carry no header token and
+  are skipped — resolving a module name to a package needs a module→package map
+  (a later step; noted in the plan).
+- 1 new test (`parse_includes_handles_import_and_objc_forms`); **11 module tests.**
+- End-to-end verified: `import <pthread.h>;` is flagged with the same
+  undeclared-include warning; `import std;` and `<vector>` are not.
+
 ### Step 5 — LSP wiring (Phase 1 complete)
 
 - `DiagCache` gained a `freight` field; both merge sites now chain
