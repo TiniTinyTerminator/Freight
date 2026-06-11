@@ -1128,6 +1128,17 @@ fn build_sources(
     progress: &Progress,
 ) -> Result<CompileResult, FreightError> {
     let scanned = scan_sources(project_dir, sources);
+
+    // C++23 `import std;` — build the standard-library module BMI and add
+    // `-fmodule-file=std=<bmi>` to every compile in this project. A plain
+    // `import std;` TU does not declare a module, so it would otherwise take the
+    // non-module path and fail. Merged into the per-build extra-flags slot.
+    let mut extra_flags: Vec<String> = header_unit_flags.to_vec();
+    extra_flags.extend(std_module_build_flags(
+        &scanned, manifest, backend, detected, target_dir, profile,
+    ));
+    let extra_flags = extra_flags.as_slice();
+
     if has_modules(&scanned) {
         let mut plan = plan_module_build(project_dir, target_dir, profile, scanned)?;
         compile_module_sources(
@@ -1140,7 +1151,7 @@ fn build_sources(
             include_dirs,
             detected,
             feature_defines,
-            header_unit_flags,
+            extra_flags,
             progress,
         )
     } else if manifest.compiler.unity {
@@ -1154,7 +1165,7 @@ fn build_sources(
             include_dirs,
             detected,
             feature_defines,
-            header_unit_flags,
+            extra_flags,
             progress,
         )
     } else {
@@ -1168,10 +1179,51 @@ fn build_sources(
             include_dirs,
             detected,
             feature_defines,
-            header_unit_flags,
+            extra_flags,
             progress,
         )
     }
+}
+
+/// Build the standard-library module BMI(s) requested by `scanned` (via
+/// `import std;` / `import std.compat;`) and return the `-fmodule-file=` flags.
+/// Empty when nothing imports std or the toolchain has no std module.
+fn std_module_build_flags(
+    scanned: &[ScannedSource],
+    manifest: &Manifest,
+    backend: &Backend,
+    detected: &[DetectedCompiler],
+    target_dir: &Path,
+    profile: &str,
+) -> Vec<String> {
+    let mut wanted: Vec<&str> = Vec::new();
+    for s in scanned {
+        for imp in &s.imports {
+            match imp.as_str() {
+                "std" if !wanted.contains(&"std") => wanted.push("std"),
+                "std.compat" if !wanted.contains(&"std.compat") => wanted.push("std.compat"),
+                _ => {}
+            }
+        }
+    }
+    if wanted.is_empty() {
+        return Vec::new();
+    }
+    let pf = compile::primary_family(backend, detected);
+    let Some(compiler) = compile::select_compiler("cpp", backend, detected, pf.as_deref()) else {
+        return Vec::new();
+    };
+    let std_flag = manifest
+        .language
+        .get("cpp")
+        .and_then(|l| l.std.clone())
+        .unwrap_or_else(|| "c++23".to_string());
+    let cache = std_module_cache_dir(target_dir, profile);
+    std_module::module_file_flags(&compiler.path, &std_flag, &cache, &wanted)
+}
+
+fn std_module_cache_dir(target_dir: &Path, profile: &str) -> PathBuf {
+    target_dir.join(profile).join("std-modules")
 }
 
 // ── Dependency build step ─────────────────────────────────────────────────────
