@@ -209,6 +209,16 @@ struct ServerState {
     /// Per-URI undeclared `#include`/`import` findings (0-based line → spelling),
     /// recomputed with the diagnostics and reused for the inlay-hint markers.
     undeclared_includes: HashMap<String, Vec<(u32, String)>>,
+
+    /// Last parsed `#include`/`import` directives per URI. The include-hygiene
+    /// check is skipped when these are unchanged (the common case while editing
+    /// code that isn't an include line), so most keystrokes do no disk work.
+    last_includes: HashMap<String, Vec<crate::build::include_policy::IncludeDirective>>,
+
+    /// Cached declared include dirs + compiler per source file (from
+    /// compile_commands.json). Avoids re-parsing it on every include edit;
+    /// invalidated when compile commands are regenerated.
+    declared_dirs_cache: HashMap<PathBuf, (Vec<PathBuf>, Option<String>)>,
 }
 
 struct Passthrough {
@@ -267,6 +277,8 @@ impl Server {
                 indexers,
                 system_include_dirs: None,
                 undeclared_includes: HashMap::new(),
+                last_includes: HashMap::new(),
+                declared_dirs_cache: HashMap::new(),
             },
         }
     }
@@ -462,6 +474,7 @@ impl Server {
         }
         self.state.docs.remove(&uri);
         self.state.undeclared_includes.remove(&uri);
+        self.state.last_includes.remove(&uri);
         if let Some(path) = path_from_uri(&uri) {
             for ix in &mut self.state.indexers { ix.evict(&path); }
         }
@@ -1158,6 +1171,15 @@ impl Server {
         }
         let Some(path) = path_from_uri(uri) else { return };
 
+        // Fast path: if the #include/import directives are unchanged, the
+        // diagnostics and undeclared markers are already current — do no work.
+        // (Cleared on compile-commands refresh so dep changes still re-check.)
+        let directives = ip::parse_includes(text);
+        if self.state.last_includes.get(uri) == Some(&directives) {
+            return;
+        }
+        self.state.last_includes.insert(uri.to_string(), directives);
+
         let severity = match self.undeclared_include_level() {
             crate::manifest::LintLevel::Allow => {
                 self.state.undeclared_includes.remove(uri);
@@ -1169,7 +1191,7 @@ impl Server {
         };
 
         let file_dir = path.parent().map(Path::to_path_buf).unwrap_or_default();
-        let (declared, compiler) = self.declared_dirs_and_compiler(&path);
+        let (declared, compiler) = self.cached_declared_dirs(&path);
         let lang = ip::Language::from_path(&path);
         let system = self.cached_system_dirs(compiler.as_deref(), lang);
 
@@ -1223,6 +1245,21 @@ impl Server {
             .and_then(|d| crate::manifest::load_manifest(&d).ok())
             .map(|m| m.lints.undeclared_include)
             .unwrap_or_default()
+    }
+
+    /// Cached wrapper around [`Self::declared_dirs_and_compiler`]. Loading and
+    /// canonicalizing compile_commands.json on every keystroke made the inlay
+    /// hints lag; the result only changes when the compile commands are
+    /// regenerated, so it's cached per file and invalidated on refresh.
+    fn cached_declared_dirs(&mut self, path: &Path) -> (Vec<PathBuf>, Option<String>) {
+        if let Some(cached) = self.state.declared_dirs_cache.get(path) {
+            return cached.clone();
+        }
+        let result = self.declared_dirs_and_compiler(path);
+        self.state
+            .declared_dirs_cache
+            .insert(path.to_path_buf(), result.clone());
+        result
     }
 
     /// The declared include dirs (`-I`/`-isystem`/`-iquote`) and the compiler for
@@ -1330,6 +1367,10 @@ impl Server {
             tracing::info!(path = %dir.display(), "compile_commands.json refreshed");
             self.state.compile_commands_dir = Some(dir);
         }
+        // Compile commands changed: drop the per-file include-dir cache and the
+        // include-hygiene fast-path memo so dep/manifest changes re-check.
+        self.state.declared_dirs_cache.clear();
+        self.state.last_includes.clear();
         self.refresh_indexer_flags();
         self.refresh_header_index();
     }
