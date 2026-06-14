@@ -729,7 +729,7 @@ impl DetailedDep {
             && (self.branch.is_some()
                 || self.tag.is_some()
                 || self.rev.is_some()
-                || self.url.as_deref().map_or(false, |u| u.ends_with(".git")))
+                || self.url.as_deref().is_some_and(|u| u.ends_with(".git")))
     }
 }
 

@@ -252,12 +252,8 @@ impl GlobalConfig {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let toml = toml_edit::ser::to_string_pretty(self).map_err(|e| {
-            crate::error::FreightError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                e.to_string(),
-            ))
-        })?;
+        let toml = toml_edit::ser::to_string_pretty(self)
+            .map_err(|e| crate::error::FreightError::Io(std::io::Error::other(e.to_string())))?;
         std::fs::write(&path, toml)?;
         Ok(())
     }

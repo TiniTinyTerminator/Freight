@@ -42,17 +42,16 @@ use super::{
 // ── Pipeline goal / config / output ──────────────────────────────────────────
 
 /// What the pipeline should do after compiling sources.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub enum PipelineGoal {
+    #[default]
     Build,
-    Test { filter: Option<String> },
-    Bench { filter: Option<String> },
-}
-
-impl Default for PipelineGoal {
-    fn default() -> Self {
-        Self::Build
-    }
+    Test {
+        filter: Option<String>,
+    },
+    Bench {
+        filter: Option<String>,
+    },
 }
 
 impl PipelineGoal {
@@ -395,7 +394,7 @@ fn discover_goal_sources(
             let ext = format!(".{}", path.extension()?.to_str()?);
             let lang_key = ext_map.get(ext.as_str())?.clone();
             let stem = path.file_stem()?.to_str().unwrap_or(default_stem);
-            if filter.map_or(true, |f| f == stem) {
+            if filter.is_none_or(|f| f == stem) {
                 let rel = path.strip_prefix(project_dir).unwrap_or(path).to_path_buf();
                 Some(SourceFile {
                     path: rel,

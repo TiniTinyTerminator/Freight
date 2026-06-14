@@ -883,7 +883,7 @@ impl Server {
         };
         let profile = self.args.profile.clone();
         for ix in &mut self.state.indexers {
-            ix.refresh_flags(&manifest_dir, &profile);
+            ix.refresh_flags(manifest_dir, &profile);
         }
     }
 
@@ -2409,7 +2409,8 @@ mod tests {
 
     #[test]
     fn insert_dependency_adds_to_dependencies_table() {
-        let src = "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nzlib = \"*\"\n";
+        let src =
+            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nzlib = \"*\"\n";
         let out = insert_dependency_toml(src, "openssl").expect("inserts dep");
         assert!(out.contains("openssl = \"*\""), "got:\n{out}");
         assert!(out.contains("zlib = \"*\""), "keeps existing dep:\n{out}");
@@ -2429,7 +2430,10 @@ mod tests {
 
     #[test]
     fn end_position_counts_lines_and_utf16() {
-        assert_eq!(lsp_end_position("a\nbc"), json!({"line": 1, "character": 2}));
+        assert_eq!(
+            lsp_end_position("a\nbc"),
+            json!({"line": 1, "character": 2})
+        );
         // Trailing newline → cursor at column 0 of the next line.
         assert_eq!(lsp_end_position("a\n"), json!({"line": 1, "character": 0}));
         // Astral char (emoji) is 2 UTF-16 units.

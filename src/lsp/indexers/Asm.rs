@@ -171,7 +171,9 @@ impl LanguageIndexer for AsmIndexer {
     }
 
     fn reparse(&mut self, uri: &str, content: &str) {
-        let Some(path) = path_from_uri(uri) else { return };
+        let Some(path) = path_from_uri(uri) else {
+            return;
+        };
         if !Self::is_asm(&path) {
             return;
         }
@@ -300,7 +302,9 @@ impl LanguageIndexer for AsmIndexer {
                     .filter(|l| l.value == nr.value && l.line < line)
                     .max_by_key(|l| l.line)
             }?;
-            return Some(json!({ "uri": uri_str, "range": span(target.line, 0, nr.value.len() as u32) }));
+            return Some(
+                json!({ "uri": uri_str, "range": span(target.line, 0, nr.value.len() as u32) }),
+            );
         }
 
         // A named-symbol reference.
@@ -642,13 +646,11 @@ fn analyze(source: &str) -> AsmFile {
             } else if !is_register_head {
                 // NASM `NAME equ VALUE` / GAS `NAME = VALUE` — a constant whose
                 // name is the head word itself.
-                let is_assign = matches!(
-                    toks.get(idx + 1),
-                    Some(Tok::Punct { ch: '=', .. })
-                ) || matches!(
-                    toks.get(idx + 1),
-                    Some(Tok::Word { text, .. }) if text.eq_ignore_ascii_case("equ")
-                );
+                let is_assign = matches!(toks.get(idx + 1), Some(Tok::Punct { ch: '=', .. }))
+                    || matches!(
+                        toks.get(idx + 1),
+                        Some(Tok::Word { text, .. }) if text.eq_ignore_ascii_case("equ")
+                    );
                 if is_assign {
                     if let Some(Tok::Word {
                         text: name,
@@ -755,8 +757,13 @@ fn analyze(source: &str) -> AsmFile {
 /// bare word (`macro`, `define`); GAS ones keep their dot (`.macro`).
 fn directive_head(toks: &[Tok]) -> String {
     let mut idx = 0;
-    if matches!(toks.first(), Some(Tok::Word { register: false, .. }) | Some(Tok::Num { .. }))
-        && matches!(toks.get(1), Some(Tok::Punct { ch: ':', .. }))
+    if matches!(
+        toks.first(),
+        Some(Tok::Word {
+            register: false,
+            ..
+        }) | Some(Tok::Num { .. })
+    ) && matches!(toks.get(1), Some(Tok::Punct { ch: ':', .. }))
     {
         idx = 2;
     }
@@ -778,7 +785,11 @@ impl BlockKind {
         match head {
             ".macro" | "macro" => Some(BlockKind::Macro),
             ".rept" | ".irp" | ".irpc" | "rep" => Some(BlockKind::Rep),
-            h if h.starts_with(".if") || h == "if" || h.starts_with("ifdef") || h.starts_with("ifndef") => {
+            h if h.starts_with(".if")
+                || h == "if"
+                || h.starts_with("ifdef")
+                || h.starts_with("ifndef") =>
+            {
                 Some(BlockKind::Cond)
             }
             _ => None,
@@ -809,8 +820,13 @@ fn mnemonic_slot(line: &str) -> Option<u32> {
     let chars: Vec<char> = line.chars().collect();
     let toks = lex(&chars);
     let mut idx = 0;
-    if matches!(toks.first(), Some(Tok::Word { register: false, .. }))
-        && matches!(toks.get(1), Some(Tok::Punct { ch: ':', .. }))
+    if matches!(
+        toks.first(),
+        Some(Tok::Word {
+            register: false,
+            ..
+        })
+    ) && matches!(toks.get(1), Some(Tok::Punct { ch: ':', .. }))
     {
         idx = 2;
     }
@@ -910,7 +926,10 @@ fn strip_comments(line: &str, in_block: &mut bool) -> String {
 /// Common GAS/NASM directives with a one-line description.
 const DIRECTIVES: &[(&str, &str)] = &[
     (".text", "Switch to the executable code section."),
-    (".data", "Switch to the initialised read/write data section."),
+    (
+        ".data",
+        "Switch to the initialised read/write data section.",
+    ),
     (".bss", "Switch to the zero-initialised data section."),
     (".rodata", "Switch to the read-only data section."),
     (".section", "Switch to (or declare) a named section."),
@@ -919,7 +938,10 @@ const DIRECTIVES: &[(&str, &str)] = &[
     (".extern", "Declare a symbol defined in another object."),
     (".local", "Mark a symbol as local to this object."),
     (".weak", "Declare a weak symbol."),
-    (".type", "Set a symbol's type (e.g. `@function`, `@object`)."),
+    (
+        ".type",
+        "Set a symbol's type (e.g. `@function`, `@object`).",
+    ),
     (".size", "Set a symbol's size."),
     (".byte", "Emit one or more 8-bit values."),
     (".word", "Emit one or more 16-bit values."),
@@ -938,7 +960,10 @@ const DIRECTIVES: &[(&str, &str)] = &[
     (".zero", "Emit a block of zero bytes."),
     (".equ", "Define a symbol equal to an expression."),
     (".set", "Define a symbol equal to an expression."),
-    (".equiv", "Define a symbol equal to an expression (error if already set)."),
+    (
+        ".equiv",
+        "Define a symbol equal to an expression (error if already set).",
+    ),
     (".comm", "Declare a common (uninitialised) symbol."),
     (".macro", "Begin a macro definition."),
     (".endm", "End a macro definition."),
@@ -949,7 +974,10 @@ const DIRECTIVES: &[(&str, &str)] = &[
     (".endif", "End a conditional-assembly block."),
     (".include", "Textually include another assembly file."),
     (".file", "Record the source file name."),
-    (".cfi_startproc", "Begin a call-frame-information procedure."),
+    (
+        ".cfi_startproc",
+        "Begin a call-frame-information procedure.",
+    ),
     (".cfi_endproc", "End a call-frame-information procedure."),
     // NASM
     ("section", "Switch to (or declare) a named section (NASM)."),
@@ -996,7 +1024,10 @@ const INSTRUCTIONS: &[(&str, &str)] = &[
     ("jb", "Jump if below (unsigned)."),
     ("jbe", "Jump if below or equal (unsigned)."),
     ("cmp", "Compare two operands (sets flags)."),
-    ("test", "Bitwise AND that sets flags, discarding the result."),
+    (
+        "test",
+        "Bitwise AND that sets flags, discarding the result.",
+    ),
     ("add", "Integer addition."),
     ("sub", "Integer subtraction."),
     ("inc", "Increment by one."),
@@ -1034,14 +1065,32 @@ fn instruction_doc(name: &str) -> Option<&'static str> {
 const REGISTERS: &[(&str, &str)] = &[
     ("rax", "64-bit accumulator / integer return value (SysV)."),
     ("rbx", "64-bit general-purpose (callee-saved)."),
-    ("rcx", "64-bit general-purpose / 4th integer argument (SysV)."),
-    ("rdx", "64-bit general-purpose / 3rd integer argument (SysV)."),
-    ("rsi", "64-bit general-purpose / 2nd integer argument (SysV)."),
-    ("rdi", "64-bit general-purpose / 1st integer argument (SysV)."),
+    (
+        "rcx",
+        "64-bit general-purpose / 4th integer argument (SysV).",
+    ),
+    (
+        "rdx",
+        "64-bit general-purpose / 3rd integer argument (SysV).",
+    ),
+    (
+        "rsi",
+        "64-bit general-purpose / 2nd integer argument (SysV).",
+    ),
+    (
+        "rdi",
+        "64-bit general-purpose / 1st integer argument (SysV).",
+    ),
     ("rbp", "64-bit base / frame pointer (callee-saved)."),
     ("rsp", "64-bit stack pointer."),
-    ("r8", "64-bit general-purpose / 5th integer argument (SysV)."),
-    ("r9", "64-bit general-purpose / 6th integer argument (SysV)."),
+    (
+        "r8",
+        "64-bit general-purpose / 5th integer argument (SysV).",
+    ),
+    (
+        "r9",
+        "64-bit general-purpose / 6th integer argument (SysV).",
+    ),
     ("r10", "64-bit general-purpose (caller-saved)."),
     ("r11", "64-bit general-purpose (caller-saved)."),
     ("r12", "64-bit general-purpose (callee-saved)."),

@@ -205,10 +205,10 @@ pub(super) fn extract_c_style(src: &str, file: &Path, lang: &DocLanguage) -> Vec
                 let closes = t.chars().filter(|&c| c == '}').count();
                 brace_depth = brace_depth.saturating_add(opens).saturating_sub(closes);
                 ns_stack.push((brace_depth, path));
-                while ns_stack.last().map_or(false, |&(d, _)| brace_depth < d) {
+                while ns_stack.last().is_some_and(|&(d, _)| brace_depth < d) {
                     ns_stack.pop();
                 }
-                while class_stack.last().map_or(false, |&(d, _)| brace_depth < d) {
+                while class_stack.last().is_some_and(|&(d, _)| brace_depth < d) {
                     class_stack.pop();
                 }
                 i += 1;
@@ -221,7 +221,7 @@ pub(super) fn extract_c_style(src: &str, file: &Path, lang: &DocLanguage) -> Vec
                 let closes = t.chars().filter(|&c| c == '}').count();
                 brace_depth = brace_depth.saturating_add(opens).saturating_sub(closes);
                 class_stack.push((brace_depth, path));
-                while class_stack.last().map_or(false, |&(d, _)| brace_depth < d) {
+                while class_stack.last().is_some_and(|&(d, _)| brace_depth < d) {
                     class_stack.pop();
                 }
                 i += 1;
@@ -231,10 +231,10 @@ pub(super) fn extract_c_style(src: &str, file: &Path, lang: &DocLanguage) -> Vec
             let opens = t.chars().filter(|&c| c == '{').count();
             let closes = t.chars().filter(|&c| c == '}').count();
             brace_depth = brace_depth.saturating_add(opens).saturating_sub(closes);
-            while ns_stack.last().map_or(false, |&(d, _)| brace_depth < d) {
+            while ns_stack.last().is_some_and(|&(d, _)| brace_depth < d) {
                 ns_stack.pop();
             }
-            while class_stack.last().map_or(false, |&(d, _)| brace_depth < d) {
+            while class_stack.last().is_some_and(|&(d, _)| brace_depth < d) {
                 class_stack.pop();
             }
         }
@@ -297,7 +297,7 @@ pub(crate) fn detect_c_symbol(line: &str) -> (String, DocKind) {
             .trim_end()
             .split(|c: char| !c.is_alphanumeric() && c != '_')
             .filter(|s| !s.is_empty())
-            .last()
+            .next_back()
             .unwrap_or("")
             .to_string();
         if !candidate.is_empty()

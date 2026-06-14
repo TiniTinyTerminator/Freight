@@ -502,7 +502,7 @@ pub fn fetch_registry_deps(
 /// Returns true when `v` contains a constraint operator rather than a bare version.
 fn looks_like_constraint(v: &str) -> bool {
     let v = v.trim();
-    v.starts_with(|c: char| matches!(c, '>' | '<' | '~' | '^'))
+    v.starts_with(['>', '<', '~', '^'])
         || v.starts_with(">=")
         || v.starts_with("<=")
         || v.starts_with("!=")
@@ -535,11 +535,9 @@ fn resolve_constraint(
     for v in available {
         if let Some(ref req) = req {
             if let Ok(ver) = Version::parse(&coerce(&v.version)) {
-                if req.matches(&ver) {
-                    if best.as_ref().map_or(true, |b| ver > *b) {
-                        best = Some(ver);
-                        best_str = Some(v.version.clone());
-                    }
+                if req.matches(&ver) && best.as_ref().is_none_or(|b| ver > *b) {
+                    best = Some(ver);
+                    best_str = Some(v.version.clone());
                 }
             }
         }

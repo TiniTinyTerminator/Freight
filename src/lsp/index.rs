@@ -387,7 +387,7 @@ fn split_name_version(s: &str) -> (&str, &str) {
     // "zlib-1.3.2" → ("zlib", "1.3.2")
     if let Some(pos) = s.rfind('-') {
         let after = &s[pos + 1..];
-        if after.chars().next().map_or(false, |c| c.is_ascii_digit()) {
+        if after.chars().next().is_some_and(|c| c.is_ascii_digit()) {
             return (&s[..pos], after);
         }
     }
@@ -1034,7 +1034,13 @@ pub fn include_completion(
                 if lang == Language::Cxx {
                     for h in ip::cxx_std_headers() {
                         let data = serde_json::json!({ "freightInclude": true, "header": h });
-                        items.push(item(h, "C++ standard library", KIND_FILE, Some(closer), data));
+                        items.push(item(
+                            h,
+                            "C++ standard library",
+                            KIND_FILE,
+                            Some(closer),
+                            data,
+                        ));
                     }
                 }
             }
@@ -1255,7 +1261,10 @@ mod tests {
 
         // Unknown module (no declared package provides it).
         assert_eq!(module_inlay_label_for("mystery", None), "← module");
-        assert_eq!(module_tooltip("mystery", None), "**mystery** — C++20 module");
+        assert_eq!(
+            module_tooltip("mystery", None),
+            "**mystery** — C++20 module"
+        );
 
         // Resolved to a declared dependency — with no manifest on disk the
         // tooltip falls back to the bold name@version.

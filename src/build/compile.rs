@@ -125,7 +125,7 @@ pub fn compile_sources(
                 .template
                 .linking
                 .get(src.lang_key.as_str())
-                .map_or(false, |l| l.whole_program)
+                .is_some_and(|l| l.whole_program)
             {
                 return Ok((src_abs, true));
             }
@@ -163,7 +163,8 @@ pub fn compile_sources(
     let compiled_sources = sources
         .iter()
         .zip(pairs.iter())
-        .filter_map(|(src, (_, compiled))| compiled.then(|| src.path.clone()))
+        .filter(|(_, (_, compiled))| *compiled)
+        .map(|(src, _)| src.path.clone())
         .collect();
     let compiled = pairs.iter().filter(|(_, c)| *c).count();
     let skipped = pairs.iter().filter(|(_, c)| !*c).count();
@@ -257,7 +258,7 @@ pub fn compile_sources_unity(
         let needs_regen = unity_mtime.is_none()
             || lang_sources.iter().any(|s| {
                 mtime(&project_dir.join(&s.path))
-                    .map_or(true, |sm| unity_mtime.map_or(true, |um| sm >= um))
+                    .is_none_or(|sm| unity_mtime.is_none_or(|um| sm >= um))
             });
         if needs_regen {
             let mut content = String::new();
@@ -276,7 +277,7 @@ pub fn compile_sources_unity(
         let up_to_date = obj_mtime.is_some()
             && !lang_sources.iter().any(|s| {
                 mtime(&project_dir.join(&s.path))
-                    .map_or(true, |sm| obj_mtime.map_or(true, |om| sm >= om))
+                    .is_none_or(|sm| obj_mtime.is_none_or(|om| sm >= om))
             })
             && is_up_to_date(&unity_src, &obj, &dep);
 
@@ -527,7 +528,7 @@ pub(crate) fn is_up_to_date(source: &Path, object: &Path, dep_file: &Path) -> bo
         Some(t) => t,
         None => return false,
     };
-    if mtime(source).map_or(true, |s| s >= obj_mtime) {
+    if mtime(source).is_none_or(|s| s >= obj_mtime) {
         return false;
     }
     // Check every header listed in the .d file.

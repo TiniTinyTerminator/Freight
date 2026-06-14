@@ -113,16 +113,16 @@ impl LockFile {
 
         // Platform deps: recorded with source = "platform", no version or checksum
         for (name, dep) in &root.dependencies {
-            if crate::manifest::types::is_platform_dep(name) {
-                if matches!(dep, Dependency::Detailed(_)) {
-                    packages.push(LockPackage {
-                        name: name.clone(),
-                        version: String::new(),
-                        source: Some("platform".to_string()),
-                        checksum: None,
-                        dependencies: vec![],
-                    });
-                }
+            if crate::manifest::types::is_platform_dep(name)
+                && matches!(dep, Dependency::Detailed(_))
+            {
+                packages.push(LockPackage {
+                    name: name.clone(),
+                    version: String::new(),
+                    source: Some("platform".to_string()),
+                    checksum: None,
+                    dependencies: vec![],
+                });
             }
         }
 

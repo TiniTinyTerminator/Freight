@@ -52,18 +52,14 @@ pub fn purge_autotools(dir: &Path) -> Vec<String> {
     ];
     for name in &files {
         let p = dir.join(name);
-        if p.exists() {
-            if std::fs::remove_file(&p).is_ok() {
-                removed.push(format!("removed {}", p.display()));
-            }
+        if p.exists() && std::fs::remove_file(&p).is_ok() {
+            removed.push(format!("removed {}", p.display()));
         }
     }
     // autom4te.cache directory
     let cache = dir.join("autom4te.cache");
-    if cache.is_dir() {
-        if std::fs::remove_dir_all(&cache).is_ok() {
-            removed.push(format!("removed {}/", cache.display()));
-        }
+    if cache.is_dir() && std::fs::remove_dir_all(&cache).is_ok() {
+        removed.push(format!("removed {}/", cache.display()));
     }
     removed
 }
@@ -729,8 +725,7 @@ const AUTO_LINKED: &[&str] = &[
 
 fn join_continuations(content: &str) -> String {
     let mut out = String::with_capacity(content.len());
-    let mut iter = content.lines().peekable();
-    while let Some(line) = iter.next() {
+    for line in content.lines() {
         if line.ends_with('\\') {
             out.push_str(line.trim_end_matches('\\'));
             out.push(' ');
@@ -779,7 +774,6 @@ fn strip_lib_ext(name: &str) -> &str {
     };
     name.strip_prefix("lib").unwrap_or(name)
 }
-
 
 fn has_main_function(dir: &Path) -> bool {
     use walkdir::WalkDir;

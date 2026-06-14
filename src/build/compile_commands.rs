@@ -327,7 +327,7 @@ fn sanitize_for_clangd(commands: &[CompileCommand]) -> Vec<CompileCommand> {
 pub fn write_to(path: &Path, commands: &[CompileCommand]) -> Result<(), FreightError> {
     let commands = sanitize_for_clangd(commands);
     let json = serde_json::to_string_pretty(&commands)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
     // Only write when content actually changed.
     if let Ok(existing) = std::fs::read_to_string(path) {
         if existing == json {
@@ -470,8 +470,8 @@ fn save_cache(
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let json = serde_json::to_string_pretty(cache)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+    let json =
+        serde_json::to_string_pretty(cache).map_err(|e| std::io::Error::other(e.to_string()))?;
     std::fs::write(path, json)?;
     Ok(())
 }

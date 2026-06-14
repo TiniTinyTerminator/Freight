@@ -92,7 +92,8 @@ mod cache_tests {
         // Rewrite with a distinct mtime → the cache must re-read.
         fs::write(&toml, "[package]\nname=\"a\"\nversion=\"2.0.0\"\n").unwrap();
         let f = fs::OpenOptions::new().write(true).open(&toml).unwrap();
-        f.set_modified(SystemTime::now() + Duration::from_secs(10)).unwrap();
+        f.set_modified(SystemTime::now() + Duration::from_secs(10))
+            .unwrap();
 
         assert_eq!(
             load_manifest_cached(dir).unwrap().package.version,

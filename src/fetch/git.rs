@@ -70,7 +70,7 @@ pub fn checkout_rev(dest: &Path, sha: &str) -> Result<(), FreightError> {
         .map_err(|e| FreightError::GitError(format!("open repo at {}: {e}", dest.display())))?;
 
     // Fetch so the SHA is reachable even if the clone was shallow or branched.
-    let _ = {
+    {
         let mut remote = repo.find_remote("origin").ok();
         if let Some(ref mut r) = remote {
             with_auth(|fo| {

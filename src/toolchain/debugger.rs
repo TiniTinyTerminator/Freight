@@ -296,7 +296,6 @@ pub fn detect_debuggers(templates: &[DebuggerTemplate]) -> Vec<DetectedDebugger>
 
 // ── Internals ─────────────────────────────────────────────────────────────────
 
-
 fn query_version(template: &DebuggerTemplate, path: &Path) -> Option<String> {
     super::detect::probe_version(path, &template.version_arg, &template.version_regex)
 }

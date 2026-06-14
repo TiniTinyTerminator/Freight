@@ -118,7 +118,7 @@ fn collect_fortran_block(lines: &[&str], start: usize) -> (Vec<String>, usize) {
 fn detect_fortran_symbol(line: &str) -> (String, DocKind) {
     let t = line.trim();
     let up = t.to_ascii_uppercase();
-    let up_sp = up.replace('(', " ").replace(')', " ");
+    let up_sp = up.replace(['(', ')'], " ");
     let tokens: Vec<&str> = up_sp.split_whitespace().collect();
 
     if up.starts_with("MODULE SUBROUTINE ") {

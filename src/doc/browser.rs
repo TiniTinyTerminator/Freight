@@ -1659,8 +1659,8 @@ struct MarkdownTable {
 }
 
 fn parse_markdown_table(lines: &[&str], start: usize) -> Option<(MarkdownTable, usize)> {
-    let header = split_markdown_table_row(*lines.get(start)?)?;
-    let sep = split_markdown_table_row(*lines.get(start + 1)?)?;
+    let header = split_markdown_table_row(lines.get(start)?)?;
+    let sep = split_markdown_table_row(lines.get(start + 1)?)?;
     if header.is_empty() || !sep.iter().all(|c| is_markdown_separator_cell(c)) {
         return None;
     }

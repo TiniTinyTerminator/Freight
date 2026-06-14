@@ -115,7 +115,7 @@ pub(super) fn extract_rust(src: &str, file: &Path) -> Vec<DocItem> {
                 let closes = t.chars().filter(|&c| c == '}').count();
                 brace_depth = brace_depth.saturating_add(opens).saturating_sub(closes);
                 mod_stack.push((brace_depth, path));
-                while mod_stack.last().map_or(false, |&(d, _)| brace_depth < d) {
+                while mod_stack.last().is_some_and(|&(d, _)| brace_depth < d) {
                     mod_stack.pop();
                 }
                 i += 1;
@@ -125,7 +125,7 @@ pub(super) fn extract_rust(src: &str, file: &Path) -> Vec<DocItem> {
             let opens = t.chars().filter(|&c| c == '{').count();
             let closes = t.chars().filter(|&c| c == '}').count();
             brace_depth = brace_depth.saturating_add(opens).saturating_sub(closes);
-            while mod_stack.last().map_or(false, |&(d, _)| brace_depth < d) {
+            while mod_stack.last().is_some_and(|&(d, _)| brace_depth < d) {
                 mod_stack.pop();
             }
         }

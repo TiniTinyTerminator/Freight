@@ -52,23 +52,17 @@ pub fn purge_cmake(dir: &Path) -> Vec<String> {
     ];
     for name in &files {
         let p = dir.join(name);
-        if p.exists() {
-            if std::fs::remove_file(&p).is_ok() {
-                removed.push(format!("removed {}", p.display()));
-            }
+        if p.exists() && std::fs::remove_file(&p).is_ok() {
+            removed.push(format!("removed {}", p.display()));
         }
     }
     let cmake_files = dir.join("CMakeFiles");
-    if cmake_files.is_dir() {
-        if std::fs::remove_dir_all(&cmake_files).is_ok() {
-            removed.push(format!("removed {}/", cmake_files.display()));
-        }
+    if cmake_files.is_dir() && std::fs::remove_dir_all(&cmake_files).is_ok() {
+        removed.push(format!("removed {}/", cmake_files.display()));
     }
     let build_dir = dir.join("build");
-    if build_dir.join("CMakeCache.txt").exists() {
-        if std::fs::remove_dir_all(&build_dir).is_ok() {
-            removed.push(format!("removed {}/", build_dir.display()));
-        }
+    if build_dir.join("CMakeCache.txt").exists() && std::fs::remove_dir_all(&build_dir).is_ok() {
+        removed.push(format!("removed {}/", build_dir.display()));
     }
     removed
 }
@@ -388,7 +382,7 @@ fn handle_project(args: &[&str], ex: &mut Extracted) {
 }
 
 fn handle_set(args: &[&str], ex: &mut Extracted) {
-    if args.len() < 1 {
+    if args.is_empty() {
         return;
     }
     let var = args[0];
@@ -835,7 +829,7 @@ fn handle_cpm_add_package(args: &[&str], ex: &mut Extracted, warnings: &mut Vec<
             kv.get("BITBUCKET_REPOSITORY")
                 .map(|r| format!("https://bitbucket.org/{r}.git"))
         })
-        .or_else(|| kv.get("GIT_REPOSITORY").map(|r| r.clone()));
+        .or_else(|| kv.get("GIT_REPOSITORY").cloned());
 
     let url = kv.get("URL").cloned();
     let sha256 = kv.get("URL_HASH").and_then(|h| {

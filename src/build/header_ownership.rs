@@ -67,7 +67,11 @@ impl OwnershipData {
         }
         // Slots whose provider is declared.
         for slot in self.slots.values() {
-            if slot.providers.iter().any(|p| declared_set.contains(p.as_str())) {
+            if slot
+                .providers
+                .iter()
+                .any(|p| declared_set.contains(p.as_str()))
+            {
                 globs.extend(slot.headers.iter().cloned());
             }
         }
@@ -158,7 +162,11 @@ fn parse_override(text: &str) -> Option<OwnershipData> {
         for (name, globs) in pkgs {
             let list = globs
                 .as_array()
-                .map(|a| a.iter().filter_map(|g| g.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|g| g.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
             data.packages.insert(name.clone(), list);
         }
@@ -168,15 +176,22 @@ fn parse_override(text: &str) -> Option<OwnershipData> {
             let providers = slot
                 .get("providers")
                 .and_then(|v| v.as_array())
-                .map(|a| a.iter().filter_map(|g| g.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|g| g.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
             let headers = slot
                 .get("headers")
                 .and_then(|v| v.as_array())
-                .map(|a| a.iter().filter_map(|g| g.as_str().map(String::from)).collect())
+                .map(|a| {
+                    a.iter()
+                        .filter_map(|g| g.as_str().map(String::from))
+                        .collect()
+                })
                 .unwrap_or_default();
-            data.slots
-                .insert(name.clone(), Slot { providers, headers });
+            data.slots.insert(name.clone(), Slot { providers, headers });
         }
     }
     Some(data)
@@ -230,8 +245,10 @@ pub fn seed() -> OwnershipData {
     let mut data = OwnershipData::default();
     if cfg!(target_os = "linux") {
         let pkg = |d: &mut OwnershipData, name: &str, globs: &[&str]| {
-            d.packages
-                .insert(name.to_string(), globs.iter().map(|s| s.to_string()).collect());
+            d.packages.insert(
+                name.to_string(),
+                globs.iter().map(|s| s.to_string()).collect(),
+            );
         };
         pkg(&mut data, "zlib", &["zlib.h", "zconf.h"]);
         pkg(&mut data, "sqlite3", &["sqlite3.h", "sqlite3ext.h"]);
@@ -241,7 +258,11 @@ pub fn seed() -> OwnershipData {
         pkg(&mut data, "pcre2", &["pcre2.h"]);
         pkg(&mut data, "gmp", &["gmp.h", "gmpxx.h"]);
         pkg(&mut data, "mpfr", &["mpfr.h", "mpf2mpfr.h"]);
-        pkg(&mut data, "ncurses", &["ncurses.h", "curses.h", "term.h", "ncurses/*"]);
+        pkg(
+            &mut data,
+            "ncurses",
+            &["ncurses.h", "curses.h", "term.h", "ncurses/*"],
+        );
         pkg(&mut data, "readline", &["readline/*"]);
         pkg(&mut data, "uuid", &["uuid/uuid.h"]);
 
@@ -323,7 +344,11 @@ mod tests {
     #[test]
     fn default_system_dirs_excluded() {
         assert!(is_default_system_dir(std::path::Path::new("/usr/include")));
-        assert!(is_default_system_dir(std::path::Path::new("/usr/local/include")));
-        assert!(!is_default_system_dir(std::path::Path::new("/usr/include/SDL2")));
+        assert!(is_default_system_dir(std::path::Path::new(
+            "/usr/local/include"
+        )));
+        assert!(!is_default_system_dir(std::path::Path::new(
+            "/usr/include/SDL2"
+        )));
     }
 }

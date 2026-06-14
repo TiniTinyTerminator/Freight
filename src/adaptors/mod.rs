@@ -251,7 +251,7 @@ pub fn build_foreign_deps(
                 let query = package_query(name, version);
                 let repo = dep_repo(dep);
                 let optional = package_dep_optional(dep);
-                match resolve_version_dep(
+                if let Some((built, maybe_pc)) = resolve_version_dep(
                     name,
                     &query,
                     version,
@@ -263,13 +263,10 @@ pub fn build_foreign_deps(
                     progress,
                     &mut pc_cache,
                 )? {
-                    Some((built, maybe_pc)) => {
-                        if let Some(pc) = maybe_pc {
-                            pkg_results.push(pc);
-                        }
-                        results.push(built);
+                    if let Some(pc) = maybe_pc {
+                        pkg_results.push(pc);
                     }
-                    None => {}
+                    results.push(built);
                 }
             }
             continue;

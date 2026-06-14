@@ -376,7 +376,7 @@ fn infer_targets(
         let specs: Vec<TargetSpec> = val
             .split_whitespace()
             .filter(|n| !PSEUDO_TARGETS.contains(n))
-            .filter_map(|n| classify_target(n))
+            .filter_map(classify_target)
             .collect();
         if !specs.is_empty() {
             return specs;
@@ -814,7 +814,7 @@ fn extract_pkgconfig_libs(s: &str) -> Vec<String> {
         let abs = pos + idx;
         // Grab everything up to the end of the surrounding $(...) or backtick block
         let after = &s[abs + 10..];
-        let end = after.find(|c| c == ')' || c == '`').unwrap_or(after.len());
+        let end = after.find([')', '`']).unwrap_or(after.len());
         let args = &after[..end];
         for tok in args.split_whitespace() {
             // Skip pkg-config flags
@@ -1202,7 +1202,6 @@ fn has_main_function(dir: &Path) -> bool {
 
 // ── Name helpers ──────────────────────────────────────────────────────────────
 
-
 fn strip_lib_ext(name: &str) -> String {
     // Strip versioned suffix first (libbaz.so.1 → libbaz.so), then static/shared ext
     let stem = Path::new(name)
@@ -1256,10 +1255,8 @@ pub fn purge_make(dir: &Path) -> Vec<String> {
     let mut removed = Vec::new();
     for name in &["GNUmakefile", "Makefile", "makefile"] {
         let p = dir.join(name);
-        if p.exists() {
-            if std::fs::remove_file(&p).is_ok() {
-                removed.push(format!("removed {}", p.display()));
-            }
+        if p.exists() && std::fs::remove_file(&p).is_ok() {
+            removed.push(format!("removed {}", p.display()));
         }
     }
     removed

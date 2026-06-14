@@ -190,9 +190,9 @@ fn probe_cpp_include_paths() -> Vec<PathBuf> {
             .output()
         {
             // Shared compiler-search-dir parser (build::include_policy).
-            let paths = crate::build::include_policy::parse_search_dirs(
-                &String::from_utf8_lossy(&out.stderr),
-            );
+            let paths = crate::build::include_policy::parse_search_dirs(&String::from_utf8_lossy(
+                &out.stderr,
+            ));
             if !paths.is_empty() {
                 return paths;
             }

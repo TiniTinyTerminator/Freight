@@ -124,10 +124,10 @@ pub fn module_file_flags(
             continue;
         };
         let bmi = cache_dir.join(format!("{name}.pcm"));
-        if needs_rebuild(&bmi, source) {
-            if !precompile(compiler, std_flag, name, source, &bmi, &built) {
-                continue;
-            }
+        if needs_rebuild(&bmi, source)
+            && !precompile(compiler, std_flag, name, source, &bmi, &built)
+        {
+            continue;
         }
         built.push(StdModuleBmi {
             logical_name: name.to_string(),

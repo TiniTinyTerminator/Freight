@@ -261,7 +261,7 @@ impl SupportEnv {
             .iter()
             .any(|needle| self.target_contains(needle))
         } else {
-            host_platforms().iter().any(|p| *p == "unix")
+            host_platforms().contains(&"unix")
         }
     }
 

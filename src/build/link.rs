@@ -220,7 +220,7 @@ pub fn select_linker<'a>(
     detected: &'a [DetectedCompiler],
     _templates: &[CompilerTemplate],
 ) -> Option<&'a DetectedCompiler> {
-    for (lang_key, _) in &manifest.language {
+    for lang_key in manifest.language.keys() {
         for d in detected {
             if let Some(l) = d.template.linking.get(lang_key.as_str()) {
                 if l.linker.is_empty() {
@@ -493,7 +493,7 @@ fn collect_system_lib_flags(manifest: &Manifest, linker: &CompilerTemplate) -> V
             d.features
                 .iter()
                 .map(|feat| {
-                    if is_macos && feat.chars().next().map_or(false, |c| c.is_uppercase()) {
+                    if is_macos && feat.chars().next().is_some_and(|c| c.is_uppercase()) {
                         format!("-framework {feat}")
                     } else {
                         linker.system_lib_flag(feat)

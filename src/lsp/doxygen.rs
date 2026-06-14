@@ -81,9 +81,22 @@ fn split_contact(s: &str) -> (String, Option<String>) {
 
 /// Tags worth surfacing (others are ignored to keep the panel focused).
 const KNOWN_TAGS: &[&str] = &[
-    "author", "authors", "date", "version", "copyright", "since", "note",
-    "warning", "see", "deprecated", "bug", "todo", "license", "maintainer",
-    "contact", "email",
+    "author",
+    "authors",
+    "date",
+    "version",
+    "copyright",
+    "since",
+    "note",
+    "warning",
+    "see",
+    "deprecated",
+    "bug",
+    "todo",
+    "license",
+    "maintainer",
+    "contact",
+    "email",
 ];
 
 /// Extract the file-level Doxygen banner from `source`, or `None` when the head
@@ -442,10 +455,8 @@ int f();
         assert_eq!(doc.author_line().as_deref(), Some("Jane Doe (jane@x.com)"));
 
         // Separate @contact tag.
-        let doc2 = extract_file_doc(
-            "/**\n * @author Bob\n * @contact bob@x.com\n */\nint f();\n",
-        )
-        .unwrap();
+        let doc2 = extract_file_doc("/**\n * @author Bob\n * @contact bob@x.com\n */\nint f();\n")
+            .unwrap();
         assert_eq!(doc2.author_line().as_deref(), Some("Bob (bob@x.com)"));
 
         // Prose-only: brief falls back to the first sentence.

@@ -838,13 +838,11 @@ fn parse_atom(p: &mut Parser) -> Expr {
             p.bump();
             // \begin{array}{spec} and \begin{subarray}{spec} carry a column-spec
             // brace group that is layout-only; discard it before parsing content.
-            if env == "array" || env == "subarray" {
-                if p.eat(&Tok::LBrace) {
-                    while !matches!(p.peek(), Some(Tok::RBrace) | None) {
-                        p.bump();
-                    }
-                    p.eat(&Tok::RBrace);
+            if (env == "array" || env == "subarray") && p.eat(&Tok::LBrace) {
+                while !matches!(p.peek(), Some(Tok::RBrace) | None) {
+                    p.bump();
                 }
+                p.eat(&Tok::RBrace);
             }
             let kind = matrix_kind_from(&env);
             parse_matrix_body(p, kind)

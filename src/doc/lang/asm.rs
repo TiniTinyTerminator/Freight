@@ -116,7 +116,7 @@ fn detect_asm_symbol(line: &str) -> Option<(String, DocKind)> {
 
     // `.proc name` / `.func name`
     if up.starts_with(".PROC ") || up.starts_with(".FUNC ") {
-        let name = line[6..].trim().split_whitespace().next()?;
+        let name = line[6..].split_whitespace().next()?;
         if is_asm_ident(name) {
             return Some((name.to_string(), DocKind::Function));
         }
@@ -126,7 +126,7 @@ fn detect_asm_symbol(line: &str) -> Option<(String, DocKind)> {
     let stripped = up
         .strip_prefix(".GLOBAL ")
         .or_else(|| up.strip_prefix("GLOBAL "));
-    if let Some(_) = stripped {
+    if stripped.is_some() {
         let name = line.split_whitespace().nth(1)?;
         let name = name.trim_end_matches(':');
         if is_asm_ident(name) {
@@ -141,7 +141,7 @@ fn is_asm_ident(s: &str) -> bool {
     !s.is_empty()
         && s.chars()
             .next()
-            .map_or(false, |c| c.is_alphabetic() || c == '_' || c == '.')
+            .is_some_and(|c| c.is_alphabetic() || c == '_' || c == '.')
         && s.chars()
             .all(|c| c.is_alphanumeric() || c == '_' || c == '.' || c == '@')
 }

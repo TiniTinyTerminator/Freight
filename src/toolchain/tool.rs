@@ -227,7 +227,6 @@ pub fn collect_sources(src_dir: &Path, extensions: &[String]) -> Vec<PathBuf> {
 
 // ── Internals ─────────────────────────────────────────────────────────────────
 
-
 fn query_version(template: &ToolTemplate, path: &Path) -> Option<String> {
     // A formatter/linter invoked with no args may block on stdin, so unlike the
     // compiler probe an empty version_arg means "don't probe" here.

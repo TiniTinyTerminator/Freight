@@ -38,7 +38,7 @@ fn env_probe_flags(flags: &[String]) -> Vec<String> {
         if SINGLE.iter().any(|p| f.starts_with(p)) {
             out.push(f.clone());
             i += 1;
-        } else if TWO.iter().any(|p| f.as_str() == *p) && i + 1 < flags.len() {
+        } else if TWO.contains(&f.as_str()) && i + 1 < flags.len() {
             out.push(f.clone());
             out.push(flags[i + 1].clone());
             i += 2;

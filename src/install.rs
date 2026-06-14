@@ -106,7 +106,7 @@ pub fn install_project_built(
 
     // Derive target OS/arch: prefer the explicit override, then ~/.freight/config.toml, then host.
     let global_target = GlobalConfig::load().target;
-    let target_str = opts.target.as_deref().or_else(|| global_target.as_deref());
+    let target_str = opts.target.as_deref().or(global_target.as_deref());
     let (target_arch, target_os) = target_str.map(parse_triple).unwrap_or_else(|| {
         (
             std::env::consts::ARCH.to_string(),
@@ -245,7 +245,7 @@ pub fn package_project_built(
 ) -> Result<PathBuf, FreightError> {
     let global_target = GlobalConfig::load().target;
     let (pkg_arch, pkg_os) = target
-        .or_else(|| global_target.as_deref())
+        .or(global_target.as_deref())
         .map(parse_triple)
         .unwrap_or_else(|| {
             (
@@ -362,7 +362,7 @@ fn install_shared_lib(
                 .args([
                     "-id",
                     &install_name.to_string_lossy(),
-                    &dst.to_string_lossy().into_owned(),
+                    &dst.to_string_lossy(),
                 ])
                 .status();
 
@@ -640,7 +640,7 @@ pub fn installer_project(
 
     let global_target = GlobalConfig::load().target;
     let (pkg_arch, pkg_os) = target
-        .or_else(|| global_target.as_deref())
+        .or(global_target.as_deref())
         .map(parse_triple)
         .unwrap_or_else(|| {
             (
@@ -908,7 +908,7 @@ fn rewrite_macos_rpaths(binary: &Path, bundled_lib_dir: &Path) -> Result<(), Fre
     for entry in fs::read_dir(bundled_lib_dir)? {
         let entry = entry?;
         let lib = entry.path();
-        if lib.extension().map_or(false, |e| e == "dylib") {
+        if lib.extension().is_some_and(|e| e == "dylib") {
             let old = lib.to_string_lossy().into_owned();
             let new = format!(
                 "@executable_path/../lib/{}",
@@ -1058,7 +1058,7 @@ fn append_dir_to_tar<W: Write>(
             #[cfg(not(unix))]
             header.set_mode(0o644);
             header.set_cksum();
-            ar.append(&mut header, &mut f)?;
+            ar.append(&header, &mut f)?;
         }
     }
     Ok(())
@@ -1087,7 +1087,7 @@ fn write_ar_member<W: Write>(w: &mut W, name: &str, data: &[u8]) -> Result<(), F
     w.write_all(&header)?;
     w.write_all(data)?;
     // ar requires each member to start on a 2-byte boundary.
-    if data.len() % 2 != 0 {
+    if !data.len().is_multiple_of(2) {
         w.write_all(b"\n")?;
     }
     Ok(())
@@ -1105,7 +1105,7 @@ fn dir_size_kb(dir: &Path) -> u64 {
             }
         }
     }
-    (total + 1023) / 1024
+    total.div_ceil(1024)
 }
 
 // ── macOS .dmg builder ────────────────────────────────────────────────────────
@@ -1304,11 +1304,11 @@ fn build_msix(
     fs::create_dir_all(&assets_dir)?;
     fs::write(
         assets_dir.join("logo44.png"),
-        &solid_png(44, 44, [0x00, 0x78, 0xd7]),
+        solid_png(44, 44, [0x00, 0x78, 0xd7]),
     )?;
     fs::write(
         assets_dir.join("logo150.png"),
-        &solid_png(150, 150, [0x00, 0x78, 0xd7]),
+        solid_png(150, 150, [0x00, 0x78, 0xd7]),
     )?;
 
     // AppxManifest.xml

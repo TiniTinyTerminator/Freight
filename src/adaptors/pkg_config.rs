@@ -127,9 +127,9 @@ fn targeted_env_var(var_base: &str, target: Option<&str>) -> Option<OsString> {
         return std::env::var_os(var_base);
     };
     let target_u = target.replace('-', "_");
-    std::env::var_os(&format!("{var_base}_{target}"))
-        .or_else(|| std::env::var_os(&format!("{var_base}_{target_u}")))
-        .or_else(|| std::env::var_os(&format!("TARGET_{var_base}")))
+    std::env::var_os(format!("{var_base}_{target}"))
+        .or_else(|| std::env::var_os(format!("{var_base}_{target_u}")))
+        .or_else(|| std::env::var_os(format!("TARGET_{var_base}")))
         .or_else(|| std::env::var_os(var_base))
 }
 

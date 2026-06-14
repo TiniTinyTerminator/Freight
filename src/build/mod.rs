@@ -67,7 +67,7 @@ pub(super) fn has_lang(manifest: &Manifest, lang_key: &str, detected: &[Detected
         || manifest
             .lib
             .as_ref()
-            .map_or(false, |l| l.srcs.iter().any(|s| has(s)))
+            .is_some_and(|l| l.srcs.iter().any(|s| has(s)))
 }
 
 // ── Public results ────────────────────────────────────────────────────────────
@@ -1117,10 +1117,7 @@ fn verify_git_dep_shas(
 /// Language keys whose sources use the C preprocessor and are subject to
 /// include hygiene.
 fn is_c_family_lang(lang_key: &str) -> bool {
-    matches!(
-        lang_key,
-        "c" | "cpp" | "cuda" | "hip" | "objc" | "objcpp"
-    )
+    matches!(lang_key, "c" | "cpp" | "cuda" | "hip" | "objc" | "objcpp")
 }
 
 /// Include-hygiene Phase 2 — the build-time enforcement pass.
@@ -1152,10 +1149,7 @@ fn validate_include_hygiene(
     // key is the freight package name — what pkg-config is queried by and what
     // the ownership map is keyed on.
     let declared_names: Vec<String> = {
-        let mut v: Vec<String> = manifest
-            .effective_dependencies()
-            .into_keys()
-            .collect();
+        let mut v: Vec<String> = manifest.effective_dependencies().into_keys().collect();
         v.sort();
         v.dedup();
         v
@@ -1394,7 +1388,7 @@ fn std_module_build_flags(
         return Vec::new();
     }
     let pf = compile::primary_family(backend, detected);
-    let Some(compiler) = compile::select_compiler("cpp", backend, detected, pf.as_deref()) else {
+    let Some(compiler) = compile::select_compiler("cpp", backend, detected, pf) else {
         return Vec::new();
     };
     let std_flag = manifest
@@ -1580,7 +1574,7 @@ fn apply_sanitize_override(
                 .profile
                 .custom
                 .entry(other.to_string())
-                .or_insert_with(Default::default)
+                .or_default()
                 .sanitize = list;
         }
     }
