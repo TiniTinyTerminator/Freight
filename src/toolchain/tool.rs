@@ -4,8 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use regex::Regex;
-
+use super::detect::which;
 use crate::manifest::types::{FormatterConfig, LinterConfig};
 
 // ── Template types ────────────────────────────────────────────────────────────
@@ -228,37 +227,12 @@ pub fn collect_sources(src_dir: &Path, extensions: &[String]) -> Vec<PathBuf> {
 
 // ── Internals ─────────────────────────────────────────────────────────────────
 
-fn which(binary: &str) -> Option<PathBuf> {
-    let path_var = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path_var) {
-        let candidate = dir.join(binary);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-        #[cfg(windows)]
-        {
-            let exe = dir.join(format!("{binary}.exe"));
-            if exe.is_file() {
-                return Some(exe);
-            }
-        }
-    }
-    None
-}
 
 fn query_version(template: &ToolTemplate, path: &Path) -> Option<String> {
+    // A formatter/linter invoked with no args may block on stdin, so unlike the
+    // compiler probe an empty version_arg means "don't probe" here.
     if template.version_arg.is_empty() {
         return None;
     }
-    let out = Command::new(path)
-        .arg(&template.version_arg)
-        .output()
-        .ok()?;
-    let text = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr),
-    );
-    let re = Regex::new(&template.version_regex).ok()?;
-    re.captures(&text)?.get(1).map(|m| m.as_str().to_string())
+    super::detect::probe_version(path, &template.version_arg, &template.version_regex)
 }

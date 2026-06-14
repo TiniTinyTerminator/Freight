@@ -311,33 +311,14 @@ fn run_compiler_probe(compiler: &str, extra_flags: &[&str]) -> Option<Vec<PathBu
         .ok()?;
 
     let stderr = String::from_utf8_lossy(&out.stderr);
-    Some(parse_include_search_dirs(&stderr))
-}
-
-fn parse_include_search_dirs(stderr: &str) -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
-    let mut in_block = false;
-    for line in stderr.lines() {
-        if line.contains("#include <...> search starts here") {
-            in_block = true;
-            continue;
-        }
-        if in_block {
-            if line.starts_with("End of search list") {
-                break;
-            }
-            let trimmed = line.trim();
-            if !trimmed.is_empty() {
-                // Strip trailing " (framework directory)" annotation (macOS clang)
-                let path_str = trimmed.split_once(" (").map(|(p, _)| p).unwrap_or(trimmed);
-                let p = PathBuf::from(path_str);
-                if p.is_dir() {
-                    dirs.push(p);
-                }
-            }
-        }
-    }
-    dirs
+    // Shared parser with the build include-hygiene probe; the index only wants
+    // directories that actually exist on disk.
+    Some(
+        crate::build::include_policy::parse_search_dirs(&stderr)
+            .into_iter()
+            .filter(|p| p.is_dir())
+            .collect(),
+    )
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -4,8 +4,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use regex::Regex;
-
+use super::detect::which;
 use crate::manifest::types::{DebuggerConfig, DebuggerInstanceConfig};
 
 // ── Template types ────────────────────────────────────────────────────────────
@@ -297,40 +296,7 @@ pub fn detect_debuggers(templates: &[DebuggerTemplate]) -> Vec<DetectedDebugger>
 
 // ── Internals ─────────────────────────────────────────────────────────────────
 
-fn which(binary: &str) -> Option<PathBuf> {
-    let path_var = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path_var) {
-        let candidate = dir.join(binary);
-        if candidate.is_file() {
-            return Some(candidate);
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            if candidate.exists() {
-                if let Ok(meta) = candidate.metadata() {
-                    if meta.permissions().mode() & 0o111 != 0 {
-                        return Some(candidate);
-                    }
-                }
-            }
-        }
-    }
-    None
-}
 
 fn query_version(template: &DebuggerTemplate, path: &Path) -> Option<String> {
-    let out = Command::new(path)
-        .arg(&template.version_arg)
-        .output()
-        .ok()?;
-    let text = format!(
-        "{}{}",
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr),
-    );
-    let re = Regex::new(&template.version_regex).ok()?;
-    re.captures(&text)
-        .and_then(|c| c.get(1))
-        .map(|m| m.as_str().to_owned())
+    super::detect::probe_version(path, &template.version_arg, &template.version_regex)
 }

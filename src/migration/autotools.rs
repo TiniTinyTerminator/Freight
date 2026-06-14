@@ -11,6 +11,8 @@ use anyhow::{Context, Result};
 use regex::Regex;
 use toml_edit::{value, Array, DocumentMut, Item, Table};
 
+use super::sanitize_name;
+
 // ── Public entry point ────────────────────────────────────────────────────────
 
 pub struct ImportResult {
@@ -778,18 +780,6 @@ fn strip_lib_ext(name: &str) -> &str {
     name.strip_prefix("lib").unwrap_or(name)
 }
 
-fn sanitize_name(s: &str) -> String {
-    s.trim_matches(|c: char| !c.is_ascii_alphanumeric())
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect()
-}
 
 fn has_main_function(dir: &Path) -> bool {
     use walkdir::WalkDir;

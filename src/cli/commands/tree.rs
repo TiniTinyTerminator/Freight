@@ -395,24 +395,14 @@ fn parse_includes(path: &Path) -> Vec<(String, bool)> {
     let Ok(text) = std::fs::read_to_string(path) else {
         return Vec::new();
     };
-    let mut result = Vec::new();
-    for line in text.lines() {
-        let line = line.trim();
-        if !line.starts_with('#') {
-            continue;
-        }
-        let rest = line[1..].trim_start();
-        if !rest.starts_with("include") {
-            continue;
-        }
-        let rest = rest[7..].trim_start();
-        if let Some(inner) = rest.strip_prefix('"').and_then(|s| s.split('"').next()) {
-            result.push((inner.to_string(), false));
-        } else if let Some(inner) = rest.strip_prefix('<').and_then(|s| s.split('>').next()) {
-            result.push((inner.to_string(), true));
-        }
-    }
-    result
+    // Shared directive parser (handles block comments, #import, header units);
+    // keep only header-bringing directives, dropping named-module imports.
+    use freight::build::include_policy::{parse_includes as parse, DirectiveKind};
+    parse(&text)
+        .into_iter()
+        .filter(|d| d.kind == DirectiveKind::Header)
+        .map(|d| (d.name, d.angled))
+        .collect()
 }
 
 fn resolve_include(include: &str, from_file: &Path, include_dirs: &[PathBuf]) -> Option<PathBuf> {

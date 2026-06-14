@@ -483,7 +483,11 @@ fn query_cpu_extensions(path: &Path) -> Vec<String> {
 
 /// Resolve a binary name to its full path by searching PATH (first match only).
 /// Used for required-tool lookups; for compiler discovery use [`which_all`].
-fn which(binary: &str) -> Option<PathBuf> {
+/// Find `binary` on `PATH`, returning the first match. Handles platform
+/// executable rules (Unix exec-bit, Windows `.exe`) and prefers the unversioned
+/// name over versioned variants (`gcc` before `gcc-14`). The single PATH-lookup
+/// used across the toolchain, build, and debugger layers.
+pub(crate) fn which(binary: &str) -> Option<PathBuf> {
     which_all(binary).into_iter().next()
 }
 
@@ -573,23 +577,29 @@ fn try_add_executable(
     }
 }
 
-fn query_version(template: &CompilerTemplate, path: &Path) -> Option<String> {
+/// Run `path [version_arg]`, combine stdout+stderr (some tools print the version
+/// to stderr), and return capture group 1 of `version_regex`. An empty
+/// `version_arg` invokes the binary with no arguments (e.g. `cl.exe`). The shared
+/// version probe behind the compiler, tool, and debugger detectors.
+pub(crate) fn probe_version(path: &Path, version_arg: &str, version_regex: &str) -> Option<String> {
     let mut cmd = Command::new(path);
-    // An empty version_arg means "invoke with no arguments" (e.g. cl.exe prints version on stderr).
-    if !template.version_arg.is_empty() {
-        cmd.arg(&template.version_arg);
+    if !version_arg.is_empty() {
+        cmd.arg(version_arg);
     }
     let output = cmd.output().ok()?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    // Some compilers (gfortran) print version to stderr
-    let combined = format!("{stdout}{stderr}");
-
-    let re = Regex::new(&template.version_regex).ok()?;
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let re = Regex::new(version_regex).ok()?;
     re.captures(&combined)
         .and_then(|caps| caps.get(1))
         .map(|m| m.as_str().to_owned())
+}
+
+fn query_version(template: &CompilerTemplate, path: &Path) -> Option<String> {
+    probe_version(path, &template.version_arg, &template.version_regex)
 }
 
 #[cfg(test)]

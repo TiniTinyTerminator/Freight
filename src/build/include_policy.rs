@@ -304,9 +304,11 @@ pub fn system_include_dirs(compiler: &Path, language: Language) -> Vec<PathBuf> 
     }
 }
 
-/// Parse the `#include <...> search starts here:` block out of a compiler's
-/// `-v` preprocessor output.
-fn parse_search_dirs(stderr: &str) -> Vec<PathBuf> {
+/// Parse the `#include <...>`/`"..."` `search starts here:` block out of a
+/// compiler's `-v` preprocessor output. A pure parser (no existence filtering —
+/// callers that only want real directories filter on `is_dir` themselves).
+/// Shared by the build include-hygiene probe and the LSP header-index probe.
+pub(crate) fn parse_search_dirs(stderr: &str) -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     let mut in_list = false;
     for line in stderr.lines() {

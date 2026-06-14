@@ -18,6 +18,8 @@ use makefile_lossless::{Makefile, VariableDefinition};
 use toml_edit::{value, Array, DocumentMut, Item, Table};
 use walkdir::WalkDir;
 
+use super::sanitize_name;
+
 // ── Public entry point ────────────────────────────────────────────────────────
 
 pub struct ImportResult {
@@ -1200,18 +1202,6 @@ fn has_main_function(dir: &Path) -> bool {
 
 // ── Name helpers ──────────────────────────────────────────────────────────────
 
-fn sanitize_name(s: &str) -> String {
-    s.trim_matches(|c: char| !c.is_ascii_alphanumeric())
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '-'
-            }
-        })
-        .collect()
-}
 
 fn strip_lib_ext(name: &str) -> String {
     // Strip versioned suffix first (libbaz.so.1 → libbaz.so), then static/shared ext

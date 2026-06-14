@@ -189,28 +189,16 @@ fn probe_cpp_include_paths() -> Vec<PathBuf> {
             .args(["-v", "-x", "c++", "/dev/null", "-fsyntax-only"])
             .output()
         {
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            if let Some(paths) = parse_include_paths(&stderr) {
-                if !paths.is_empty() {
-                    return paths;
-                }
+            // Shared compiler-search-dir parser (build::include_policy).
+            let paths = crate::build::include_policy::parse_search_dirs(
+                &String::from_utf8_lossy(&out.stderr),
+            );
+            if !paths.is_empty() {
+                return paths;
             }
         }
     }
     fallback_cpp_paths()
-}
-
-fn parse_include_paths(stderr: &str) -> Option<Vec<PathBuf>> {
-    let start = stderr.find("#include <...> search starts here:")?;
-    let end = stderr.find("End of search list.").unwrap_or(stderr.len());
-    let paths = stderr[start..end]
-        .lines()
-        .skip(1)
-        .map(|l| l.trim())
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .map(|l| PathBuf::from(l.split_whitespace().next().unwrap_or(l)))
-        .collect();
-    Some(paths)
 }
 
 fn fallback_cpp_paths() -> Vec<PathBuf> {

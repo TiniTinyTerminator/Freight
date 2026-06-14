@@ -27,26 +27,13 @@ fn cache_wrapper() -> Option<&'static PathBuf> {
                 return None;
             }
             for name in &["sccache", "ccache"] {
-                if let Some(path) = which_tool(name) {
+                if let Some(path) = crate::toolchain::detect::which(name) {
                     return Some(path);
                 }
             }
             None
         })
         .as_ref()
-}
-
-fn which_tool(name: &str) -> Option<PathBuf> {
-    std::env::var_os("PATH").and_then(|paths| {
-        std::env::split_paths(&paths).find_map(|dir| {
-            let candidate = dir.join(name);
-            if candidate.is_file() {
-                Some(candidate)
-            } else {
-                None
-            }
-        })
-    })
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
