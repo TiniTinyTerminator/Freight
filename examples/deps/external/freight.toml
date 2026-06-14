@@ -18,10 +18,11 @@ src  = "src/main.cpp"
 json    = { url = "https://github.com/nlohmann/json/archive/refs/tags/v3.11.3.tar.gz", include = ["single_include"] }
 cxxopts = { url = "https://github.com/jarro2783/cxxopts/archive/refs/tags/v3.2.1.tar.gz", include = ["include"] }
 
-# System-installed library with pkg-config — system = "z" is the bare -lfoo fallback
-# if pkg-config is not available; pkg-config = "zlib" runs `pkg-config --cflags --libs zlib`
-# to discover include dirs and the exact linker flags automatically.
-zlib = { system = "z", pkg-config = "zlib" }
+# System-installed library: a bare version constraint resolves through the chain
+# pkg-config → system-lib stub → registry. pkg-config (`pkg-config --cflags --libs
+# zlib`) discovers include dirs and exact linker flags automatically when present;
+# otherwise the bundled `z` stub supplies `-lz`.
+zlib = "1.2"
 
 [profile.dev]
 opt-level = 0

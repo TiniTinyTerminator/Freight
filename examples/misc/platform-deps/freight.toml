@@ -18,7 +18,7 @@ warnings = "all"
 
 [os.linux]
 defines      = ["PLATFORM_LINUX"]
-dependencies = { m = { system = "m" } }
+dependencies = { linux = { features = ["m"] } }   # -lm via platform feature
 
 [os.macos]
 defines = ["PLATFORM_MACOS"]

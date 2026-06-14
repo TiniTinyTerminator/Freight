@@ -57,7 +57,7 @@ Feature branches follow the convention `feature/<name>` off `master`.
 
 ### Dependencies ✓ COMPLETE
 - [x] Path dependency resolution — compile dep, archive to `.a`, link into project
-- [x] System dependency linking — `{ system = "..." }` → `-l{name}` (or `{name}.lib` for MSVC)
+- [x] System dependency linking — bare-version dep or platform features (`unix = { features = ["pthread"] }`) → `-l{name}` (or `{name}.lib` for MSVC)
 - [x] `LibType::System` — no build artifact; injects `-l{link}` flag only
 - [x] 24 system-lib stubs in `toolchains/system-libs/` — pthread, libm, dl, rt, ws2_32, kernel32, d3d11, d3d12, bcrypt, and more; filtered by `supports` expression
 - [x] `repo = "system"` dep key — bypasses pkg-config, resolves via stubs
@@ -73,10 +73,10 @@ Feature branches follow the convention `feature/<name>` off `master`.
 ### Foreign Build System Integration ✓ COMPLETE
 - [x] Auto-detect foreign build system from dep directory — CMake > Meson > Autotools > SCons > Make
 - [x] CMake, Meson, Make, Autotools, SCons foreign deps: configure → build → install
-- [x] Git dependencies — `{ git = "https://..." }` clones into `.pkgs/<name>/`, then treated as path dep
+- [x] Git dependencies — `{ url = "....git" }` clones into `.pkgs/<name>/`, then treated as path dep
 - [x] Foreign dep include + archive auto-discovery after build
-- [x] HTTP tarball deps — `{ http = "...", sha256 = "..." }` with SHA-256 verification
-- [x] GitHub release deps — `{ github = "owner/repo", tag = "v1.0" }` shorthand
+- [x] HTTP tarball deps — `{ url = "...", sha256 = "..." }` with SHA-256 verification
+- [x] GitHub release deps — `{ url = "https://github.com/owner/repo/archive/v1.0.tar.gz" }`
 - [x] Download sentinel — `.pkgs/<name>/.freight-fetched` prevents re-downloading
 - [x] pkg-config deps — standalone or with system fallback
 - [x] `type = "none"` explicit header-only / prebuilt override

@@ -37,7 +37,7 @@ vec_scale(a[i] * 3):
 
 | Feature | Where |
 |---|---|
-| `OpenCL = "*"` in `[dependencies]` | Resolved via pkg-config (`-lOpenCL`) |
+| `OpenCL = "1.0"` in `[dependencies]` | Resolved via pkg-config (`-lOpenCL`) |
 | `[language.cpp] std = "c++17"` | C++ standard passed to the host compiler |
 | Runtime kernel compilation | `clCreateProgramWithSource` + `clBuildProgram` |
 | Kernel source as an embedded string | `R"cl( ... )cl"` literal in `main.cpp` |
@@ -72,7 +72,7 @@ OpenCL is declared as a regular version dep; freight resolves it via
 
 ```toml
 [dependencies]
-OpenCL = "*"
+OpenCL = "1.0"
 ```
 
 On systems without pkg-config, install `ocl-icd-opencl-dev` (Debian/Ubuntu)

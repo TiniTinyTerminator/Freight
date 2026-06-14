@@ -86,7 +86,7 @@ protoc = { url = "https://github.com/protocolbuffers/protobuf/releases/download/
 
 [dependencies]
 # Link the protobuf runtime library (resolved via pkg-config or the registry).
-protobuf = "*"
+protobuf = "3"
 ```
 
 Incremental builds: protoc is only re-invoked for `.proto` files that are newer than their
@@ -147,7 +147,7 @@ ensures that `main()` from one binary is not linked into another.
 ```toml
 [build-dependencies]
 cmake = ">=3.20, <4"   # use any cmake 3.x; avoids cmake 4 breaking old CMakeLists.txt
-ninja = "*"            # prefer locally-installed ninja over system one
+ninja = ">=1.10"       # prefer locally-installed ninja over system one
 ```
 
 ### Version dependency (automatic resolver chain)
@@ -155,27 +155,29 @@ ninja = "*"            # prefer locally-installed ninja over system one
 ```toml
 zlib    = "1.3.1"       # require at least this version
 openssl = ">=3.0"       # comparator-style constraint
-libpng  = "*"           # any installed or fetched version
+libpng  = "1.6"         # concrete version or range — a bare `*` is rejected
 
 # Equivalent detailed form, useful with optional/features/default-features keys:
 zstd = { version = "1.5" }
 ```
 
+A concrete version or range is **required** — a bare `*` is rejected at validation, because
+C/C++ libraries change their API between versions. Freight uses the version installed on the
+system if present, and downloads it from the registry otherwise.
+
 For version-only dependencies, Freight tries each resolver in order and uses the first that succeeds:
 
-1. **pkg-config** — checks `pkg-config --modversion <name>` against the version constraint.
-2. **Conan** — runs `conan install <name>/<version>` into `.pkgs/conan/`.
-3. **vcpkg** — runs `vcpkg install <name>` into `.pkgs/vcpkg_installed/` using `VCPKG_DEFAULT_TRIPLET` (or a host default such as `x64-linux`).
-4. **System-lib stub** — matches the name against the bundled stubs in `toolchains/system-libs/` (see below). If a stub matches, freight injects `-l{link_name}` directly. No package manager required.
+1. **pkg-config** — checks `pkg-config --modversion <name>` against the version constraint and
+   injects the resulting `-I`/`-L`/`-l` flags.
+2. **System-lib stub** — matches the name against the bundled stubs in `toolchains/system-libs/`
+   (see below). If a stub matches, freight injects `-l{link_name}` directly. No package manager required.
+3. **Registry** — downloads the package source from the configured registry into `.pkgs/` and builds it.
 
-`VCPKG_DEFAULT_TRIPLET` controls the vcpkg triplet; set `VCPKG` to override the vcpkg executable path.
-
-To pin a specific resolver explicitly, use the `repo` key:
+To restrict resolution, use the `repo` key:
 
 ```toml
-pthread = { version = "0", repo = "system" }    # always use the system-lib stub / -lpthread
-zlib    = { version = "1.3", repo = "vcpkg" }   # skip pkg-config; go straight to vcpkg
-openssl = { version = "3.0", repo = "pkg-config" } # require pkg-config; error if not found
+pthread = { version = "0", repo = "system" }       # stubs only — never hit the registry
+zlib    = { version = "1.3", repo = "my-registry" } # use a named registry from config
 ```
 
 ### Path dependency
@@ -190,34 +192,38 @@ freight projects; those without are treated as foreign build systems (see below)
 
 ### System dependency
 
-```toml
-# Explicit system link — passes -l{name} directly, no version resolution
-openssl = { system = "ssl" }
-pthread = { system = "pthread" }
+There is no dedicated `system`/`pkg-config` dependency field. A library installed on the system is
+resolved through the normal chain (pkg-config → stub → registry) from a bare version constraint:
 
-# Preferred: let the resolver chain handle it (pkg-config → vcpkg → stub → -l)
-pthread = "0"
+```toml
+openssl = "3.0"   # pkg-config `openssl` → stub → registry
+zlib    = "1.3"   # pkg-config `zlib`   → `z` stub → registry
 ```
 
-For well-known OS libraries (pthread, ws2_32, libm, dl, rt, d3d11, …), Freight ships 24 built-in
+For well-known OS libraries (pthread, ws2_32, libm, dl, rt, d3d11, …), Freight ships built-in
 stubs in `toolchains/system-libs/`. A stub carries the correct `-l` name, header list, and a
 `supports` expression (e.g. `supports = "unix"`) so it is only applied on matching platforms.
 Users can add their own stubs to `~/.freight/toolchains/system-libs/`.
 
-Using a bare version (`pthread = "0"`) is the cleanest approach: pkg-config is tried first and the
-stub is used as a fallback, so the manifest works on every platform without explicit `os` filters.
-
-### pkg-config dependency
+**Versionless system libraries** (pthread, m, the OpenCL loader, …) have no meaningful version and
+are linked via *platform features* rather than a dependency entry:
 
 ```toml
-# pkg-config only — error if pkg-config is not found
-zlib = { pkg-config = "zlib" }
-
-# Combined — pkg-config first, bare -l{name} fallback if pkg-config fails
-zlib = { system = "z", pkg-config = "zlib" }
+unix    = { features = ["pthread", "m"] }   # -lpthread -lm on Unix
+windows = { features = ["ws2_32"] }         # -lws2_32 on Windows
 ```
 
-`pkg-config` runs `pkg-config --cflags --libs <query>` and injects the resulting include dirs
+To force the stub path and skip the registry, pin the resolver with `repo = "system"`:
+
+```toml
+pthread = { version = "0", repo = "system" }
+```
+
+### pkg-config resolution
+
+pkg-config is the first step of the resolver chain for any bare-version dependency — no special
+field is needed. When `pkg-config --modversion <name>` satisfies the constraint, freight runs
+`pkg-config --cflags --libs <name>` and injects the resulting include dirs
 (`-I`) into compilation and link flags (`-L`, `-l`, `-pthread` etc.) verbatim into the linker
 command. The query string is passed as-is to pkg-config, so version constraints work:
 `"glib-2.0 >= 2.56"`.
@@ -242,13 +248,17 @@ every pkg-config invocation, requesting static-link flags from all `.pc` files.
 
 ### Git dependency
 
+A git dependency is a `url` ending in `.git` (or any `url` combined with a `branch`/`tag`/`rev`).
+There is no separate `git` field.
+
 ```toml
-easyloggingpp = { git = "https://github.com/amrayn/easyloggingpp" }
-easyloggingpp = { git = "https://...", tag = "v9.97.1" }   # pin to tag
-easyloggingpp = { git = "https://...", branch = "main" }   # track branch
-easyloggingpp = { git = "https://...", rev = "abc1234" }   # pin to commit
+easyloggingpp = { url = "https://github.com/amrayn/easyloggingpp.git" }
+easyloggingpp = { url = "https://github.com/amrayn/easyloggingpp.git", tag = "v9.97.1" }    # pin to tag
+easyloggingpp = { url = "https://github.com/amrayn/easyloggingpp.git", branch = "main" }    # track branch
+easyloggingpp = { url = "https://github.com/amrayn/easyloggingpp.git", rev = "abc1234" }    # pin to commit
 ```
 
+`branch`, `tag`, and `rev` are mutually exclusive; `rev` pins the commit and blocks `freight update`.
 Clones the repo into `.pkgs/<name>/`, then treats it exactly like a path dep — foreign build
 system detection applies. Run `freight fetch` to clone before building.
 
@@ -269,18 +279,20 @@ curl handles), optionally verifies SHA-256, extracts to `.pkgs/<name>/` with `--
 then auto-detects the build system or treats as header-only if no source files are found. The
 sentinel `.pkgs/<name>/.freight-fetched` prevents re-downloading; `freight update <name>` invalidates it.
 
-For GitHub repos specifically: if you need to track a branch or make incremental updates, prefer
-`git = "https://github.com/..."` instead. `url` is for pinned release tarballs.
+For GitHub repos specifically: if you need to track a branch or make incremental updates, prefer a
+`.git` URL with a `branch`/`tag`/`rev` (see above). A plain `url` is for pinned release tarballs.
 
 ### Foreign build system options
 
-Any dep with a source (path, git, http, github) supports these additional keys:
+Any dep with a source (path, git, or archive url) supports these additional keys:
 
 ```toml
 dep = {
     path        = "../dep",
     type        = "cmake",               # cmake | make | meson | autotools | scons | bazel | none
-    cmake-args  = ["-DBUILD_TESTS=OFF"], # extra args forwarded to cmake configure step
+    defines     = ["BUILD_TESTS=OFF"],   # configure defines, applied per builder (cmake/meson -D,
+                                         #   make KEY=VALUE); a leading -D is accepted.
+                                         #   aliases: cmake-args / cmake_args
     include     = ["include/", "src/"],  # explicit include dirs (skips auto-detection)
 }
 ```
@@ -299,7 +311,7 @@ collected automatically.
 - When `[compiler] target` is set, `-DCMAKE_SYSTEM_NAME` and `-DCMAKE_SYSTEM_PROCESSOR` are injected automatically from the target triple.
 - Parallel builds via `cmake --build --parallel N` on CMake ≥ 3.12.
 - `cmake --install` installs built artifacts to `.freight-build/install/` so headers and archives are always found at a predictable path.
-- Additional arguments from `cmake-args` are forwarded to the configure step verbatim.
+- Additional configure defines from `defines` are forwarded to the configure step as `-D<KEY=VALUE>`.
 
 **Autotools build details** — when `type = "autotools"` (or auto-detected):
 - When `[compiler] target` is set, `--host=<triple>` is passed to `configure` automatically.
@@ -317,17 +329,16 @@ build context are excluded from compilation and linking.
 # Only included when cross-compiling to this target triple
 arm-hal = { path = "../arm-hal", targets = ["aarch64-linux-gnu"] }
 
-# Only linked on matching host OS
-# Accepted values: linux, windows, macos, freebsd, openbsd, netbsd, dragonfly,
-#                  android, ios, solaris, illumos, unix (family), bsd (family)
-pthread = { system = "pthread", os = "linux" }
-libm    = { system = "m",       os = ["linux", "macos"] }
+# Versionless system libraries are linked via platform features, not a dep entry:
+# Accepted OS values: linux, windows, macos, freebsd, openbsd, netbsd, dragonfly,
+#                     android, ios, solaris, illumos, unix (family), bsd (family)
+unix = { features = ["pthread", "m"] }   # -lpthread -lm on Unix
 
-# Only linked on matching CPU architecture (std::env::consts::ARCH)
+# Only included when cross-compiling to this target triple / matching CPU arch
 sse-util = { path = "../sse-util", arch = "x86_64" }
 
 # Combine OS + arch (both must match)
-avx-opt = { system = "avx-opt", os = "linux", arch = ["x86_64", "aarch64"] }
+avx-opt = { path = "../avx-opt", os = "linux", arch = ["x86_64", "aarch64"] }
 ```
 
 ---
@@ -335,7 +346,8 @@ avx-opt = { system = "avx-opt", os = "linux", arch = ["x86_64", "aarch64"] }
 ## `[features]`
 
 Cargo-style conditional compilation. Active features produce `-D<NAME_UPPER>` flags for all
-compiled sources.
+compiled sources. Defines are **per-package** — they only ever land in one package's
+compilation, never globally.
 
 ```toml
 [features]
@@ -345,6 +357,25 @@ tls     = ["net"]      # → -DTLS, also activates "net"
 net     = []           # → -DNET
 ```
 
+Besides another feature name, a feature-list entry can be one of:
+
+```toml
+[features]
+spdlog = ["dep:spdlog"]                       # activate optional dependency "spdlog" (no define)
+fast   = ["define:NDEBUG", "define:LEVEL=3"]  # inject -DNDEBUG / -DLEVEL=3 into THIS package
+crypto = ["openssl/define:WITH_TLS"]          # inject -DWITH_TLS into openssl's build (and
+                                              #   activate openssl if it is optional)
+extra  = ["openssl?/define:WITH_EXTRA"]       # weak: inject into openssl only if it is already active
+```
+
+- `dep:name` — activate optional dependency `name` (no define), mirroring Cargo's `dep:` syntax.
+- `define:NAME` / `define:NAME=value` — inject an explicit `-DNAME` / `-DNAME=value` into the
+  current package (the `=value` is optional).
+- `<dep>/define:NAME[=value]` — forward the explicit define into **dependency `<dep>`'s** build
+  instead of this package, mirroring Cargo's `<dep>/<feature>` syntax. Activates `<dep>` if optional.
+- `<dep>?/define:NAME[=value]` — the weak form: forwards only when `<dep>` is already activated by
+  something else; never activates it itself.
+
 Consumers of a library dep can select features:
 
 ```toml
@@ -353,6 +384,9 @@ mylib = { path = "../mylib", default-features = false, features = ["net"] }
 ```
 
 Features are transitively expanded (BFS). Cycles are a validation error.
+
+Changing the active feature set (or any compile flag) invalidates the affected package's object
+cache, so incremental builds recompile exactly the packages whose flags changed.
 
 ---
 
@@ -465,12 +499,12 @@ srcs         = ["src/os/linux/**"]
 defines      = ["PLATFORM_LINUX", "POSIX_BUILD"]
 flags        = ["-fvisibility=hidden"]
 includes     = ["/usr/local/include"]
-dependencies = { m = { system = "m" }, pthread = { system = "pthread" } }
+dependencies = { linux = { features = ["m", "pthread"] } }   # -lm -lpthread
 
 [os.windows]
 srcs         = ["src/os/windows/**"]
 defines      = ["WIN32_LEAN_AND_MEAN", "PLATFORM_WINDOWS"]
-dependencies = { ws2_32 = { system = "ws2_32" } }
+dependencies = { windows = { features = ["ws2_32"] } }       # -lws2_32
 
 [os.unix]
 defines = ["POSIX_BUILD"]

@@ -19,9 +19,16 @@ freight run
 | `mixed/` | Multiple languages in one project |
 | `gpu/` | CUDA, HIP, OpenCL, ISPC — require compatible hardware |
 | `exotic/` | Ada, D, Objective-C, Zig (as host or as compiler frontend) |
-| `deps/` | Dependency management: git, CMake, Make, registry, external |
+| `deps/` | Dependency management: git, CMake, Make, registry, external, per-dep defines |
 | `misc/` | Features, build scripts, docs, workspace, migration |
 | `broken/` | **Intentionally broken** — shows freight's error output |
+
+## Feature examples
+
+| Example | What it shows |
+|---|---|
+| `cpp/features` | `[features]` → `-D<NAME>` conditional compilation; `--features` / `--no-default-features` |
+| `deps/dep-defines` | Forwarding a `-D` into a dependency's build via `<dep>/define:NAME`; defines are per-package |
 
 ## Broken examples
 

@@ -43,7 +43,7 @@ Freight adds `[os.<key>]` and `[arch.<key>]` sections that Cargo handles with `c
 [os.linux]
 srcs         = ["src/os/linux/**"]
 defines      = ["PLATFORM_LINUX"]
-dependencies = { pthread = { system = "pthread" } }
+dependencies = { linux = { features = ["pthread"] } }
 
 [os.windows]
 srcs = ["src/os/windows/**"]
@@ -58,7 +58,7 @@ srcs = ["src/os/windows/**"]
 | Kind | Cargo | Freight |
 |---|---|---|
 | Path dep | `{ path = "../mylib" }` | `{ path = "../mylib" }` |
-| Git dep | `{ git = "...", tag = "v1" }` | `{ git = "...", tag = "v1" }` — same keys |
+| Git dep | `{ git = "...", tag = "v1" }` | `{ url = "....git", tag = "v1" }` — git URL + ref |
 | Dev dep | `[dev-dependencies]` | `[dev-dependencies]` |
 | Build-time tool | `[build-dependencies]` | `[build-dependencies]` — different semantics: no build.rs, tools go on PATH |
 | Feature selection | `{ features = ["tls"] }` | `{ features = ["tls"] }` |
@@ -87,18 +87,18 @@ json = { url = "https://github.com/nlohmann/json/archive/refs/tags/v3.11.3.tar.g
 
 **Foreign build system deps** — CMake, Meson, Autotools, Make, Bazel, SCons:
 ```toml
-SDL2 = { path = "../SDL2", type = "cmake", cmake-args = ["-DSDL_STATIC=ON"] }
+SDL2 = { path = "../SDL2", type = "cmake", defines = ["SDL_STATIC=ON"] }
 ```
 
-**System link deps** — explicit linker flags, no package manager:
+**System libraries** — resolved via pkg-config → stub → registry from a bare version:
 ```toml
-openssl = { system = "ssl" }
+openssl = "3.0"
 ```
 
-**Platform filters on deps**:
+**Versionless system libraries** — linked via platform features, not a dep entry:
 ```toml
-pthread = { system = "pthread", os = "linux" }
-ws2_32  = { system = "ws2_32", os = "windows" }
+unix    = { features = ["pthread"] }   # -lpthread on Unix
+windows = { features = ["ws2_32"] }    # -lws2_32 on Windows
 ```
 
 ---

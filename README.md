@@ -12,7 +12,8 @@ Freight handles C, C++, Fortran, CUDA, HIP, OpenCL, ISPC, and assembly — with 
 - **No external build system** — freight owns the entire build graph; no Ninja or Make underneath
 - **Multi-language** — C, C++, Fortran, CUDA, HIP, OpenCL, ISPC, and assembly in one project
 - **C++20 modules** — scans sources for `export module` / `import`, builds a DAG automatically
-- **Incremental builds** — mtime dirty checking via `.d` dep files tracks source + headers
+- **Incremental builds** — mtime dirty checking via `.d` dep files tracks source + headers; a per-package flag fingerprint recompiles when features, defines, or compile flags change
+- **Cargo-style features** — `[features]` map to `-D` defines, activate optional deps (`dep:name`), or forward a define into a specific dependency's build (`<dep>/define:NAME`)
 - **Parallel compilation** — sources compiled in parallel with rayon
 - **Profiles** — `dev` (debug) and `release` (`-O3`, LTO, strip) out of the box
 - **Platform-conditional sources** — `[os.linux]`, `[arch.x86_64]` gate sources, defines, flags, and deps
@@ -20,7 +21,7 @@ Freight handles C, C++, Fortran, CUDA, HIP, OpenCL, ISPC, and assembly — with 
 - **ccache / sccache** — detected automatically; opt out with `FREIGHT_NO_CACHE=1`
 - **Unity builds** — `[compiler] unity = true` merges all sources per language into one TU
 - **`freight watch`** — rebuild automatically on file changes (200 ms debounce)
-- **Git / URL / path dependencies** — `{ git = "…" }`, `{ url = "…", sha256 = "…" }`, `{ path = "…" }`
+- **Git / URL / path dependencies** — `{ url = "….git" }`, `{ url = "…", sha256 = "…" }`, `{ path = "…" }`
 - **freight registry** — `freight add <name>` resolves from [freight.dev](https://freight.dev); self-hostable with `freight-registry`
 - **Interactive package browser** — `freight add` (no args) opens a ratatui TUI package browser
 
@@ -62,10 +63,10 @@ name = "myapp"
 src  = "src/main.cpp"
 
 [dependencies]
-zlib    = "1.3"                                         # pkg-config → registry
-myutils = { path = "../myutils" }                       # local freight project
-imgui   = { git = "https://github.com/ocornut/imgui" } # git dep
-pthread = { version = "0", os = "unix" }                # unix only
+zlib    = "1.3"                                            # pkg-config → registry
+myutils = { path = "../myutils" }                          # local freight project
+imgui   = { url = "https://github.com/ocornut/imgui.git" } # git dep (a .git URL)
+unix    = { features = ["pthread"] }                       # -lpthread on Unix
 
 [build-dependencies]
 cmake = ">=3.20, <4"   # tool needed to build deps — its bin/ is prepended to PATH

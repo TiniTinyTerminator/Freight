@@ -8,9 +8,9 @@ let out = out_dir();
 
 // ── 1. Optional system library ────────────────────────────────────────────────
 //
-// Declare optional pkg-config deps in freight.toml:
+// Declare optional deps in freight.toml (resolved via pkg-config/registry):
 //   [dependencies]
-//   zlib = { pkg-config = "zlib", optional = true }
+//   zlib = { version = "1.2", optional = true }
 //
 // freight resolves them before this script runs and populates the read-only
 // `packages` map. The script only needs to set the feature define — freight

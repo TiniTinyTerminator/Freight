@@ -1,0 +1,28 @@
+[package]
+name        = "dep-defines-demo"
+version     = "0.1.0"
+description = "Forwarding a -D into a dependency's build via <dep>/define:NAME"
+
+[language.cpp]
+std = "c++17"
+
+[[bin]]
+name = "dep-defines-demo"
+src  = "src/main.cpp"
+
+[dependencies]
+greeter = { path = "vendor/greeter" }
+
+# Defines are per-package. A feature can forward an explicit -D into a specific
+# dependency's build, mirroring Cargo's `<dep>/<feature>` syntax:
+#
+#   freight run                  # plain greeting; GREETER_FANCY undefined everywhere
+#   freight run --features fancy # greeter compiled with -DGREETER_FANCY...
+#                                # ...but THIS package still doesn't see it
+#
+# `fancy` forwards -DGREETER_FANCY into greeter's compilation only — never into
+# this binary's sources. The weak form `greeter?/define:...` would forward the
+# define only if `greeter` were already activated by something else.
+[features]
+default = []
+fancy   = ["greeter/define:GREETER_FANCY"]

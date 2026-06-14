@@ -13,5 +13,5 @@ error: dependency resolution failed
 
 Common fixes:
 - Add the package to a freight registry and configure it in `~/.freight/config.toml`
-- Replace with a `{ system = "actual_lib_name" }` dep for a system library
+- Replace with a bare-version dep (`actual_lib_name = "1.0"`) for a system library
 - Add a `{ path = "../local-lib" }` dep for a local project

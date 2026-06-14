@@ -16,7 +16,7 @@ only see the headers of packages the project actually declares. Concretely:
   3. a **language standard-library** header — identified by name, not directory
      (see [Standard-library policy](#standard-library-policy)).
 - A **system library** (zlib, OpenSSL, …) is allowed only when it is named in
-  `freight.toml` (e.g. `zlib = { system = "z" }` or a registry/pkg-config dep).
+  `freight.toml` (e.g. a bare-version dep `zlib = "1.2"` resolved via pkg-config/registry).
 - **POSIX / OS-SDK headers** (`<unistd.h>`, `<pthread.h>`, `<windows.h>`, …) are
   **not** part of the language standard library and therefore require a declared
   dependency, just like any other system library. This is deliberate — an
