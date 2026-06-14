@@ -59,6 +59,12 @@ fn bad_dep_names_missing_package() {
 
 #[test]
 fn undeclared_include_blocks_build_under_deny() {
+    // `<zlib.h>` is an undeclared third-party header (vs POSIX/OS headers, which
+    // are system-provided and allowed). Skipped where it isn't installed — the
+    // check only flags headers it can confirm resolve in a system dir.
+    if !std::path::Path::new("/usr/include/zlib.h").exists() {
+        return;
+    }
     let dir = example(&["broken", "undeclared-include"]);
     let out = freight(&dir, &["build"]);
     assert_failure(
@@ -69,10 +75,13 @@ fn undeclared_include_blocks_build_under_deny() {
 
 #[test]
 fn undeclared_include_names_the_header() {
+    if !std::path::Path::new("/usr/include/zlib.h").exists() {
+        return;
+    }
     let dir = example(&["broken", "undeclared-include"]);
     let out = freight(&dir, &["build"]);
     // The pass must name the offending header and not flag the stdlib one.
-    assert_output_contains(&out, &["<pthread.h>", "undeclared"]);
+    assert_output_contains(&out, &["<zlib.h>", "undeclared"]);
     let combined = format!(
         "{}\n{}",
         String::from_utf8_lossy(&out.stdout),
@@ -87,9 +96,11 @@ fn undeclared_include_names_the_header() {
 #[test]
 fn declared_owner_suppresses_system_header() {
     // `<zlib.h>` lives bare in /usr/include; declaring `zlib` must attribute it
-    // (Phase 3 ownership) so only the still-undeclared `<pthread.h>` is named.
-    // Skipped where zlib's header isn't installed (the check can't confirm it).
-    if !std::path::Path::new("/usr/include/zlib.h").exists() {
+    // (Phase 3 ownership) so only the still-undeclared `<sqlite3.h>` is named.
+    // Skipped where either header isn't installed (the check can't confirm it).
+    if !std::path::Path::new("/usr/include/zlib.h").exists()
+        || !std::path::Path::new("/usr/include/sqlite3.h").exists()
+    {
         return;
     }
     let dir = example(&["broken", "undeclared-include-owned"]);
@@ -104,8 +115,8 @@ fn declared_owner_suppresses_system_header() {
         "declared `zlib` should suppress <zlib.h>, but it was flagged:\n{combined}"
     );
     assert!(
-        combined.contains("<pthread.h>"),
-        "the undeclared <pthread.h> should still be reported:\n{combined}"
+        combined.contains("<sqlite3.h>"),
+        "the undeclared <sqlite3.h> should still be reported:\n{combined}"
     );
 }
 

@@ -253,10 +253,20 @@ pub fn cmd_add(
                         return;
                     }
                     Err(e) => {
+                        // Registry unreachable — fall back to the installed version
+                        // from pkg-config (a bare `*` is not allowed).
+                        let pc = freight::adaptors::pkg_config_version(dep_name);
+                        if pc.is_empty() {
+                            print_error(&format!(
+                                "repo unreachable ({e}) and pkg-config doesn't know `{dep_name}`; \
+                                 specify a version: `freight add {dep_name}@<version>`"
+                            ));
+                            return;
+                        }
                         print_warning(&format!(
-                            "repo unreachable ({e}); adding with version \"*\""
+                            "repo unreachable ({e}); pinning pkg-config's installed version {pc}"
                         ));
-                        "*".to_string()
+                        pc
                     }
                 }
             };

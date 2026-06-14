@@ -1280,7 +1280,7 @@ fn emit_toml(name: &str, version: &str, ex: &Extracted, warnings: &[String]) -> 
             );
         }
         for d in &system_deps {
-            dep_tbl.insert(d, value("*"));
+            dep_tbl.insert(d, super::system_dep_item(d));
         }
         doc.insert("dependencies", Item::Table(dep_tbl));
     }
@@ -1609,12 +1609,12 @@ mod tests {
             toml.contains("[os.windows.dependencies]"),
             "should have windows section"
         );
-        assert!(toml.contains("ws2_32 = \"*\""), "should have ws2_32");
+        assert!(toml.contains("ws2_32 ="), "should have ws2_32");
         assert!(
             toml.contains("[dependencies]"),
             "should have main deps section"
         );
-        assert!(toml.contains("z = \"*\""), "should have z");
+        assert!(toml.contains("z ="), "should have z");
         assert!(
             !toml.contains("[os.linux.dependencies]"),
             "no spurious linux section"
@@ -1954,8 +1954,9 @@ find_package(fmt REQUIRED)
             toml.contains("url = "),
             "expected inline url dep, got:\n{toml}"
         );
-        // Should not also appear as `fmt = "*"`
-        assert!(!toml.contains("fmt = \"*\""));
+        // Should not also appear as a bare-string system dep (`fmt = "…"`);
+        // it's an inline `{ url = … }` fetched dep only.
+        assert!(!toml.contains("fmt = \""));
     }
 
     // ── ExternalProject_Add ───────────────────────────────────────────────────

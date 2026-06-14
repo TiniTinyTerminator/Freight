@@ -587,7 +587,10 @@ pub fn completion_result(
 
 /// `[dependencies]` completions for the common system libraries freight knows
 /// about (the Tier-A header-ownership table): `zlib`, `sqlite3`, `openssl`, …
-/// Inserts `name = "*"`; skips any name already offered (e.g. a workspace lib).
+/// Inserts a snippet `name = "${1:version}"` with the cursor on the version, so
+/// the user pins it (freight requires a concrete version — no bare `*`). The
+/// version isn't pre-filled here to avoid a pkg-config probe per completion item;
+/// the undeclared-include quick-fix does pin the installed version.
 fn system_package_completion_items(existing: &std::collections::HashSet<String>) -> Vec<Value> {
     crate::build::header_ownership::load()
         .known_packages()
@@ -601,11 +604,13 @@ fn system_package_completion_items(existing: &std::collections::HashSet<String>)
                 "documentation": {
                     "kind": "markdown",
                     "value": format!(
-                        "Add a dependency on `{name}`. Freight resolves it via \
-                         pkg-config / system stubs / the registry."
+                        "Add a dependency on `{name}`. freight uses the version \
+                         installed on the system if present, and downloads it from \
+                         the registry otherwise. A concrete version is required."
                     )
                 },
-                "insertText": format!("{name} = \"*\"")
+                "insertText": format!("{name} = \"${{1:version}}\""),
+                "insertTextFormat": 2 // Snippet
             })
         })
         .collect()
@@ -1144,7 +1149,8 @@ members = ["missing"]
             .iter()
             .find(|i| i["label"] == json!("zlib"))
             .expect("zlib offered as a known system package");
-        assert_eq!(zlib["insertText"], json!("zlib = \"*\""));
+        assert_eq!(zlib["insertText"], json!("zlib = \"${1:version}\""));
+        assert_eq!(zlib["insertTextFormat"], json!(2));
         assert_eq!(zlib["detail"], json!("Known system library"));
     }
 

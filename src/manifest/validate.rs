@@ -4,7 +4,8 @@ use std::path::Path;
 use semver::Version;
 
 use super::types::{
-    known_arch_keys, known_platform_keys, Dependency, DetailedDep, LibType, Manifest, Profile,
+    is_platform_dep, known_arch_keys, known_platform_keys, Dependency, DetailedDep, LibType,
+    Manifest, Profile,
 };
 use crate::toolchain::CompilerTemplate;
 
@@ -49,8 +50,60 @@ pub fn validate(manifest: &Manifest, templates: &[CompilerTemplate]) -> Vec<Vali
     validate_dep_env_filters(manifest, &mut errors);
     validate_features(manifest, &mut errors);
     validate_foreign_deps(manifest, &mut errors);
+    validate_dep_versions(manifest, &mut errors);
 
     errors
+}
+
+/// A version-resolved dependency must carry a concrete version or range — a bare
+/// `*` (or empty/omitted version) is rejected, because C/C++ libraries make no
+/// SemVer/ABI promise and an unpinned dep would build against an arbitrary
+/// version. The version is the same whether the package is already installed
+/// (resolved from the system via pkg-config) or downloaded from the registry —
+/// "installed" just means freight skips the download. Exempt: `path`/`url`
+/// (git/archive) deps, which name an explicit source, and platform pseudo-deps
+/// (`windows = { features = … }`).
+fn validate_dep_versions(m: &Manifest, errors: &mut Vec<ValidationError>) {
+    fn check(section: &str, name: &str, dep: &Dependency, errors: &mut Vec<ValidationError>) {
+        if is_platform_dep(name) {
+            return;
+        }
+        let version = match dep {
+            Dependency::Simple(v) => Some(v.as_str()),
+            Dependency::Detailed(d) => {
+                // path / git / archive deps name an explicit source, not a version.
+                if d.path.is_some() || d.url.is_some() {
+                    return;
+                }
+                d.version.as_deref()
+            }
+        };
+        let unpinned = match version {
+            None => true,
+            Some(v) => {
+                let v = v.trim();
+                v.is_empty() || v == "*"
+            }
+        };
+        if unpinned {
+            errors.push(ValidationError::new(
+                &format!("[{section}.{name}]"),
+                "needs a concrete version or range (e.g. \"1.3\" or \">=1.2\"); a bare `*` is \
+                 not allowed because C/C++ libraries change their API between versions. freight \
+                 uses the version installed on the system if present, and downloads it from the \
+                 registry otherwise.",
+            ));
+        }
+    }
+    for (n, d) in &m.dependencies {
+        check("dependencies", n, d, errors);
+    }
+    for (n, d) in &m.build_dependencies {
+        check("build-dependencies", n, d, errors);
+    }
+    for (n, d) in &m.dev_dependencies {
+        check("dev-dependencies", n, d, errors);
+    }
 }
 
 fn validate_features(m: &Manifest, errors: &mut Vec<ValidationError>) {
@@ -655,6 +708,39 @@ debug     = false
             .into_iter()
             .filter(|e| e.context.contains(ctx))
             .collect()
+    }
+
+    #[test]
+    fn wildcard_dep_version_is_rejected() {
+        // Bare `*` (and empty) version is not allowed for a version-resolved dep.
+        let errs = field_errors(
+            "[package]\nname=\"p\"\nversion=\"0.1.0\"\n[language.cpp]\n[dependencies]\nzlib=\"*\"\n",
+            "[dependencies.zlib]",
+        );
+        assert!(
+            errs.iter().any(|e| e.message.contains("concrete version")),
+            "expected a concrete-version error, got: {errs:?}"
+        );
+        // Empty version too.
+        assert!(!field_errors(
+            "[package]\nname=\"p\"\nversion=\"0.1.0\"\n[language.cpp]\n[dependencies]\nzlib=\"\"\n",
+            "[dependencies.zlib]",
+        )
+        .is_empty());
+    }
+
+    #[test]
+    fn concrete_and_sourced_dep_versions_are_accepted() {
+        // Concrete version, range, and path/git/url deps are all fine.
+        let ok = "[package]\nname=\"p\"\nversion=\"0.1.0\"\n[language.cpp]\n\
+                  [dependencies]\nzlib=\"1.3\"\nfmt=\">=10\"\n\
+                  mylib={ path=\"../mylib\" }\n\
+                  dep2={ url=\"https://example.com/x.tar.gz\" }\n";
+        assert!(
+            field_errors(ok, "dependencies").is_empty(),
+            "concrete/range/path/url deps must validate: {:?}",
+            field_errors(ok, "dependencies")
+        );
     }
 
     #[test]

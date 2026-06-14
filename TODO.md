@@ -139,9 +139,16 @@ the compiler gets `--sysroot`, pkg-config is scoped into the sysroot.
 - [ ] **Hygiene/LSP under cross:** include-hygiene resolves "system" headers from
       the host `/usr/include`; when a sysroot is set it should resolve against the
       sysroot instead (else cross headers look undeclared).
-- [ ] **Wildcard cross:** `zlib = "*"` isn't fetched (no concrete version). Decide
-      whether `*` should pull the registry's latest when cross + not in sysroot,
-      or require a concrete pin.
+- [x] **Wildcard removed:** `validate_dep_versions` rejects a bare `*` (and
+      empty/omitted version) for version-resolved deps — C/C++ libraries change
+      their API between versions, so an unpinned dep is unsafe. The version is the
+      same whether the package is already installed (resolved from the system via
+      pkg-config) or downloaded from the registry; "installed" just skips the
+      download. `path`/`git`/`url` deps and platform pseudo-deps are exempt.
+      Generators now emit concrete versions: `freight add` falls back to
+      pkg-config `--modversion`; migration pins `--modversion` (or `*` as a draft
+      placeholder that build then flags); the LSP quick-fix pins the installed
+      version and dep completion inserts a `"${1:version}"` snippet.
 
 ---
 

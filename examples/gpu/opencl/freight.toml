@@ -10,11 +10,12 @@ std = "c++17"
 name = "opencl-hello"
 src  = "src/main.cpp"
 
-# OpenCL ICD loader — resolved via pkg-config (returns -lOpenCL).
-# The loader dispatches at run-time to whatever platform is installed
-# (NVIDIA, Intel, AMD, POCL, etc.).  Use `"*"` to accept any version.
+# OpenCL ICD loader — resolved from the system (pkg-config, returns -lOpenCL)
+# when installed, or downloaded from the registry otherwise. The loader
+# dispatches at run-time to whatever platform is installed (NVIDIA, Intel, AMD,
+# POCL, …). A concrete version is required (freight forbids a bare `*`).
 [dependencies]
-OpenCL = "*"
+OpenCL = "1.0"
 
 [profile.dev]
 opt-level = 0

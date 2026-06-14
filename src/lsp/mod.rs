@@ -1495,10 +1495,23 @@ fn set_manifest_config(path: &Path, key: &str, value: Option<&Value>) -> anyhow:
     Ok(())
 }
 
-/// Insert `pkg = "*"` into the `[dependencies]` table of a `freight.toml`,
-/// preserving comments/formatting via `toml_edit`. Returns the rewritten file
-/// text, or `None` if the dep is already present or the document won't parse.
+/// Insert `pkg = "<version>"` into the `[dependencies]` table of a `freight.toml`,
+/// preserving comments/formatting via `toml_edit`. The quick-fix targets
+/// undeclared *system* headers (zlib, openssl, …), so the library is installed —
+/// its concrete version comes from pkg-config `--modversion` (freight forbids a
+/// bare `*`). Returns the rewritten text, or `None` if the dep is already
+/// present, the version can't be determined, or the document won't parse.
 fn insert_dependency_toml(text: &str, pkg: &str) -> Option<String> {
+    let version = crate::adaptors::pkg_config_version(pkg);
+    if version.is_empty() {
+        return None; // can't pin a version → don't offer an invalid `*` fix
+    }
+    insert_dependency_toml_version(text, pkg, &version)
+}
+
+/// [`insert_dependency_toml`] with the version supplied explicitly (testable
+/// without invoking pkg-config).
+fn insert_dependency_toml_version(text: &str, pkg: &str, version: &str) -> Option<String> {
     use toml_edit::{value as tv, DocumentMut, Item, Table};
     let mut doc: DocumentMut = text.parse().ok()?;
     if doc.get("dependencies").is_none() {
@@ -1510,7 +1523,7 @@ fn insert_dependency_toml(text: &str, pkg: &str) -> Option<String> {
     if deps.contains_key(pkg) {
         return None; // already declared — nothing to add
     }
-    deps[pkg] = tv("*");
+    deps[pkg] = tv(version);
     Some(doc.to_string())
 }
 
@@ -2404,26 +2417,29 @@ fn level_for_method(method: &str) -> tracing::Level {
 mod tests {
     use super::build_workspace_inventory;
     use super::protocol::sanitize_code_action_diagnostics;
-    use super::{insert_dependency_toml, lsp_end_position, merge_clangd_codeaction_response};
+    use super::{insert_dependency_toml_version, lsp_end_position, merge_clangd_codeaction_response};
     use serde_json::json;
 
     #[test]
     fn insert_dependency_adds_to_dependencies_table() {
-        let src =
-            "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n[dependencies]\nzlib = \"*\"\n";
-        let out = insert_dependency_toml(src, "openssl").expect("inserts dep");
-        assert!(out.contains("openssl = \"*\""), "got:\n{out}");
-        assert!(out.contains("zlib = \"*\""), "keeps existing dep:\n{out}");
+        let src = "[package]\nname = \"app\"\nversion = \"0.1.0\"\n\n\
+                   [dependencies]\nzlib = \"1.3\"\n";
+        // The quick-fix pins the pkg-config version; test the version-explicit core.
+        let out = insert_dependency_toml_version(src, "openssl", "3.0.2").expect("inserts dep");
+        assert!(out.contains("openssl = \"3.0.2\""), "got:\n{out}");
+        assert!(out.contains("zlib = \"1.3\""), "keeps existing:\n{out}");
         // Idempotent: re-adding an already-declared dep yields None.
-        assert!(insert_dependency_toml(&out, "openssl").is_none());
+        assert!(insert_dependency_toml_version(&out, "openssl", "3.0.2").is_none());
+        // The result is a valid manifest (concrete versions, no bare `*`).
+        assert!(crate::manifest::load_manifest_str(&out).is_ok());
     }
 
     #[test]
     fn insert_dependency_creates_section_when_missing() {
         let src = "[package]\nname = \"app\"\nversion = \"0.1.0\"\n";
-        let out = insert_dependency_toml(src, "fmt").expect("inserts dep + section");
+        let out = insert_dependency_toml_version(src, "fmt", "10.1.0").expect("inserts dep");
         assert!(out.contains("[dependencies]"), "got:\n{out}");
-        assert!(out.contains("fmt = \"*\""), "got:\n{out}");
+        assert!(out.contains("fmt = \"10.1.0\""), "got:\n{out}");
         // Round-trips back into a valid manifest.
         assert!(crate::manifest::load_manifest_str(&out).is_ok());
     }

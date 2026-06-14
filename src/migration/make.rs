@@ -611,7 +611,7 @@ fn emit_toml(spec: &ProjectSpec) -> String {
     if !spec.system_deps.is_empty() {
         let mut deps = Table::new();
         for dep in &spec.system_deps {
-            deps[dep.as_str()] = value("*");
+            deps[dep.as_str()] = super::system_dep_item(dep);
         }
         doc["dependencies"] = Item::Table(deps);
     }
@@ -643,7 +643,7 @@ fn add_os_deps_section(doc: &mut DocumentMut, os_key: &str, deps: &[String]) {
     let platform_tbl = os_tbl[os_key].as_table_mut().expect("platform is a table");
     let mut dep_tbl = Table::new();
     for dep in deps {
-        dep_tbl[dep.as_str()] = value("*");
+        dep_tbl[dep.as_str()] = super::system_dep_item(dep);
     }
     platform_tbl["dependencies"] = Item::Table(dep_tbl);
 }
@@ -1431,14 +1431,10 @@ mod tests {
             warnings: vec![],
         };
         let toml = emit_toml(&spec);
-        assert!(
-            toml.contains("ssl = \"*\""),
-            "expected individual ssl dep:\n{toml}"
-        );
-        assert!(
-            toml.contains("curl = \"*\""),
-            "expected individual curl dep:\n{toml}"
-        );
+        // Version is pkg-config's `--modversion` when known, else `*`; assert on
+        // the dep key, not the version.
+        assert!(toml.contains("ssl ="), "expected individual ssl dep:\n{toml}");
+        assert!(toml.contains("curl ="), "expected individual curl dep:\n{toml}");
         // Must NOT contain the old broken linux-features grouping
         assert!(
             !toml.contains("features"),
